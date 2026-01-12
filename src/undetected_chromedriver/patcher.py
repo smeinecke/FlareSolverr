@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import pathlib
-import platform
 import random
 import re
 import shutil
@@ -68,7 +67,7 @@ class Patcher(object):
             version_main_int = int(version_main)
             # check if version_main_int is less than or equal to e.g 114
             self.is_old_chromedriver = version_main and version_main_int <= 114
-        except (ValueError,TypeError):
+        except (ValueError, TypeError):
             # Check not running inside Docker
             if not os.path.exists("/app/chromedriver"):
                 # If the conversion fails, log an error message
@@ -84,13 +83,9 @@ class Patcher(object):
 
         if not executable_path:
             if sys.platform.startswith("freebsd"):
-                self.executable_path = os.path.join(
-                    self.data_path, self.exe_name
-                )
+                self.executable_path = os.path.join(self.data_path, self.exe_name)
             else:
-                self.executable_path = os.path.join(
-                    self.data_path, "_".join([prefix, self.exe_name])
-                )
+                self.executable_path = os.path.join(self.data_path, "_".join([prefix, self.exe_name]))
 
         if not IS_POSIX:
             if executable_path:
@@ -101,9 +96,7 @@ class Patcher(object):
 
         if not executable_path:
             if not self.user_multi_procs:
-                self.executable_path = os.path.abspath(
-                    os.path.join(".", self.executable_path)
-                )
+                self.executable_path = os.path.abspath(os.path.join(".", self.executable_path))
 
         if executable_path:
             self._custom_exe_path = True
@@ -177,7 +170,6 @@ class Patcher(object):
         if force is True:
             self.force = force
 
-
         if self.platform_name == "freebsd":
             chromedriver_path = shutil.which("chromedriver")
 
@@ -188,12 +180,12 @@ class Patcher(object):
             version_path = os.path.join(os.path.dirname(self.executable_path), "version.txt")
 
             process = os.popen(f'"{chromedriver_path}" --version')
-            chromedriver_version = process.read().split(' ')[1].split(' ')[0]
+            chromedriver_version = process.read().split(" ")[1].split(" ")[0]
             process.close()
 
             current_version = None
             if os.path.isfile(version_path) or os.access(version_path, os.X_OK):
-                with open(version_path, 'r') as f:
+                with open(version_path, "r") as f:
                     current_version = f.read()
 
             if current_version != chromedriver_version:
@@ -201,7 +193,7 @@ class Patcher(object):
                 shutil.copy(chromedriver_path, self.executable_path)
                 os.chmod(self.executable_path, 0o755)
 
-                with open(version_path, 'w') as f:
+                with open(version_path, "w") as f:
                     f.write(chromedriver_version)
 
                 logging.info("Chromedriver executable copied!")
@@ -248,7 +240,6 @@ class Patcher(object):
             with open(p, mode="a+b") as fs:
                 exc = []
                 try:
-
                     fs.seek(0, 0)
                 except PermissionError as e:
                     exc.append(e)  # since some systems apprently allow seeking
@@ -259,11 +250,10 @@ class Patcher(object):
                     exc.append(e)
 
                 if exc:
-
                     return True
                 return False
             # ok safe to assume this is in use
-        except Exception as e:
+        except Exception:
             # logger.exception("whoops ", e)
             pass
 
@@ -360,7 +350,7 @@ class Patcher(object):
             zf.extractall(self.zip_path)
         os.rename(os.path.join(self.zip_path, exe_path), self.executable_path)
         os.remove(fp)
-        shutil.rmtree
+        shutil.rmtree(self.zip_path)
         os.chmod(self.executable_path, 0o755)
         return self.executable_path
 
@@ -382,11 +372,11 @@ class Patcher(object):
                 result = subprocess.run(command, shell=True, capture_output=True, text=True, check=True)
                 pids = result.stdout.strip().split()
                 if pids:
-                    subprocess.run(["kill", "-9"] + pids, check=False) # Changed from -f -9 to -9 as -f is not standard for kill
+                    subprocess.run(["kill", "-9"] + pids, check=False)  # Changed from -f -9 to -9 as -f is not standard for kill
                     return True
-                return False # No PIDs found
-            except subprocess.CalledProcessError: # pidof returns 1 if no process found
-                return False # No process found
+                return False  # No PIDs found
+            except subprocess.CalledProcessError:  # pidof returns 1 if no process found
+                return False  # No process found
             except Exception as e:
                 logger.debug(f"Error killing process on POSIX: {e}")
                 return False
@@ -422,26 +412,15 @@ class Patcher(object):
             match_injected_codeblock = re.search(rb"\{window\.cdc.*?;\}", content)
             if match_injected_codeblock:
                 target_bytes = match_injected_codeblock[0]
-                new_target_bytes = (
-                    b'{console.log("undetected chromedriver 1337!")}'.ljust(
-                        len(target_bytes), b" "
-                    )
-                )
+                new_target_bytes = b'{console.log("undetected chromedriver 1337!")}'.ljust(len(target_bytes), b" ")
                 new_content = content.replace(target_bytes, new_target_bytes)
                 if new_content == content:
-                    logger.warning(
-                        "something went wrong patching the driver binary. could not find injection code block"
-                    )
+                    logger.warning("something went wrong patching the driver binary. could not find injection code block")
                 else:
-                    logger.debug(
-                        "found block:\n%s\nreplacing with:\n%s"
-                        % (target_bytes, new_target_bytes)
-                    )
+                    logger.debug("found block:\n%s\nreplacing with:\n%s" % (target_bytes, new_target_bytes))
                 fh.seek(0)
                 fh.write(new_content)
-        logger.debug(
-            "patching took us {:.2f} seconds".format(time.perf_counter() - start)
-        )
+        logger.debug("patching took us {:.2f} seconds".format(time.perf_counter() - start))
 
     def __repr__(self):
         return "{0:s}({1:s})".format(

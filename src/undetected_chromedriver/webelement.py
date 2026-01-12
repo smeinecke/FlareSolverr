@@ -1,6 +1,5 @@
 from typing import List
 
-from selenium.webdriver.common.by import By
 import selenium.webdriver.remote.webelement
 
 
@@ -9,9 +8,7 @@ class WebElement(selenium.webdriver.remote.webelement.WebElement):
         super().click()
         self._parent.reconnect(0.1)
 
-    def children(
-        self, tag=None, recursive=False
-    ) -> List[selenium.webdriver.remote.webelement.WebElement]:
+    def children(self, tag=None, recursive=False) -> List[selenium.webdriver.remote.webelement.WebElement]:
         """
         returns direct child elements of current element
         :param tag: str,  if supplied, returns <tag> nodes only

@@ -43,17 +43,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v6
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
         with:
-          python-version: "3.13"
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra build
 
       - name: Build artifacts
         run: |
-          python -m pip install -r requirements.txt
-          python -m pip install pyinstaller==6.17.0
           cd src
-          python build_package.py
+          uv run python build_package.py
 
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2

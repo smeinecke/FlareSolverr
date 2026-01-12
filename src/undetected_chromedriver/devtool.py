@@ -102,7 +102,7 @@ def timeout(seconds=3, on_timeout: Optional[Callable[[callable], Any]] = None):
 
 
 def test():
-    import sys, os
+    import sys
 
     sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
     import undetected_chromedriver as uc
@@ -116,11 +116,7 @@ def test():
     ):
         def threaded(driver, stop_event, on_event_coro):
             async def _ensure_service_started():
-                while (
-                    getattr(driver, "service", False)
-                    and getattr(driver.service, "process", False)
-                    and driver.service.process.poll()
-                ):
+                while getattr(driver, "service", False) and getattr(driver.service, "process", False) and driver.service.process.poll():
                     print("waiting for driver service to come back on")
                     await asyncio.sleep(0.05)
                     # await asyncio.sleep(driver._delay or .25)
@@ -142,7 +138,7 @@ def test():
                                 continue
                         if log_lines and on_event_coro:
                             await on_event_coro(log_lines)
-                    except Exception as e:
+                    except Exception:
                         if logging.getLogger().getEffectiveLevel() <= 10:
                             traceback.print_exc()
 
@@ -159,9 +155,7 @@ def test():
 
     def func_called(fn):
         def wrapped(*args, **kwargs):
-            print(
-                "func called! %s  (args: %s, kwargs: %s)" % (fn.__name__, args, kwargs)
-            )
+            print("func called! %s  (args: %s, kwargs: %s)" % (fn.__name__, args, kwargs))
             while driver.service.process and driver.service.process.poll() is not None:
                 time.sleep(0.1)
             res = fn(*args, **kwargs)
@@ -173,9 +167,7 @@ def test():
     logging.basicConfig(level=10)
 
     options = uc.ChromeOptions()
-    options.set_capability(
-        "goog:loggingPrefs", {"performance": "ALL", "browser": "ALL", "network": "ALL"}
-    )
+    options.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "ALL", "network": "ALL"})
 
     driver = uc.Chrome(version_main=96, options=options)
 
