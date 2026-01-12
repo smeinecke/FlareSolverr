@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.13-slim-trixie AS builder
 
 # Build dummy packages to skip installing them and their dependencies
 RUN apt-get update \
@@ -12,7 +12,7 @@ RUN apt-get update \
     && equivs-build adwaita-icon-theme \
     && mv adwaita-icon-theme_*.deb /adwaita-icon-theme.deb
 
-FROM python:3.11-slim-bookworm
+FROM python:3.13-slim-trixie
 
 # Copy dummy packages
 COPY --from=builder /*.deb /
@@ -46,8 +46,9 @@ RUN dpkg -i /libgl1-mesa-dri.deb \
 VOLUME /config
 
 # Install Python dependencies
-COPY requirements.txt .
-RUN pip install -r requirements.txt \
+COPY pyproject.toml .
+RUN pip install uv \
+    && uv pip install --system -e . \
     # Remove temporary files
     && rm -rf /root/.cache
 
@@ -56,7 +57,7 @@ USER flaresolverr
 RUN mkdir -p "/app/.config/chromium/Crash Reports/pending"
 
 COPY src .
-COPY package.json ../
+COPY pyproject.toml ../
 
 EXPOSE 8191
 EXPOSE 8192
@@ -67,17 +68,17 @@ ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["/usr/local/bin/python", "-u", "/app/flaresolverr.py"]
 
 # Local build
-# docker build -t ngosang/flaresolverr:3.5.0 .
-# docker run -p 8191:8191 ngosang/flaresolverr:3.5.0
+# docker build -t ngosang/flaresolverr:3.4.6 .
+# docker run -p 8191:8191 ngosang/flaresolverr:3.4.6
 
 # Multi-arch build
 # docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 # docker buildx create --use
-# docker buildx build -t ngosang/flaresolverr:3.5.0 --platform linux/386,linux/amd64,linux/arm/v7,linux/arm64/v8 .
+# docker buildx build -t ngosang/flaresolverr:3.4.6 --platform linux/386,linux/amd64,linux/arm/v7,linux/arm64/v8 .
 #   add --push to publish in DockerHub
 
 # Test multi-arch build
 # docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 # docker buildx create --use
-# docker buildx build -t ngosang/flaresolverr:3.5.0 --platform linux/arm/v7 --load .
-# docker run -p 8191:8191 --platform linux/arm/v7 ngosang/flaresolverr:3.5.0
+# docker buildx build -t ngosang/flaresolverr:3.4.6 --platform linux/arm/v7 --load .
+# docker run -p 8191:8191 --platform linux/arm/v7 ngosang/flaresolverr:3.4.6

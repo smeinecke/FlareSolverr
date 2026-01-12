@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sys
+from typing import Any, cast
 
 import certifi
 from bottle import run, response, Bottle, request, ServerAdapter
@@ -13,25 +14,26 @@ from dtos import V1RequestBase
 import flaresolverr_service
 import utils
 
-env_proxy_url = os.environ.get('PROXY_URL', None)
-env_proxy_username = os.environ.get('PROXY_USERNAME', None)
-env_proxy_password = os.environ.get('PROXY_PASSWORD', None)
+env_proxy_url = os.environ.get("PROXY_URL", None)
+env_proxy_username = os.environ.get("PROXY_USERNAME", None)
+env_proxy_password = os.environ.get("PROXY_PASSWORD", None)
 
 
 class JSONErrorBottle(Bottle):
     """
     Handle 404 errors
     """
-    def default_error_handler(self, res):
-        response.content_type = 'application/json'
+
+    def default_error_handler(self, res) -> str:
+        response.content_type = "application/json"
         return json.dumps(dict(error=res.body, status_code=res.status_code))
 
 
-app = JSONErrorBottle()
+app: Any = JSONErrorBottle()
 
 
-@app.route('/')
-def index():
+@app.route("/")  # pyright: ignore[reportCallIssue]
+def index() -> dict[str, Any]:
     """
     Show welcome message
     """
@@ -39,8 +41,8 @@ def index():
     return utils.object_to_dict(res)
 
 
-@app.route('/health')
-def health():
+@app.route("/health")  # pyright: ignore[reportCallIssue]
+def health() -> dict[str, Any]:
     """
     Healthcheck endpoint.
     This endpoint is special because it doesn't print traces
@@ -49,18 +51,19 @@ def health():
     return utils.object_to_dict(res)
 
 
-@app.post('/v1')
-def controller_v1():
+@app.post("/v1")  # pyright: ignore[reportCallIssue]
+def controller_v1() -> dict[str, Any]:
     """
     Controller v1
     """
-    data = request.json or {}
-    if (('proxy' not in data or not data.get('proxy')) and env_proxy_url is not None and (env_proxy_username is None and env_proxy_password is None)):
-        logging.info('Using proxy URL ENV')
-        data['proxy'] = {"url": env_proxy_url}
-    if (('proxy' not in data or not data.get('proxy')) and env_proxy_url is not None and (env_proxy_username is not None or env_proxy_password is not None)):
-        logging.info('Using proxy URL, username & password ENVs')
-        data['proxy'] = {"url": env_proxy_url, "username": env_proxy_username, "password": env_proxy_password}
+    request_json = cast(Any, request.json)
+    data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
+    if ("proxy" not in data or not data.get("proxy")) and env_proxy_url is not None and (env_proxy_username is None and env_proxy_password is None):
+        logging.info("Using proxy URL ENV")
+        data["proxy"] = {"url": env_proxy_url}
+    if ("proxy" not in data or not data.get("proxy")) and env_proxy_url is not None and (env_proxy_username is not None or env_proxy_password is not None):
+        logging.info("Using proxy URL, username & password ENVs")
+        data["proxy"] = {"url": env_proxy_url, "username": env_proxy_username, "password": env_proxy_password}
     req = V1RequestBase(data)
     res = flaresolverr_service.controller_v1_endpoint(req)
     if res.__error_500__:
@@ -75,8 +78,9 @@ if __name__ == "__main__":
 
     # fix for HEADLESS=false in Windows binary
     # https://stackoverflow.com/a/27694505
-    if os.name == 'nt':
+    if os.name == "nt":
         import multiprocessing
+
         multiprocessing.freeze_support()
 
     # fix ssl certificates for compiled binaries
@@ -86,47 +90,34 @@ if __name__ == "__main__":
     os.environ["SSL_CERT_FILE"] = certifi.where()
 
     # validate configuration
-    log_level = os.environ.get('LOG_LEVEL', 'info').upper()
-    log_file = os.environ.get('LOG_FILE', None)
+    log_level = os.environ.get("LOG_LEVEL", "info").upper()
+    log_file = os.environ.get("LOG_FILE", None)
     log_html = utils.get_config_log_html()
     headless = utils.get_config_headless()
-    server_host = os.environ.get('HOST', '0.0.0.0')
-    server_port = int(os.environ.get('PORT', 8191))
+    server_host = os.environ.get("HOST", "0.0.0.0")
+    server_port = int(os.environ.get("PORT", 8191))
 
     # configure logger
-    logger_format = '%(asctime)s %(levelname)-8s %(message)s'
-    if log_level == 'DEBUG':
-        logger_format = '%(asctime)s %(levelname)-8s ReqId %(thread)s %(message)s'
+    logger_format = "%(asctime)s %(levelname)-8s %(message)s"
+    if log_level == "DEBUG":
+        logger_format = "%(asctime)s %(levelname)-8s ReqId %(thread)s %(message)s"
     if log_file:
         log_file = os.path.realpath(log_file)
         log_path = os.path.dirname(log_file)
         os.makedirs(log_path, exist_ok=True)
         logging.basicConfig(
-            format=logger_format,
-            level=log_level,
-            datefmt='%Y-%m-%d %H:%M:%S',
-            handlers=[
-                logging.StreamHandler(sys.stdout),
-                logging.FileHandler(log_file)
-            ]
+            format=logger_format, level=log_level, datefmt="%Y-%m-%d %H:%M:%S", handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler(log_file)]
         )
     else:
-        logging.basicConfig(
-            format=logger_format,
-            level=log_level,
-            datefmt='%Y-%m-%d %H:%M:%S',
-            handlers=[
-                logging.StreamHandler(sys.stdout)
-            ]
-        )
+        logging.basicConfig(format=logger_format, level=log_level, datefmt="%Y-%m-%d %H:%M:%S", handlers=[logging.StreamHandler(sys.stdout)])
 
     # disable warning traces from urllib3
-    logging.getLogger('urllib3').setLevel(logging.ERROR)
-    logging.getLogger('selenium.webdriver.remote.remote_connection').setLevel(logging.WARNING)
-    logging.getLogger('undetected_chromedriver').setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.ERROR)
+    logging.getLogger("selenium.webdriver.remote.remote_connection").setLevel(logging.WARNING)
+    logging.getLogger("undetected_chromedriver").setLevel(logging.WARNING)
 
-    logging.info(f'FlareSolverr {utils.get_flaresolverr_version()}')
-    logging.debug('Debug log enabled')
+    logging.info(f"FlareSolverr {utils.get_flaresolverr_version()}")
+    logging.debug("Debug log enabled")
 
     # Get current OS for global variable
     utils.get_current_platform()
@@ -146,7 +137,9 @@ if __name__ == "__main__":
     # https://github.com/FlareSolverr/FlareSolverr/issues/680
     # https://github.com/Pylons/waitress/issues/31
     class WaitressServerPoll(ServerAdapter):
-        def run(self, handler):
+        def run(self, handler) -> None:
             from waitress import serve
+
             serve(handler, host=self.host, port=self.port, asyncore_use_poll=True)
-    run(app, host=server_host, port=server_port, quiet=True, server=WaitressServerPoll)
+
+    run(app, host=server_host, port=server_port, quiet=True, server=WaitressServerPoll)  # pyright: ignore[reportArgumentType]

@@ -80,9 +80,7 @@ class CDP:
     async def send(self, method: str, params: dict):
         self._reqid += 1
         async with websockets.connect(self.wsurl) as ws:
-            await ws.send(
-                json.dumps({"method": method, "params": params, "id": self._reqid})
-            )
+            await ws.send(json.dumps({"method": method, "params": params, "id": self._reqid}))
             self._last_resp = await ws.recv()
             self._last_json = json.loads(self._last_resp)
             self.log.info(self._last_json)

@@ -1,0 +1,94 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flaresolverr"
+version = "3.4.6"
+description = "Proxy server to bypass Cloudflare protection"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "FlareSolverr", email = "flaresolverr@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.11",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "bottle==0.13.4",
+    "certifi==2025.11.12",
+    "func-timeout==4.3.5",
+    "packaging==25.0",
+    "pefile==2024.8.26; platform_system == 'Windows'",
+    "prometheus-client==0.23.1",
+    "requests==2.33.0",
+    "selenium==4.39.0",
+    "tomli>=1.1.0; python_version < '3.11'",
+    "waitress==3.0.2",
+    "websockets==15.0.1",
+    "xvfbwrapper==0.2.16; platform_system != 'Windows'",
+]
+
+[project.optional-dependencies]
+build = [
+    "pyinstaller==6.17.0",
+]
+test = [
+    "WebTest==3.0.7",
+]
+
+[dependency-groups]
+dev = [
+    "bandit>=1.9.2",
+    "pre-commit>=4.5.0",
+    "pyinstaller==6.17.0",
+    "pyright>=1.1.407",
+    "pytest>=9.0.1",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=6.0.0",
+    "radon>=6.0.1",
+    "ruff>=0.14.6",
+    "tox>=4.32.0",
+    "vulture>=2.14",
+    "WebTest==3.0.7",
+    "xenon>=0.9.3",
+]
+
+[project.urls]
+Homepage = "https://github.com/FlareSolverr/FlareSolverr"
+Repository = "https://github.com/FlareSolverr/FlareSolverr"
+Issues = "https://github.com/FlareSolverr/FlareSolverr/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/README.md",
+    "/pyproject.toml",
+]
+
+[tool.ruff]
+exclude = ["docs", "tests", "src/undetected_chromedriver"]
+line-length = 160
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/integration"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-m 'not integration'"
+markers = [
+    "integration: tests that require browser/network/external dependencies",
+]

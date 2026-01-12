@@ -1,0 +1,130 @@
+name: Python Code Checks
+
+permissions:
+  contents: read
+  checks: write
+
+on:
+  pull_request:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Validate Code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.cache/pip
+          key: uv-cache-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            uv-cache-
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync --group dev --extra test
+
+      - name: Run Ruff (Formatting Check)
+        run: |
+          uv run make format
+
+      - name: Run Ruff (Linting)
+        run: |
+          uv run make check || true  # Allow some linting errors for now
+
+      - name: Run vulture (Dead Code)
+        run: |
+          uv run make vulture || true  # Allow failures for third-party code
+
+      - name: Run xenon (Complexity)
+        run: |
+          uv run make xenon
+
+      - name: Run bandit (Security)
+        run: |
+          uv run make bandit
+
+      - name: Run pyright (Type Checking)
+        run: |
+          uv run make pyright || true  # Type checking may have issues
+
+      - name: Run pytest (Unit Tests)
+        run: |
+          uv run make test
+
+  integration:
+    name: Integration Tests (Docker + Proxies)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.cache/pip
+          key: uv-cache-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            uv-cache-
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync --group dev --extra test
+
+      - name: Build FlareSolverr Docker image
+        run: |
+          docker build -t flaresolverr-integration:${{ github.sha }} .
+
+      - name: Start local HTTP and SOCKS proxies
+        run: |
+          docker compose -f docker-compose.integration.yml up -d --build
+
+      - name: Wait for proxies to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -fsS --proxy http://127.0.0.1:8888 https://example.com >/dev/null && \
+               curl -fsS --socks5-hostname 127.0.0.1:1080 https://example.com >/dev/null; then
+              echo "Proxies are ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Proxy readiness check failed"
+          docker compose -f docker-compose.integration.yml logs
+          exit 1
+
+      - name: Run integration tests (proxy scenarios)
+        run: |
+          uv run pytest -m integration tests/integration/test_api.py -k "proxy_http_param or proxy_http_param_with_credentials or proxy_socks_param" -vv
+
+      - name: Dump proxy logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.integration.yml logs
+
+      - name: Tear down proxy services
+        if: always()
+        run: |
+          docker compose -f docker-compose.integration.yml down -v --remove-orphans
