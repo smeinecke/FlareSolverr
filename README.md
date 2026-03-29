@@ -197,6 +197,7 @@ session. When you no longer need to use a session you should make sure to close 
 | session_ttl_minutes | Optional. FlareSolverr will automatically rotate expired sessions based on the TTL provided in minutes.                                                                                                                                                                                                                                      |
 | maxTimeout          | Optional, default value 60000. Max timeout to solve the challenge in milliseconds.                                                                                                                                                                                                                                                           |
 | cookies             | Optional. Will be used by the headless browser. Eg: `"cookies": [{"name": "cookie1", "value": "value1"}, {"name": "cookie2", "value": "value2"}]`.                                                                                                                                                                                           |
+| headers             | Optional. Custom HTTP headers to send with the request. Useful for sites requiring specific referrers or custom headers. Supports dict format: `"headers": [{"name": "Referer", "value": "https://example.com"}]` or string format: `"headers": ["Referer: https://example.com"]`.                                                          |
 | returnOnlyCookies   | Optional, default false. Only returns the cookies. Response data, headers and other parts of the response are removed.                                                                                                                                                                                                                       |
 | returnScreenshot    | Optional, default false. Captures a screenshot of the final rendered page after all challenges and waits are completed. The screenshot is returned as a Base64-encoded PNG string in the `screenshot` field of the response.                                                                                                                 |
 | proxy               | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. You must include the proxy schema in the URL: `http://`, `socks4://` or `socks5://`. Authorization (username/password) is not supported. (When the `session` parameter is set, the proxy is ignored; a session specific proxy can be set in `sessions.create`.) |
@@ -274,6 +275,7 @@ This works like `request.get`, with the addition of the postData parameter. Note
 | Parameter | Notes                                                                    |
 | --------- | ------------------------------------------------------------------------ |
 | postData  | Must be a string with `application/x-www-form-urlencoded`. Eg: `a=b&c=d` |
+| headers   | Optional. Same format as `request.get`. Custom HTTP headers to send.    |
 
 ## Environment variables
 

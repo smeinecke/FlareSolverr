@@ -171,8 +171,6 @@ def _controller_v1_handler(req: V1RequestBase) -> V1ResponseBase:
     # do some validations
     if req.cmd is None:
         raise Exception("Request parameter 'cmd' is mandatory.")
-    if req.headers is not None:
-        logging.warning("Request parameter 'headers' was removed in FlareSolverr v2.")
     if req.userAgent is not None:
         logging.warning("Request parameter 'userAgent' was removed in FlareSolverr v2.")
 
@@ -401,6 +399,27 @@ def _configure_blocked_media(req: V1RequestBase, driver: WebDriver) -> None:
         logging.debug("Network.setBlockedURLs failed or unsupported on this webdriver")
 
 
+def _set_custom_headers(req: V1RequestBase, driver: WebDriver) -> None:
+    if req.headers is None or len(req.headers) == 0:
+        return
+    try:
+        logging.debug(f"Setting custom headers: {req.headers}")
+        # Convert headers list to dict for CDP
+        headers_dict = {}
+        for header in req.headers:
+            if isinstance(header, dict) and "name" in header and "value" in header:
+                headers_dict[header["name"]] = header["value"]
+            elif isinstance(header, str) and ":" in header:
+                # Support "Name: Value" format
+                name, value = header.split(":", 1)
+                headers_dict[name.strip()] = value.strip()
+        if headers_dict:
+            driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": headers_dict})
+            logging.debug(f"Custom headers set: {headers_dict}")
+    except Exception as e:
+        logging.warning(f"Failed to set custom headers: {e}")
+
+
 def _navigate_request(req: V1RequestBase, driver: WebDriver, method: str, target_url: str) -> str | None:
     logging.debug(f"Navigating to... {req.url}")
     if method == "POST":
@@ -509,6 +528,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     res.message = ""
 
     _configure_blocked_media(req, driver)
+    _set_custom_headers(req, driver)
     turnstile_token = _navigate_request(req, driver, method, target_url)
     _set_request_cookies(req, driver, method, target_url)
 
