@@ -214,6 +214,7 @@ class TestSessionLockIntegration:
         This tests the actual integration with flaresolverr_service.
         """
         from dtos import V1RequestBase
+        from unittest.mock import MagicMock
 
         # Mock the webdriver creation
         monkeypatch.setattr(
@@ -226,21 +227,30 @@ class TestSessionLockIntegration:
         storage = sessions.SessionsStorage()
         session, _ = storage.create("integration-test")
 
-        # Track lock usage
+        # Track lock usage by wrapping the lock with MagicMock
         lock_acquisitions = []
-        original_acquire = session.lock.acquire
-        original_release = session.lock.release
+        original_lock = session.lock
 
-        def tracking_acquire(*args, **kwargs):
-            lock_acquisitions.append("acquire")
-            return original_acquire(*args, **kwargs)
+        # Create a wrapper that tracks calls
+        class LockWrapper:
+            def __init__(self, real_lock):
+                self._lock = real_lock
+                self.acquired = False
 
-        def tracking_release():
-            lock_acquisitions.append("release")
-            original_release()
+            def acquire(self, blocking=True, timeout=-1):
+                lock_acquisitions.append("acquire")
+                self.acquired = True
+                return self._lock.acquire(blocking, timeout)
 
-        session.lock.acquire = tracking_acquire
-        session.lock.release = tracking_release
+            def release(self):
+                lock_acquisitions.append("release")
+                self.acquired = False
+                self._lock.release()
+
+            def locked(self):
+                return self._lock.locked()
+
+        session.lock = LockWrapper(original_lock)
 
         # Create request with session
         req = V1RequestBase({
