@@ -46,8 +46,9 @@ RUN dpkg -i /libgl1-mesa-dri.deb \
 VOLUME /config
 
 # Install Python dependencies
-COPY requirements.txt .
-RUN pip install -r requirements.txt \
+COPY pyproject.toml .
+RUN pip install uv \
+    && uv pip install --system -e . \
     # Remove temporary files
     && rm -rf /root/.cache
 

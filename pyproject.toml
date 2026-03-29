@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flaresolverr"
+version = "3.4.6"
+description = "Proxy server to bypass Cloudflare protection"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "FlareSolverr", email = "flaresolverr@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.11",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "bottle==0.13.4",
+    "waitress==3.0.2",
+    "selenium==4.39.0",
+    "func-timeout==4.3.5",
+    "prometheus-client==0.23.1",
+    "requests==2.33.0",
+    "certifi==2025.11.12",
+    "websockets==15.0.1",
+    "packaging==25.0",
+    "xvfbwrapper==0.2.16; platform_system != 'Windows'",
+    "pefile==2024.8.26; platform_system == 'Windows'",
+]
+
+[project.optional-dependencies]
+build = [
+    "pyinstaller==6.17.0",
+]
+test = [
+    "WebTest==3.0.7",
+]
+dev = [
+    "WebTest==3.0.7",
+    "pyinstaller==6.17.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/FlareSolverr/FlareSolverr"
+Repository = "https://github.com/FlareSolverr/FlareSolverr"
+Issues = "https://github.com/FlareSolverr/FlareSolverr/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/README.md",
+    "/pyproject.toml",
+]
