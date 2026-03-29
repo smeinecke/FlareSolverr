@@ -54,11 +54,7 @@ class Reactor(threading.Thread):
     async def _wait_service_started(self):
         while True:
             with self.lock:
-                if (
-                    getattr(self.driver, "service", None)
-                    and getattr(self.driver.service, "process", None)
-                    and self.driver.service.process.poll()
-                ):
+                if getattr(self.driver, "service", None) and getattr(self.driver.service, "process", None) and self.driver.service.process.poll():
                     await asyncio.sleep(self.driver._delay or 0.25)
                 else:
                     break
@@ -80,13 +76,9 @@ class Reactor(threading.Thread):
                         method = message.get("method")
 
                         if "*" in self.handlers:
-                            await self.loop.run_in_executor(
-                                None, self.handlers["*"], message
-                            )
+                            await self.loop.run_in_executor(None, self.handlers["*"], message)
                         elif method.lower() in self.handlers:
-                            await self.loop.run_in_executor(
-                                None, self.handlers[method.lower()], message
-                            )
+                            await self.loop.run_in_executor(None, self.handlers[method.lower()], message)
 
                         # print(type(message), message)
                     except Exception as e:
