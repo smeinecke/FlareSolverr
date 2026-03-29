@@ -37,7 +37,7 @@ class V1RequestBase(object):
     proxy: dict[str, Any] | None = None
     session: str | None = None
     session_ttl_minutes: int | None = None
-    headers: list[Any] | None = None  # deprecated v2.0.0, not used
+    headers: list[Any] | None = None  # custom headers to send with requests
     userAgent: str | None = None  # deprecated v2.0.0, not used
 
     # V1Request
