@@ -34,6 +34,7 @@ class MockWebDriver:
         self._find_attempts = 0
         self.switch_to = MagicMock()
 
+
     def find_element(self, by, value):
         """Simulate finding the turnstile token input."""
         if "cf-turnstile-response" in value:
@@ -218,6 +219,7 @@ class TestTurnstileIntegration:
                 self._attempts = 0
                 self.switch_to = MagicMock()
 
+
             def get(self, url):
                 self.current_url = url
 
@@ -269,6 +271,7 @@ class TestTurnstileEdgeCases:
             def __init__(self):
                 self.switch_to = MagicMock()
 
+
             def get(self, url):
                 pass
 
@@ -293,6 +296,7 @@ class TestTurnstileEdgeCases:
         class AnyDriver:
             def __init__(self):
                 self.switch_to = MagicMock()
+
 
         driver = AnyDriver()
 
