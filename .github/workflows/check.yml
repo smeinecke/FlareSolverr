@@ -11,6 +11,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  docker-build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build FlareSolverr Docker image
+        run: |
+          docker build -t flaresolverr-ci:${{ github.sha }} .
+
   test:
     name: Validate Code
     runs-on: ubuntu-latest

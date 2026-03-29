@@ -250,196 +250,33 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
         finalize(self, self._ensure_close, self)
         self.debug = debug
-        self.patcher = Patcher(
-            executable_path=driver_executable_path,
-            force=patcher_force_close,
-            version_main=version_main,
-            user_multi_procs=user_multi_procs,
-        )
-        # self.patcher.auto(user_multiprocess = user_multi_num_procs)
-        self.patcher.auto()
-
-        # self.patcher = patcher
-        if not options:
-            options = ChromeOptions()
-
-        try:
-            if hasattr(options, "_session") and options._session is not None:
-                #  prevent reuse of options,
-                #  as it just appends arguments, not replace them
-                #  you'll get conflicts starting chrome
-                raise RuntimeError("you cannot reuse the ChromeOptions object")
-        except AttributeError:
-            pass
-
-        options._session = self
-
-        if not options.debugger_address:
-            debug_port = port if port != 0 else selenium.webdriver.common.service.utils.free_port()
-            debug_host = "127.0.0.1"
-            options.debugger_address = "%s:%d" % (debug_host, debug_port)
-        else:
-            debug_host, debug_port = options.debugger_address.split(":")
-            debug_port = int(debug_port)
-
-        if enable_cdp_events:
-            options.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"})
-
+        self._initialize_patcher(driver_executable_path, patcher_force_close, version_main, user_multi_procs)
+        options = self._prepare_options(options)
+        debug_host, debug_port = self._configure_debugger(options, port, enable_cdp_events)
         options.add_argument("--remote-debugging-host=%s" % debug_host)
         options.add_argument("--remote-debugging-port=%s" % debug_port)
-
         if user_data_dir:
             options.add_argument("--user-data-dir=%s" % user_data_dir)
 
-        language, keep_user_data_dir = None, bool(user_data_dir)
-
-        # see if a custom user profile is specified in options
-        for arg in options.arguments:
-            if any([_ in arg for _ in ("--headless", "headless")]):
-                options.arguments.remove(arg)
-                options.headless = True
-
-            if "lang" in arg:
-                m = re.search("(?:--)?lang(?:[ =])?(.*)", arg)
-                try:
-                    language = m[1]
-                except IndexError:
-                    logger.debug("will set the language to en-US,en;q=0.9")
-                    language = "en-US,en;q=0.9"
-
-            if "user-data-dir" in arg:
-                m = re.search("(?:--)?user-data-dir(?:[ =])?(.*)", arg)
-                try:
-                    user_data_dir = m[1]
-                    logger.debug("user-data-dir found in user argument %s => %s" % (arg, m[1]))
-                    keep_user_data_dir = True
-
-                except IndexError:
-                    logger.debug("no user data dir could be extracted from supplied argument %s " % arg)
-
-        if not user_data_dir:
-            # backward compatiblity
-            # check if an old uc.ChromeOptions is used, and extract the user data dir
-
-            if hasattr(options, "user_data_dir") and getattr(options, "user_data_dir", None):
-                import warnings
-
-                warnings.warn(
-                    "using ChromeOptions.user_data_dir might stop working in future versions."
-                    "use uc.Chrome(user_data_dir='/xyz/some/data') in case you need existing profile folder"
-                )
-                options.add_argument("--user-data-dir=%s" % options.user_data_dir)
-                keep_user_data_dir = True
-                logger.debug("user_data_dir property found in options object: %s" % user_data_dir)
-
-            else:
-                user_data_dir = os.path.normpath(tempfile.mkdtemp())
-                keep_user_data_dir = False
-                arg = "--user-data-dir=%s" % user_data_dir
-                options.add_argument(arg)
-                logger.debug(
-                    "created a temporary folder in which the user-data (profile) will be stored during this\n"
-                    "session, and added it to chrome startup arguments: %s" % arg
-                )
-
-        if not language:
-            try:
-                import locale
-
-                language = locale.getdefaultlocale()[0].replace("_", "-")
-            except Exception:
-                pass
-            if not language:
-                language = "en-US"
-
+        language, user_data_dir, keep_user_data_dir = self._extract_profile_options(options, user_data_dir)
+        user_data_dir, keep_user_data_dir = self._ensure_user_data_dir(options, user_data_dir, keep_user_data_dir)
+        language = self._resolve_language(language)
         options.add_argument("--lang=%s" % language)
-
-        if not options.binary_location:
-            options.binary_location = browser_executable_path or find_chrome_executable()
-
-        if not options.binary_location or not pathlib.Path(options.binary_location).exists():
-            raise FileNotFoundError(
-                "\n---------------------\n"
-                "Could not determine browser executable."
-                "\n---------------------\n"
-                "Make sure your browser is installed in the default location (path).\n"
-                "If you are sure about the browser executable, you can specify it using\n"
-                "the `browser_executable_path='{}` parameter.\n\n".format("/path/to/browser/executable" if IS_POSIX else "c:/path/to/your/browser.exe")
-            )
+        self._ensure_binary_location(options, browser_executable_path)
 
         self._delay = 3
-
         self.user_data_dir = user_data_dir
         self.keep_user_data_dir = keep_user_data_dir
 
-        if suppress_welcome:
-            options.arguments.extend(["--no-default-browser-check", "--no-first-run"])
-        if no_sandbox:
-            options.arguments.extend(["--no-sandbox", "--test-type"])
-
-        if headless or getattr(options, "headless", None):
-            # workaround until a better checking is found
-            try:
-                v_main = int(self.patcher.version_main) if self.patcher.version_main else 108
-                if v_main < 108:
-                    options.add_argument("--headless=chrome")
-                elif v_main >= 108:
-                    options.add_argument("--headless=new")
-            except:
-                logger.warning("could not detect version_main.therefore, we are assuming it is chrome 108 or higher")
-                options.add_argument("--headless=new")
-
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--start-maximized")
-        options.add_argument("--no-sandbox")
-        # fixes "could not connect to chrome" error when running
-        # on linux using privileged user like root (which i don't recommend)
-
-        options.add_argument("--log-level=%d" % log_level or divmod(logging.getLogger().getEffectiveLevel(), 10)[0])
-
+        self._configure_startup_arguments(options, suppress_welcome, no_sandbox, headless, log_level)
         if hasattr(options, "handle_prefs"):
             options.handle_prefs(user_data_dir)
-
-        # fix exit_type flag to prevent tab-restore nag
-        try:
-            with open(
-                os.path.join(user_data_dir, "Default/Preferences"),
-                encoding="latin1",
-                mode="r+",
-            ) as fs:
-                config = json.load(fs)
-                if config["profile"]["exit_type"] is not None:
-                    # fixing the restore-tabs-nag
-                    config["profile"]["exit_type"] = None
-                fs.seek(0, 0)
-                json.dump(config, fs)
-                fs.truncate()  # the file might be shorter
-                logger.debug("fixed exit_type flag")
-        except Exception:
-            logger.debug("did not find a bad exit_type flag ")
+        self._fix_exit_type_flag(user_data_dir)
 
         self.options = options
-
         if not desired_capabilities:
             desired_capabilities = options.to_capabilities()
-
-        if not use_subprocess and not windows_headless:
-            self.browser_pid = start_detached(options.binary_location, *options.arguments)
-        else:
-            startupinfo = None
-            if os.name == "nt" and windows_headless:
-                # STARTUPINFO() is Windows only
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            browser = subprocess.Popen(
-                [options.binary_location, *options.arguments],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                close_fds=IS_POSIX,
-                startupinfo=startupinfo,
-            )
-            self.browser_pid = browser.pid
+        self.browser_pid = self._start_browser_process(options, use_subprocess, windows_headless)
 
         service = selenium.webdriver.chromium.service.ChromiumService(self.patcher.executable_path)
 
@@ -465,6 +302,191 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
         if headless or getattr(options, "headless", None):
             self._configure_headless()
+
+    def _initialize_patcher(self, driver_executable_path, patcher_force_close, version_main, user_multi_procs):
+        self.patcher = Patcher(
+            executable_path=driver_executable_path,
+            force=patcher_force_close,
+            version_main=version_main,
+            user_multi_procs=user_multi_procs,
+        )
+        # self.patcher.auto(user_multiprocess = user_multi_num_procs)
+        self.patcher.auto()
+
+    def _prepare_options(self, options):
+        # self.patcher = patcher
+        if not options:
+            options = ChromeOptions()
+        try:
+            if hasattr(options, "_session") and options._session is not None:
+                #  prevent reuse of options,
+                #  as it just appends arguments, not replace them
+                #  you'll get conflicts starting chrome
+                raise RuntimeError("you cannot reuse the ChromeOptions object")
+        except AttributeError:
+            pass
+        options._session = self
+        return options
+
+    def _configure_debugger(self, options, port, enable_cdp_events):
+        if not options.debugger_address:
+            debug_port = port if port != 0 else selenium.webdriver.common.service.utils.free_port()
+            debug_host = "127.0.0.1"
+            options.debugger_address = "%s:%d" % (debug_host, debug_port)
+        else:
+            debug_host, debug_port = options.debugger_address.split(":")
+            debug_port = int(debug_port)
+
+        if enable_cdp_events:
+            options.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"})
+        return debug_host, debug_port
+
+    def _extract_profile_options(self, options, user_data_dir):
+        language = None
+        keep_user_data_dir = bool(user_data_dir)
+
+        # see if a custom user profile is specified in options
+        for arg in list(options.arguments):
+            if any([_ in arg for _ in ("--headless", "headless")]):
+                options.arguments.remove(arg)
+                options.headless = True
+
+            if "lang" in arg:
+                m = re.search("(?:--)?lang(?:[ =])?(.*)", arg)
+                try:
+                    language = m[1]
+                except IndexError:
+                    logger.debug("will set the language to en-US,en;q=0.9")
+                    language = "en-US,en;q=0.9"
+
+            if "user-data-dir" in arg:
+                m = re.search("(?:--)?user-data-dir(?:[ =])?(.*)", arg)
+                try:
+                    user_data_dir = m[1]
+                    logger.debug("user-data-dir found in user argument %s => %s" % (arg, m[1]))
+                    keep_user_data_dir = True
+                except IndexError:
+                    logger.debug("no user data dir could be extracted from supplied argument %s " % arg)
+
+        return language, user_data_dir, keep_user_data_dir
+
+    def _ensure_user_data_dir(self, options, user_data_dir, keep_user_data_dir):
+        if user_data_dir:
+            return user_data_dir, keep_user_data_dir
+
+        # backward compatiblity
+        # check if an old uc.ChromeOptions is used, and extract the user data dir
+        if hasattr(options, "user_data_dir") and getattr(options, "user_data_dir", None):
+            import warnings
+
+            warnings.warn(
+                "using ChromeOptions.user_data_dir might stop working in future versions."
+                "use uc.Chrome(user_data_dir='/xyz/some/data') in case you need existing profile folder"
+            )
+            options.add_argument("--user-data-dir=%s" % options.user_data_dir)
+            keep_user_data_dir = True
+            logger.debug("user_data_dir property found in options object: %s" % user_data_dir)
+            return user_data_dir, keep_user_data_dir
+
+        user_data_dir = os.path.normpath(tempfile.mkdtemp())
+        keep_user_data_dir = False
+        arg = "--user-data-dir=%s" % user_data_dir
+        options.add_argument(arg)
+        logger.debug(
+            "created a temporary folder in which the user-data (profile) will be stored during this\n"
+            "session, and added it to chrome startup arguments: %s" % arg
+        )
+        return user_data_dir, keep_user_data_dir
+
+    def _resolve_language(self, language):
+        if language:
+            return language
+        try:
+            import locale
+
+            language = locale.getdefaultlocale()[0].replace("_", "-")
+        except Exception:
+            pass
+        if not language:
+            language = "en-US"
+        return language
+
+    def _ensure_binary_location(self, options, browser_executable_path):
+        if not options.binary_location:
+            options.binary_location = browser_executable_path or find_chrome_executable()
+
+        if not options.binary_location or not pathlib.Path(options.binary_location).exists():
+            raise FileNotFoundError(
+                "\n---------------------\n"
+                "Could not determine browser executable."
+                "\n---------------------\n"
+                "Make sure your browser is installed in the default location (path).\n"
+                "If you are sure about the browser executable, you can specify it using\n"
+                "the `browser_executable_path='{}` parameter.\n\n".format("/path/to/browser/executable" if IS_POSIX else "c:/path/to/your/browser.exe")
+            )
+
+    def _configure_startup_arguments(self, options, suppress_welcome, no_sandbox, headless, log_level):
+        if suppress_welcome:
+            options.arguments.extend(["--no-default-browser-check", "--no-first-run"])
+        if no_sandbox:
+            options.arguments.extend(["--no-sandbox", "--test-type"])
+
+        if headless or getattr(options, "headless", None):
+            # workaround until a better checking is found
+            try:
+                v_main = int(self.patcher.version_main) if self.patcher.version_main else 108
+                if v_main < 108:
+                    options.add_argument("--headless=chrome")
+                elif v_main >= 108:
+                    options.add_argument("--headless=new")
+            except Exception:
+                logger.warning("could not detect version_main.therefore, we are assuming it is chrome 108 or higher")
+                options.add_argument("--headless=new")
+
+        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--start-maximized")
+        options.add_argument("--no-sandbox")
+        # fixes "could not connect to chrome" error when running
+        # on linux using privileged user like root (which i don't recommend)
+        options.add_argument("--log-level=%d" % log_level or divmod(logging.getLogger().getEffectiveLevel(), 10)[0])
+
+    def _fix_exit_type_flag(self, user_data_dir):
+        # fix exit_type flag to prevent tab-restore nag
+        try:
+            with open(
+                os.path.join(user_data_dir, "Default/Preferences"),
+                encoding="latin1",
+                mode="r+",
+            ) as fs:
+                config = json.load(fs)
+                if config["profile"]["exit_type"] is not None:
+                    # fixing the restore-tabs-nag
+                    config["profile"]["exit_type"] = None
+                fs.seek(0, 0)
+                json.dump(config, fs)
+                fs.truncate()  # the file might be shorter
+                logger.debug("fixed exit_type flag")
+        except Exception:
+            logger.debug("did not find a bad exit_type flag ")
+
+    def _start_browser_process(self, options, use_subprocess, windows_headless):
+        if not use_subprocess and not windows_headless:
+            return start_detached(options.binary_location, *options.arguments)
+
+        startupinfo = None
+        if os.name == "nt" and windows_headless:
+            # STARTUPINFO() is Windows only
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        browser = subprocess.Popen(
+            [options.binary_location, *options.arguments],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=IS_POSIX,
+            startupinfo=startupinfo,
+        )
+        return browser.pid
 
     def _configure_headless(self):
         orig_get = self.get

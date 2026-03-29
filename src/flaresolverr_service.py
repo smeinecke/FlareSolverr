@@ -56,6 +56,54 @@ CHALLENGE_SELECTORS = [
 
 TURNSTILE_SELECTORS = ["input[name='cf-turnstile-response']"]
 
+BLOCK_MEDIA_URL_PATTERNS = [
+    # Images
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.gif",
+    "*.webp",
+    "*.bmp",
+    "*.svg",
+    "*.ico",
+    "*.PNG",
+    "*.JPG",
+    "*.JPEG",
+    "*.GIF",
+    "*.WEBP",
+    "*.BMP",
+    "*.SVG",
+    "*.ICO",
+    "*.tiff",
+    "*.tif",
+    "*.jpe",
+    "*.apng",
+    "*.avif",
+    "*.heic",
+    "*.heif",
+    "*.TIFF",
+    "*.TIF",
+    "*.JPE",
+    "*.APNG",
+    "*.AVIF",
+    "*.HEIC",
+    "*.HEIF",
+    # Stylesheets
+    "*.css",
+    "*.CSS",
+    # Fonts
+    "*.woff",
+    "*.woff2",
+    "*.ttf",
+    "*.otf",
+    "*.eot",
+    "*.WOFF",
+    "*.WOFF2",
+    "*.TTF",
+    "*.OTF",
+    "*.EOT",
+]
+
 SHORT_TIMEOUT = 1
 SESSIONS_STORAGE = SessionsStorage()
 
@@ -329,171 +377,95 @@ def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver) -> str | N
     return turnstile_token
 
 
-def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> ChallengeResolutionT:
-    if req.url is None:
-        raise Exception("Request parameter 'url' is mandatory in request commands.")
-    target_url = req.url
-
-    res = ChallengeResolutionT({})
-    res.status = STATUS_OK
-    res.message = ""
-
-    # optionally block resources like images/css/fonts using CDP
+def _configure_blocked_media(req: V1RequestBase, driver: WebDriver) -> None:
     disable_media = utils.get_config_disable_media()
     if req.disableMedia is not None:
         disable_media = req.disableMedia
-    if disable_media:
-        block_urls = [
-            # Images
-            "*.png",
-            "*.jpg",
-            "*.jpeg",
-            "*.gif",
-            "*.webp",
-            "*.bmp",
-            "*.svg",
-            "*.ico",
-            "*.PNG",
-            "*.JPG",
-            "*.JPEG",
-            "*.GIF",
-            "*.WEBP",
-            "*.BMP",
-            "*.SVG",
-            "*.ICO",
-            "*.tiff",
-            "*.tif",
-            "*.jpe",
-            "*.apng",
-            "*.avif",
-            "*.heic",
-            "*.heif",
-            "*.TIFF",
-            "*.TIF",
-            "*.JPE",
-            "*.APNG",
-            "*.AVIF",
-            "*.HEIC",
-            "*.HEIF",
-            # Stylesheets
-            "*.css",
-            "*.CSS",
-            # Fonts
-            "*.woff",
-            "*.woff2",
-            "*.ttf",
-            "*.otf",
-            "*.eot",
-            "*.WOFF",
-            "*.WOFF2",
-            "*.TTF",
-            "*.OTF",
-            "*.EOT",
-        ]
-        try:
-            logging.debug("Network.setBlockedURLs: %s", block_urls)
-            driver.execute_cdp_cmd("Network.enable", {})
-            driver.execute_cdp_cmd("Network.setBlockedURLs", {"urls": block_urls})
-        except Exception:
-            # if CDP commands are not available or fail, ignore and continue
-            logging.debug("Network.setBlockedURLs failed or unsupported on this webdriver")
+    if not disable_media:
+        return
+    try:
+        logging.debug("Network.setBlockedURLs: %s", BLOCK_MEDIA_URL_PATTERNS)
+        driver.execute_cdp_cmd("Network.enable", {})
+        driver.execute_cdp_cmd("Network.setBlockedURLs", {"urls": BLOCK_MEDIA_URL_PATTERNS})
+    except Exception:
+        # if CDP commands are not available or fail, ignore and continue
+        logging.debug("Network.setBlockedURLs failed or unsupported on this webdriver")
 
-    # navigate to the page
+
+def _navigate_request(req: V1RequestBase, driver: WebDriver, method: str, target_url: str) -> str | None:
     logging.debug(f"Navigating to... {req.url}")
-    turnstile_token = None
+    if method == "POST":
+        _post_request(req, driver)
+        return None
+    if req.tabs_till_verify is None:
+        driver.get(target_url)
+        return None
+    return _resolve_turnstile_captcha(req, driver)
 
+
+def _set_request_cookies(req: V1RequestBase, driver: WebDriver, method: str, target_url: str) -> None:
+    if req.cookies is None or len(req.cookies) == 0:
+        return
+    logging.debug("Setting cookies...")
+    for cookie in req.cookies:
+        driver.delete_cookie(cookie["name"])
+        driver.add_cookie(cookie)
     if method == "POST":
         _post_request(req, driver)
     else:
-        if req.tabs_till_verify is None:
-            driver.get(target_url)
-        else:
-            turnstile_token = _resolve_turnstile_captcha(req, driver)
+        driver.get(target_url)
 
-    # set cookies if required
-    if req.cookies is not None and len(req.cookies) > 0:
-        logging.debug("Setting cookies...")
-        for cookie in req.cookies:
-            driver.delete_cookie(cookie["name"])
-            driver.add_cookie(cookie)
-        # reload the page
-        if method == "POST":
-            _post_request(req, driver)
-        else:
-            driver.get(target_url)
 
-    # wait for the page
-    if utils.get_config_log_html():
-        logging.debug(f"Response HTML:\n{driver.page_source}")
-    html_element = driver.find_element(By.TAG_NAME, "html")
-    page_title = driver.title
-
-    # find access denied titles
+def _raise_if_access_denied(driver: WebDriver, page_title: str) -> None:
     for title in ACCESS_DENIED_TITLES:
         if page_title.startswith(title):
             raise Exception("Cloudflare has blocked this request. Probably your IP is banned for this site, check in your web browser.")
-    # find access denied selectors
     for selector in ACCESS_DENIED_SELECTORS:
         found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
         if len(found_elements) > 0:
             raise Exception("Cloudflare has blocked this request. Probably your IP is banned for this site, check in your web browser.")
 
-    # find challenge by title
-    challenge_found = False
+
+def _challenge_found(driver: WebDriver, page_title: str) -> bool:
     for title in CHALLENGE_TITLES:
         if title.lower() == page_title.lower():
-            challenge_found = True
             logging.info("Challenge detected. Title found: " + page_title)
-            break
-    if not challenge_found:
-        # find challenge by selectors
-        for selector in CHALLENGE_SELECTORS:
-            found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
-            if len(found_elements) > 0:
-                challenge_found = True
-                logging.info("Challenge detected. Selector found: " + selector)
-                break
+            return True
+    for selector in CHALLENGE_SELECTORS:
+        found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+        if len(found_elements) > 0:
+            logging.info("Challenge detected. Selector found: " + selector)
+            return True
+    return False
 
+
+def _wait_for_challenge(driver: WebDriver, html_element) -> None:
     attempt = 0
-    if challenge_found:
-        while True:
-            try:
-                attempt = attempt + 1
-                # wait until the title changes
-                for title in CHALLENGE_TITLES:
-                    logging.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
-                    WebDriverWait(driver, SHORT_TIMEOUT).until_not(title_is(title))
-
-                # then wait until all the selectors disappear
-                for selector in CHALLENGE_SELECTORS:
-                    logging.debug("Waiting for selector (attempt " + str(attempt) + "): " + selector)
-                    WebDriverWait(driver, SHORT_TIMEOUT).until_not(presence_of_element_located((By.CSS_SELECTOR, selector)))
-
-                # all elements not found
-                break
-
-            except TimeoutException:
-                logging.debug("Timeout waiting for selector")
-
-                click_verify(driver)
-
-                # update the html (cloudflare reloads the page every 5 s)
-                html_element = driver.find_element(By.TAG_NAME, "html")
-
-        # waits until cloudflare redirection ends
-        logging.debug("Waiting for redirect")
-        # noinspection PyBroadException
+    while True:
         try:
-            WebDriverWait(driver, SHORT_TIMEOUT).until(staleness_of(html_element))
-        except Exception:
-            logging.debug("Timeout waiting for redirect")
+            attempt += 1
+            for title in CHALLENGE_TITLES:
+                logging.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
+                WebDriverWait(driver, SHORT_TIMEOUT).until_not(title_is(title))
+            for selector in CHALLENGE_SELECTORS:
+                logging.debug("Waiting for selector (attempt " + str(attempt) + "): " + selector)
+                WebDriverWait(driver, SHORT_TIMEOUT).until_not(presence_of_element_located((By.CSS_SELECTOR, selector)))
+            break
+        except TimeoutException:
+            logging.debug("Timeout waiting for selector")
+            click_verify(driver)
+            # update the html (cloudflare reloads the page every 5 s)
+            html_element = driver.find_element(By.TAG_NAME, "html")
 
-        logging.info("Challenge solved!")
-        res.message = "Challenge solved!"
-    else:
-        logging.info("Challenge not detected!")
-        res.message = "Challenge not detected!"
+    logging.debug("Waiting for redirect")
+    # noinspection PyBroadException
+    try:
+        WebDriverWait(driver, SHORT_TIMEOUT).until(staleness_of(html_element))
+    except Exception:
+        logging.debug("Timeout waiting for redirect")
 
+
+def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_token: str | None) -> ChallengeResolutionResultT:
     challenge_res = ChallengeResolutionResultT({})
     challenge_res.url = driver.current_url
     challenge_res.status = 200  # todo: fix, selenium not provides this info
@@ -513,7 +485,39 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     if req.returnScreenshot:
         challenge_res.screenshot = driver.get_screenshot_as_base64()
 
-    res.result = challenge_res
+    return challenge_res
+
+
+def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> ChallengeResolutionT:
+    if req.url is None:
+        raise Exception("Request parameter 'url' is mandatory in request commands.")
+    target_url = req.url
+
+    res = ChallengeResolutionT({})
+    res.status = STATUS_OK
+    res.message = ""
+
+    _configure_blocked_media(req, driver)
+    turnstile_token = _navigate_request(req, driver, method, target_url)
+    _set_request_cookies(req, driver, method, target_url)
+
+    # wait for the page
+    if utils.get_config_log_html():
+        logging.debug(f"Response HTML:\n{driver.page_source}")
+    html_element = driver.find_element(By.TAG_NAME, "html")
+    page_title = driver.title
+
+    _raise_if_access_denied(driver, page_title)
+    challenge_found = _challenge_found(driver, page_title)
+    if challenge_found:
+        _wait_for_challenge(driver, html_element)
+        logging.info("Challenge solved!")
+        res.message = "Challenge solved!"
+    else:
+        logging.info("Challenge not detected!")
+        res.message = "Challenge not detected!"
+
+    res.result = _build_challenge_result(req, driver, turnstile_token)
     return res
 
 
