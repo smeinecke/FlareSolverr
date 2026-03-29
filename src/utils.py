@@ -4,7 +4,6 @@ import os
 import platform
 import re
 import shutil
-import sys
 import tempfile
 import urllib.parse
 
@@ -37,11 +36,18 @@ def get_flaresolverr_version() -> str:
     if FLARESOLVERR_VERSION is not None:
         return FLARESOLVERR_VERSION
 
-    package_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, 'package.json')
-    if not os.path.isfile(package_path):
-        package_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'package.json')
-    with open(package_path) as f:
-        FLARESOLVERR_VERSION = json.loads(f.read())['version']
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+
+    pyproject_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, 'pyproject.toml')
+    if not os.path.isfile(pyproject_path):
+        pyproject_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pyproject.toml')
+
+    with open(pyproject_path, 'rb') as f:
+        data = tomllib.load(f)
+        FLARESOLVERR_VERSION = data['project']['version']
         return FLARESOLVERR_VERSION
 
 def get_current_platform() -> str:

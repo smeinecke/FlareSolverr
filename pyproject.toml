@@ -31,6 +31,7 @@ dependencies = [
     "certifi==2025.11.12",
     "websockets==15.0.1",
     "packaging==25.0",
+    "tomli>=1.1.0; python_version < '3.11'",
     "xvfbwrapper==0.2.16; platform_system != 'Windows'",
     "pefile==2024.8.26; platform_system == 'Windows'",
 ]

@@ -70,7 +70,7 @@ def run_pyinstaller():
     sep = ';' if os.name == 'nt' else ':'
     result = subprocess.run([sys.executable, "-m", "PyInstaller",
                              "--icon", "resources/flaresolverr_logo.ico",
-                             "--add-data", f"package.json{sep}.",
+                             "--add-data", f"pyproject.toml{sep}.",
                              "--add-data", f"{os.path.join('dist_chrome', 'chrome')}{sep}chrome",
                              os.path.join("src", "flaresolverr.py")],
                             cwd=os.pardir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -88,7 +88,7 @@ def compress_package():
     compr_format = 'zip' if os.name == 'nt' else 'gztar'
     compr_file_name = 'flaresolverr_windows_x64' if os.name == 'nt' else 'flaresolverr_linux_x64'
     compr_file_path = os.path.join(dist_folder, compr_file_name)
-    
+
     if compr_format == 'zip':
         shutil.make_archive(compr_file_path, compr_format, package_folder)
         print("Compressed file path: " + compr_file_path)
