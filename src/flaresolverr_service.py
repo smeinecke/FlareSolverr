@@ -268,6 +268,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
     max_timeout = req.maxTimeout if req.maxTimeout is not None else 60000
     timeout = int(max_timeout) / 1000
     driver = None
+    session = None
     try:
         if req.session:
             session_id = req.session
@@ -280,6 +281,10 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
                 logging.debug(f"existing session is used to perform the request (session_id={session_id}, lifetime={str(session.lifetime())}, ttl={str(ttl)})")
 
             driver = session.driver
+            # Acquire lock to prevent concurrent access to the same session
+            logging.debug(f"acquiring session lock (session_id={session_id})")
+            session.lock.acquire()
+            logging.debug(f"session lock acquired (session_id={session_id})")
         else:
             driver = utils.get_webdriver(req.proxy)
             logging.debug("New instance of webdriver has been created to perform the request")
@@ -290,6 +295,10 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
     except Exception as e:
         raise Exception("Error solving the challenge. " + str(e).replace("\n", "\\n"))
     finally:
+        # Release session lock if it was acquired
+        if session is not None and session.lock.locked():
+            session.lock.release()
+            logging.debug(f"session lock released (session_id={session.session_id})")
         if not req.session and driver is not None:
             if utils.PLATFORM_VERSION == "nt":
                 driver.close()

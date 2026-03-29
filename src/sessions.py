@@ -1,4 +1,5 @@
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional, Tuple
@@ -14,6 +15,13 @@ class Session:
     session_id: str
     driver: WebDriver
     created_at: datetime
+    lock: threading.Lock
+
+    def __init__(self, session_id: str, driver: WebDriver, created_at: datetime):
+        self.session_id = session_id
+        self.driver = driver
+        self.created_at = created_at
+        self.lock = threading.Lock()
 
     def lifetime(self) -> timedelta:
         return datetime.now() - self.created_at
