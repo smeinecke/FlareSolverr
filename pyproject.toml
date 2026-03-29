@@ -23,7 +23,7 @@ classifiers = [
 requires-python = ">=3.11"
 dependencies = [
     "bottle==0.13.4",
-    "certifi==2025.11.12",
+    "certifi==2026.2.25",
     "func-timeout==4.3.5",
     "packaging==25.0",
     "pefile==2024.8.26; platform_system == 'Windows'",
