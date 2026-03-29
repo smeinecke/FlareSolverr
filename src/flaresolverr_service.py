@@ -17,6 +17,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.wait import WebDriverWait
 
 import utils
+from captcha_solvers import SOLVER_MANAGER, get_config_captcha_solver
 from dtos import STATUS_ERROR, STATUS_OK, ChallengeResolutionResultT, ChallengeResolutionT, HealthResponse, IndexResponse, V1RequestBase, V1ResponseBase
 from sessions import SessionsStorage
 
@@ -541,7 +542,21 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     _raise_if_access_denied(driver, page_title)
     challenge_found = _challenge_found(driver, page_title)
     if challenge_found:
-        _wait_for_challenge(driver, html_element)
+        # Try external captcha solver first if configured
+        solver_used = False
+        configured_solver = get_config_captcha_solver()
+        if configured_solver != "default":
+            solver_type = _detect_captcha_type(driver)
+            if solver_type:
+                logging.info(f"Attempting to solve {solver_type} captcha with {configured_solver} solver")
+                solver_used = SOLVER_MANAGER.solve(driver, solver_type)
+                if solver_used:
+                    logging.info(f"Captcha solved successfully with {configured_solver}")
+
+        if not solver_used:
+            # Fall back to default challenge resolution
+            _wait_for_challenge(driver, html_element)
+
         logging.info("Challenge solved!")
         res.message = "Challenge solved!"
     else:
@@ -550,6 +565,34 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
 
     res.result = _build_challenge_result(req, driver, turnstile_token)
     return res
+
+
+def _detect_captcha_type(driver: WebDriver) -> str | None:
+    """Detect the type of captcha present on the page.
+
+    Returns:
+        String identifying the captcha type, or None if not detected.
+    """
+    # Check for hCaptcha
+    hcaptcha_elements = driver.find_elements(By.CSS_SELECTOR, ".h-captcha, iframe[src*='hcaptcha.com']")
+    if hcaptcha_elements:
+        logging.debug("hCaptcha detected on page")
+        return "hcaptcha"
+
+    # Check for reCAPTCHA
+    recaptcha_elements = driver.find_elements(By.CSS_SELECTOR, ".g-recaptcha, iframe[src*='google.com/recaptcha']")
+    if recaptcha_elements:
+        logging.debug("reCAPTCHA detected on page")
+        return "recaptcha"
+
+    # Check for Turnstile (already handled separately, but for completeness)
+    turnstile_elements = driver.find_elements(By.CSS_SELECTOR, "input[name='cf-turnstile-response'], #turnstile-wrapper")
+    if turnstile_elements:
+        logging.debug("Turnstile detected on page")
+        return "turnstile"
+
+    logging.debug("No specific captcha type detected")
+    return None
 
 
 def _post_request(req: V1RequestBase, driver: WebDriver) -> None:
