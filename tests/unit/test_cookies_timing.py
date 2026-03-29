@@ -33,6 +33,20 @@ class MockWebDriver:
     def get_screenshot_as_base64(self):
         return "base64_screenshot"
 
+    def quit(self):
+        """Mock quit method."""
+        pass
+
+    def close(self):
+        """Mock close method."""
+        pass
+
+    def execute_script(self, script):
+        """Mock execute_script method."""
+        if "userAgent" in script:
+            return "Mozilla/5.0 (Test)"
+        return None
+
 
 class TestCookiesTiming:
     """Tests for cookies timing in _build_challenge_result."""
@@ -48,26 +62,26 @@ the waitInSeconds delay, missing challenge cookies.
 
         mock_driver = MockWebDriver()
 
-        # Simulate challenge cookies being added during wait
-        def simulate_challenge_cookies_added(*args, **kwargs):
-            # Simulate cookies being added during the wait
-            mock_driver._cookies = [{"name": "cf_clearance", "value": "challenge_token"}]
-            return None
-
         req = V1RequestBase({
             "cmd": "request.get",
             "url": "https://example.com",
-            "waitInSeconds": 0.1,  # Short wait for testing
+            "waitInSeconds": 0.1,
         })
 
-        # Patch time.sleep to simulate cookies being added
+        # Simulate challenge cookies being added during wait
+        # Use a flag to track if sleep has been called to avoid recursion
+        sleep_called = [False]
         original_sleep = time.sleep
 
-        def mock_sleep(seconds):
-            simulate_challenge_cookies_added()
-            return original_sleep(min(seconds, 0.01))  # Short actual sleep
+        def simulate_challenge_cookies_added(seconds):
+            if not sleep_called[0]:
+                sleep_called[0] = True
+                # Simulate cookies being added during the wait
+                mock_driver._cookies = [{"name": "cf_clearance", "value": "challenge_token"}]
+            # Call actual sleep with reduced time
+            return original_sleep(min(seconds, 0.01))
 
-        with patch.object(time, 'sleep', side_effect=mock_sleep):
+        with patch.object(time, 'sleep', side_effect=simulate_challenge_cookies_added):
             result = service._build_challenge_result(req, mock_driver, None)
 
         # Cookies should include the challenge cookie
@@ -106,7 +120,9 @@ the waitInSeconds delay, missing challenge cookies.
         import threading
         thread = threading.Thread(target=add_cookie_later)
 
-        with patch.object(time, 'sleep', side_effect=lambda s: time.sleep(min(s, 0.01))):
+        # Store original sleep before patching to avoid recursion
+        _orig_sleep = time.sleep
+        with patch.object(time, 'sleep', side_effect=lambda s: _orig_sleep(min(s, 0.01))):
             thread.start()
             result = service._build_challenge_result(req, mock_driver, None)
             thread.join()
@@ -138,7 +154,9 @@ the waitInSeconds delay, missing challenge cookies.
         thread = threading.Thread(target=add_challenge_cookie)
         thread.start()
 
-        with patch.object(time, 'sleep', side_effect=lambda s: time.sleep(min(s, 0.05))):
+        # Store original sleep before patching to avoid recursion
+        _orig_sleep = time.sleep
+        with patch.object(time, 'sleep', side_effect=lambda s: _orig_sleep(min(s, 0.05))):
             result = service._build_challenge_result(req, mock_driver, None)
 
         thread.join()
@@ -202,11 +220,12 @@ challenge that the browser solves, and cookies are set during the wait period.
         mock_driver = ChallengeWebDriver()
 
         # Simulate wait that solves challenge
-        original_sleep = time.sleep
+        # Store original sleep before patching to avoid recursion
+        _orig_sleep = time.sleep
 
         def challenge_solving_sleep(seconds):
             # Simulate challenge being solved during wait
-            time.sleep(min(seconds, 0.01))
+            _orig_sleep(min(seconds, 0.01))
             mock_driver._challenge_solved = True
 
         req = V1RequestBase({
