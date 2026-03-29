@@ -12,10 +12,14 @@ RUN apt-get update \
     && equivs-build adwaita-icon-theme \
     && mv adwaita-icon-theme_*.deb /adwaita-icon-theme.deb
 
+FROM ghcr.io/astral-sh/uv:latest AS uv
+
 FROM python:3.13-slim-trixie
 
 # Copy dummy packages
 COPY --from=builder /*.deb /
+# Copy uv binaries
+COPY --from=uv /uv /uvx /bin/
 
 # Install dependencies and create flaresolverr user
 # You can test Chromium running this command inside the container:
@@ -46,9 +50,8 @@ RUN dpkg -i /libgl1-mesa-dri.deb \
 VOLUME /config
 
 # Install Python dependencies
-COPY pyproject.toml .
-RUN pip install uv \
-    && uv pip install --system -e . \
+COPY pyproject.toml uv.lock README.md ./
+RUN UV_PROJECT_ENVIRONMENT=/usr/local uv sync --locked --no-dev \
     # Remove temporary files
     && rm -rf /root/.cache
 
@@ -65,7 +68,7 @@ EXPOSE 8192
 # dumb-init avoids zombie chromium processes
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 
-CMD ["/usr/local/bin/python", "-u", "/app/flaresolverr.py"]
+CMD ["/bin/uv", "run", "--no-sync", "python", "-u", "/app/flaresolverr.py"]
 
 # Local build
 # docker build -t ngosang/flaresolverr:3.4.6 .
