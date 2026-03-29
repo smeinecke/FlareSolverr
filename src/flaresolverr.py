@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sys
+from typing import Any, cast
 
 import certifi
 from bottle import run, response, Bottle, request, ServerAdapter
@@ -23,16 +24,16 @@ class JSONErrorBottle(Bottle):
     Handle 404 errors
     """
 
-    def default_error_handler(self, res):
+    def default_error_handler(self, res) -> str:
         response.content_type = "application/json"
         return json.dumps(dict(error=res.body, status_code=res.status_code))
 
 
-app = JSONErrorBottle()
+app: Any = JSONErrorBottle()
 
 
-@app.route("/")
-def index():
+@app.route("/")  # pyright: ignore[reportCallIssue]
+def index() -> dict[str, Any]:
     """
     Show welcome message
     """
@@ -40,8 +41,8 @@ def index():
     return utils.object_to_dict(res)
 
 
-@app.route("/health")
-def health():
+@app.route("/health")  # pyright: ignore[reportCallIssue]
+def health() -> dict[str, Any]:
     """
     Healthcheck endpoint.
     This endpoint is special because it doesn't print traces
@@ -50,12 +51,13 @@ def health():
     return utils.object_to_dict(res)
 
 
-@app.post("/v1")
-def controller_v1():
+@app.post("/v1")  # pyright: ignore[reportCallIssue]
+def controller_v1() -> dict[str, Any]:
     """
     Controller v1
     """
-    data = request.json or {}
+    request_json = cast(Any, request.json)
+    data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
     if ("proxy" not in data or not data.get("proxy")) and env_proxy_url is not None and (env_proxy_username is None and env_proxy_password is None):
         logging.info("Using proxy URL ENV")
         data["proxy"] = {"url": env_proxy_url}
@@ -135,9 +137,9 @@ if __name__ == "__main__":
     # https://github.com/FlareSolverr/FlareSolverr/issues/680
     # https://github.com/Pylons/waitress/issues/31
     class WaitressServerPoll(ServerAdapter):
-        def run(self, handler):
+        def run(self, handler) -> None:
             from waitress import serve
 
             serve(handler, host=self.host, port=self.port, asyncore_use_poll=True)
 
-    run(app, host=server_host, port=server_port, quiet=True, server=WaitressServerPoll)
+    run(app, host=server_host, port=server_port, quiet=True, server=WaitressServerPoll)  # pyright: ignore[reportArgumentType]

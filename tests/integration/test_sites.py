@@ -1,10 +1,14 @@
 import unittest
 
+import pytest
+pytest.importorskip("webtest")
 from webtest import TestApp
 
 from dtos import V1ResponseBase, STATUS_OK
 import flaresolverr
 import utils
+
+pytestmark = pytest.mark.integration
 
 
 def _find_obj_by_key(key: str, value: str, _list: list) -> dict | None:
@@ -38,9 +42,13 @@ def asset_cloudflare_solution(self, res, site_url, site_text):
 
 
 class TestFlareSolverr(unittest.TestCase):
-    app = TestApp(flaresolverr.app)
-    # wait until the server is ready
-    app.get("/")
+    app = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = TestApp(flaresolverr.app)
+        # wait until the server is ready
+        cls.app.get("/")
 
     def test_v1_endpoint_request_get_cloudflare(self):
         sites_get = [
@@ -83,7 +91,3 @@ class TestFlareSolverr(unittest.TestCase):
             with self.subTest(msg=site_name):
                 res = self.app.post_json("/v1", {"cmd": "request.post", "url": site_url, "postData": post_data})
                 asset_cloudflare_solution(self, res, site_url, site_text)
-
-
-if __name__ == "__main__":
-    unittest.main()

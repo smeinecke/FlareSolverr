@@ -1,6 +1,7 @@
 import logging
 import os
 import urllib.parse
+from typing import Any, cast
 
 from bottle import request
 from dtos import V1RequestBase, V1ResponseBase
@@ -32,7 +33,7 @@ def prometheus_plugin(callback):
 
         return actual_response
 
-    def export_metrics(actual_response):
+    def export_metrics(actual_response: dict[str, Any]):
         res = V1ResponseBase(actual_response)
 
         if res.startTimestamp is None or res.endTimestamp is None:
@@ -44,7 +45,9 @@ def prometheus_plugin(callback):
             domain = parse_domain_url(res.solution.url)
         else:
             # timeout error
-            req = V1RequestBase(request.json)
+            request_json = cast(Any, request.json)
+            req_data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
+            req = V1RequestBase(req_data)
             if req.url:
                 domain = parse_domain_url(req.url)
 
@@ -56,11 +59,11 @@ def prometheus_plugin(callback):
             result = "solved"
         elif res.message == "Challenge not detected!":
             result = "not_detected"
-        elif res.message.startswith("Error"):
+        elif res.message and res.message.startswith("Error"):
             result = "error"
         REQUEST_COUNTER.labels(domain=domain, result=result).inc()
 
-    def parse_domain_url(url):
+    def parse_domain_url(url: str) -> str | None:
         parsed_url = urllib.parse.urlparse(url)
         return parsed_url.hostname
 

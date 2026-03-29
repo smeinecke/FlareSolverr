@@ -4,6 +4,7 @@ import sys
 import time
 from datetime import timedelta
 from html import escape
+from typing import cast
 from urllib.parse import unquote, quote
 
 from func_timeout import FunctionTimedOut, func_timeout
@@ -59,7 +60,7 @@ SHORT_TIMEOUT = 1
 SESSIONS_STORAGE = SessionsStorage()
 
 
-def test_browser_installation():
+def test_browser_installation() -> None:
     logging.info("Testing web browser installation...")
     logging.info("Platform: " + platform.platform())
 
@@ -205,6 +206,8 @@ def _cmd_sessions_list(req: V1RequestBase) -> V1ResponseBase:
 
 def _cmd_sessions_destroy(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
+    if session_id is None:
+        raise Exception("Request parameter 'session' is mandatory in 'sessions.destroy' command.")
     existed = SESSIONS_STORAGE.destroy(session_id)
 
     if not existed:
@@ -214,7 +217,8 @@ def _cmd_sessions_destroy(req: V1RequestBase) -> V1ResponseBase:
 
 
 def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
-    timeout = int(req.maxTimeout) / 1000
+    max_timeout = req.maxTimeout if req.maxTimeout is not None else 60000
+    timeout = int(max_timeout) / 1000
     driver = None
     try:
         if req.session:
@@ -231,7 +235,8 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         else:
             driver = utils.get_webdriver(req.proxy)
             logging.debug("New instance of webdriver has been created to perform the request")
-        return func_timeout(timeout, _evil_logic, (req, driver, method))
+        challenge_result = func_timeout(timeout, _evil_logic, (req, driver, method))
+        return cast(ChallengeResolutionT, challenge_result)
     except FunctionTimedOut:
         raise Exception(f"Error solving the challenge. Timeout after {timeout} seconds.")
     except Exception as e:
@@ -244,7 +249,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             logging.debug("A used instance of webdriver has been destroyed")
 
 
-def click_verify(driver: WebDriver, num_tabs: int = 1):
+def click_verify(driver: WebDriver, num_tabs: int = 1) -> None:
     try:
         logging.debug("Try to find the Cloudflare verify checkbox...")
         actions = ActionChains(driver)
@@ -278,7 +283,7 @@ def click_verify(driver: WebDriver, num_tabs: int = 1):
     time.sleep(2)
 
 
-def _get_turnstile_token(driver: WebDriver, tabs: int):
+def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
     token_input = driver.find_element(By.CSS_SELECTOR, "input[name='cf-turnstile-response']")
     current_value = token_input.get_attribute("value")
     while True:
@@ -302,9 +307,11 @@ def _get_turnstile_token(driver: WebDriver, tabs: int):
         time.sleep(1)
 
 
-def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver):
+def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver) -> str | None:
     turnstile_token = None
     if req.tabs_till_verify is not None:
+        if req.url is None:
+            raise Exception("Request parameter 'url' is mandatory in request commands.")
         logging.debug(f"Navigating to... {req.url} in order to pass the turnstile challenge")
         driver.get(req.url)
 
@@ -323,6 +330,10 @@ def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver):
 
 
 def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> ChallengeResolutionT:
+    if req.url is None:
+        raise Exception("Request parameter 'url' is mandatory in request commands.")
+    target_url = req.url
+
     res = ChallengeResolutionT({})
     res.status = STATUS_OK
     res.message = ""
@@ -395,7 +406,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
         _post_request(req, driver)
     else:
         if req.tabs_till_verify is None:
-            driver.get(req.url)
+            driver.get(target_url)
         else:
             turnstile_token = _resolve_turnstile_captcha(req, driver)
 
@@ -409,7 +420,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
         if method == "POST":
             _post_request(req, driver)
         else:
-            driver.get(req.url)
+            driver.get(target_url)
 
     # wait for the page
     if utils.get_config_log_html():
@@ -506,7 +517,9 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     return res
 
 
-def _post_request(req: V1RequestBase, driver: WebDriver):
+def _post_request(req: V1RequestBase, driver: WebDriver) -> None:
+    if req.url is None:
+        raise Exception("Request parameter 'url' is mandatory in request commands.")
     post_form = f'<form id="hackForm" action="{req.url}" method="POST">'
     query_string = req.postData if req.postData and req.postData[0] != "?" else req.postData[1:] if req.postData else ""
     pairs = query_string.split("&")

@@ -7,13 +7,13 @@ REQUEST_COUNTER = Counter(name="flaresolverr_request", documentation="Total requ
 REQUEST_DURATION = Histogram(name="flaresolverr_request_duration", documentation="Request duration in seconds", labelnames=["domain"], buckets=[0, 10, 25, 50])
 
 
-def serve(port):
+def serve(port: int) -> None:
     start_http_server(port=port)
     while True:
         time.sleep(600)
 
 
-def start_metrics_http_server(prometheus_port: int):
+def start_metrics_http_server(prometheus_port: int) -> None:
     logging.info(f"Serving Prometheus exporter on http://0.0.0.0:{prometheus_port}/metrics")
     from threading import Thread
 

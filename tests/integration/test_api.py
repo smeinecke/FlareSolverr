@@ -1,11 +1,15 @@
 import unittest
 from typing import Optional
 
+import pytest
+pytest.importorskip("webtest")
 from webtest import TestApp
 
 from dtos import IndexResponse, HealthResponse, V1ResponseBase, STATUS_OK, STATUS_ERROR
 import flaresolverr
 import utils
+
+pytestmark = pytest.mark.integration
 
 
 def _find_obj_by_key(key: str, value: str, _list: list) -> Optional[dict]:
@@ -27,9 +31,13 @@ class TestFlareSolverr(unittest.TestCase):
     custom_cloudflare_url = "https://www.muziekfabriek.org/"
     cloudflare_blocked_url = "https://cpasbiens3.fr/index.php?do=search&subaction=search"
 
-    app = TestApp(flaresolverr.app)
-    # wait until the server is ready
-    app.get("/")
+    app = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = TestApp(flaresolverr.app)
+        # wait until the server is ready
+        cls.app.get("/")
 
     def test_wrong_endpoint(self):
         res = self.app.get("/wrong", status=404)
@@ -544,7 +552,3 @@ class TestFlareSolverr(unittest.TestCase):
 
         body = V1ResponseBase(res.json)
         self.assertEqual(STATUS_OK, body.status)
-
-
-if __name__ == "__main__":
-    unittest.main()

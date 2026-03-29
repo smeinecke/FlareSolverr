@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from uuid import uuid1
 
 from selenium.webdriver.chrome.webdriver import WebDriver
@@ -25,7 +25,7 @@ class SessionsStorage:
     def __init__(self):
         self.sessions = {}
 
-    def create(self, session_id: Optional[str] = None, proxy: Optional[dict] = None, force_new: Optional[bool] = False) -> Tuple[Session, bool]:
+    def create(self, session_id: Optional[str] = None, proxy: Optional[dict[str, Any]] = None, force_new: Optional[bool] = False) -> Tuple[Session, bool]:
         """create creates new instance of WebDriver if necessary,
         assign defined (or newly generated) session_id to the instance
         and returns the session object. If a new session has been created

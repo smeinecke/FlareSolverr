@@ -389,6 +389,11 @@ dependencies = [
 build = [
     { name = "pyinstaller" },
 ]
+test = [
+    { name = "webtest" },
+]
+
+[package.dev-dependencies]
 dev = [
     { name = "bandit" },
     { name = "pre-commit" },
@@ -404,61 +409,31 @@ dev = [
     { name = "webtest" },
     { name = "xenon" },
 ]
-test = [
-    { name = "webtest" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "bandit" },
-    { name = "pre-commit" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "radon" },
-    { name = "ruff" },
-    { name = "tox" },
-    { name = "vulture" },
-    { name = "xenon" },
-]
 
 [package.metadata]
 requires-dist = [
-    { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.9.2" },
     { name = "bottle", specifier = "==0.13.4" },
     { name = "certifi", specifier = "==2025.11.12" },
     { name = "func-timeout", specifier = "==4.3.5" },
     { name = "packaging", specifier = "==25.0" },
     { name = "pefile", marker = "sys_platform == 'win32'", specifier = "==2024.8.26" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.0" },
     { name = "prometheus-client", specifier = "==0.23.1" },
     { name = "pyinstaller", marker = "extra == 'build'", specifier = "==6.17.0" },
-    { name = "pyinstaller", marker = "extra == 'dev'", specifier = "==6.17.0" },
-    { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.407" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.1" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.3.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.0.0" },
-    { name = "radon", marker = "extra == 'dev'", specifier = ">=6.0.1" },
     { name = "requests", specifier = "==2.33.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.14.6" },
     { name = "selenium", specifier = "==4.39.0" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=1.1.0" },
-    { name = "tox", marker = "extra == 'dev'", specifier = ">=4.32.0" },
-    { name = "vulture", marker = "extra == 'dev'", specifier = ">=2.14" },
     { name = "waitress", specifier = "==3.0.2" },
     { name = "websockets", specifier = "==15.0.1" },
-    { name = "webtest", marker = "extra == 'dev'", specifier = "==3.0.7" },
     { name = "webtest", marker = "extra == 'test'", specifier = "==3.0.7" },
-    { name = "xenon", marker = "extra == 'dev'", specifier = ">=0.9.3" },
     { name = "xvfbwrapper", marker = "sys_platform != 'win32'", specifier = "==0.2.16" },
 ]
-provides-extras = ["build", "test", "dev"]
+provides-extras = ["build", "test"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "bandit", specifier = ">=1.9.2" },
     { name = "pre-commit", specifier = ">=4.5.0" },
+    { name = "pyinstaller", specifier = "==6.17.0" },
     { name = "pyright", specifier = ">=1.1.407" },
     { name = "pytest", specifier = ">=9.0.1" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
@@ -467,6 +442,7 @@ dev = [
     { name = "ruff", specifier = ">=0.14.6" },
     { name = "tox", specifier = ">=4.32.0" },
     { name = "vulture", specifier = ">=2.14" },
+    { name = "webtest", specifier = "==3.0.7" },
     { name = "xenon", specifier = ">=0.9.3" },
 ]
 

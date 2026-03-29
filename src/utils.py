@@ -6,17 +6,19 @@ import re
 import shutil
 import tempfile
 import urllib.parse
+from typing import Any
+import tomllib
 
 from selenium.webdriver.chrome.webdriver import WebDriver
 import undetected_chromedriver as uc
 
-FLARESOLVERR_VERSION = None
-PLATFORM_VERSION = None
-CHROME_EXE_PATH = None
-CHROME_MAJOR_VERSION = None
-USER_AGENT = None
+FLARESOLVERR_VERSION: str | None = None
+PLATFORM_VERSION: str | None = None
+CHROME_EXE_PATH: str | None = None
+CHROME_MAJOR_VERSION: str | None = None
+USER_AGENT: str | None = None
 XVFB_DISPLAY = None
-PATCHED_DRIVER_PATH = None
+PATCHED_DRIVER_PATH: str | None = None
 
 
 def get_config_log_html() -> bool:
@@ -36,11 +38,6 @@ def get_flaresolverr_version() -> str:
     if FLARESOLVERR_VERSION is not None:
         return FLARESOLVERR_VERSION
 
-    try:
-        import tomllib
-    except ImportError:
-        import tomli as tomllib
-
     pyproject_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "pyproject.toml")
     if not os.path.isfile(pyproject_path):
         pyproject_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pyproject.toml")
@@ -48,6 +45,7 @@ def get_flaresolverr_version() -> str:
     with open(pyproject_path, "rb") as f:
         data = tomllib.load(f)
         FLARESOLVERR_VERSION = data["project"]["version"]
+        assert FLARESOLVERR_VERSION is not None
         return FLARESOLVERR_VERSION
 
 
@@ -59,7 +57,7 @@ def get_current_platform() -> str:
     return PLATFORM_VERSION
 
 
-def create_proxy_extension(proxy: dict) -> str:
+def create_proxy_extension(proxy: dict[str, Any]) -> str:
     parsed_url = urllib.parse.urlparse(proxy["url"])
     scheme = parsed_url.scheme
     host = parsed_url.hostname
@@ -130,7 +128,7 @@ def create_proxy_extension(proxy: dict) -> str:
     return proxy_extension_dir
 
 
-def get_webdriver(proxy: dict = None) -> WebDriver:
+def get_webdriver(proxy: dict[str, Any] | None = None) -> WebDriver:
     global PATCHED_DRIVER_PATH, USER_AGENT
     logging.debug("Launching web browser...")
 
@@ -212,9 +210,12 @@ def get_webdriver(proxy: dict = None) -> WebDriver:
 
     # save the patched driver to avoid re-downloads
     if driver_exe_path is None:
-        PATCHED_DRIVER_PATH = os.path.join(driver.patcher.data_path, driver.patcher.exe_name)
-        if PATCHED_DRIVER_PATH != driver.patcher.executable_path:
-            shutil.copy(driver.patcher.executable_path, PATCHED_DRIVER_PATH)
+        patcher = getattr(driver, "patcher", None)
+        if patcher is not None:
+            PATCHED_DRIVER_PATH = os.path.join(patcher.data_path, patcher.exe_name)
+            assert PATCHED_DRIVER_PATH is not None
+            if PATCHED_DRIVER_PATH != patcher.executable_path:
+                shutil.copy(patcher.executable_path, PATCHED_DRIVER_PATH)
 
     # clean up proxy extension directory
     if proxy_extension_dir is not None:
@@ -231,7 +232,7 @@ def get_webdriver(proxy: dict = None) -> WebDriver:
     return driver
 
 
-def get_chrome_exe_path() -> str:
+def get_chrome_exe_path() -> str | None:
     global CHROME_EXE_PATH
     if CHROME_EXE_PATH is not None:
         return CHROME_EXE_PATH
@@ -269,6 +270,8 @@ def get_chrome_major_version() -> str:
                 complete_version = extract_version_nt_folder()
     else:
         chrome_path = get_chrome_exe_path()
+        if chrome_path is None:
+            return ""
         process = os.popen(f'"{chrome_path}" --version')
         # Example 1: 'Chromium 104.0.5112.79 Arch Linux\n'
         # Example 2: 'Google Chrome 104.0.5112.79 Arch Linux\n'
@@ -280,7 +283,7 @@ def get_chrome_major_version() -> str:
 
 
 def extract_version_nt_executable(exe_path: str) -> str:
-    import pefile
+    import pefile  # pyright: ignore[reportMissingImports]
 
     pe = pefile.PE(exe_path, fast_load=True)
     pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_RESOURCE"]])
@@ -323,9 +326,13 @@ def get_user_agent(driver=None) -> str:
     try:
         if driver is None:
             driver = get_webdriver()
-        USER_AGENT = driver.execute_script("return navigator.userAgent")
+        user_agent_value = driver.execute_script("return navigator.userAgent")
+        if not isinstance(user_agent_value, str):
+            raise Exception("Error getting browser User-Agent. The returned value is not a string.")
+        USER_AGENT = user_agent_value
         # Fix for Chrome 117 | https://github.com/FlareSolverr/FlareSolverr/issues/910
         USER_AGENT = re.sub("HEADLESS", "", USER_AGENT, flags=re.IGNORECASE)
+        assert USER_AGENT is not None
         return USER_AGENT
     except Exception as e:
         raise Exception("Error getting browser User-Agent. " + str(e))
@@ -336,7 +343,7 @@ def get_user_agent(driver=None) -> str:
             driver.quit()
 
 
-def start_xvfb_display():
+def start_xvfb_display() -> None:
     global XVFB_DISPLAY
     if XVFB_DISPLAY is None:
         from xvfbwrapper import Xvfb
@@ -345,7 +352,7 @@ def start_xvfb_display():
         XVFB_DISPLAY.start()
 
 
-def object_to_dict(_object):
+def object_to_dict(_object: Any) -> dict[str, Any]:
     json_dict = json.loads(json.dumps(_object, default=lambda o: o.__dict__))
     # remove hidden fields
     return {k: v for k, v in json_dict.items() if not k.startswith("__")}
