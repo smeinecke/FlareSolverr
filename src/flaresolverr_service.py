@@ -478,7 +478,6 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
     challenge_res = ChallengeResolutionResultT({})
     challenge_res.url = driver.current_url
     challenge_res.status = 200  # todo: fix, selenium not provides this info
-    challenge_res.cookies = driver.get_cookies()
     challenge_res.userAgent = utils.get_user_agent(driver)
     challenge_res.turnstile_token = turnstile_token
 
@@ -490,6 +489,9 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
             time.sleep(req.waitInSeconds)
 
         challenge_res.response = driver.page_source
+
+    # Get cookies after waiting to ensure all challenge cookies are captured
+    challenge_res.cookies = driver.get_cookies()
 
     if req.returnScreenshot:
         challenge_res.screenshot = driver.get_screenshot_as_base64()
