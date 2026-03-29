@@ -218,7 +218,10 @@ class TestHCaptchaRealIntegration:
             site_link = SiteKey.as_site_link(SiteKey.user_easy)
             from urllib.parse import urlparse
             parsed = urlparse(site_link)
-            assert parsed.hostname and "hcaptcha.com" in parsed.hostname
+            assert parsed.hostname and (
+                parsed.hostname == "hcaptcha.com"
+                or parsed.hostname.endswith(".hcaptcha.com")
+            )
         except ImportError:
             pytest.skip("hcaptcha-challenger not installed")
 
