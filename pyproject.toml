@@ -33,7 +33,7 @@ dependencies = [
     "tomli>=1.1.0; python_version < '3.11'",
     "waitress==3.0.2",
     "websockets==15.0.1",
-    "xvfbwrapper==0.2.16; platform_system != 'Windows'",
+    "xvfbwrapper==0.2.23; platform_system != 'Windows'",
 ]
 
 [project.optional-dependencies]
