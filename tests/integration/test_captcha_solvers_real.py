@@ -70,8 +70,12 @@ def mock_webdriver_with_hcaptcha():
             elements = []
             if "h-captcha" in value or "hcaptcha" in value:
                 elements.append(MagicMock())
-            if "iframe" in value and "hcaptcha.com" in value:
-                elements.append(MagicMock())
+            # Use proper URL parsing to check for hCaptcha domain
+            if "iframe" in value:
+                from urllib.parse import urlparse
+                parsed = urlparse(value)
+                if parsed.hostname and parsed.hostname.endswith(".hcaptcha.com"):
+                    elements.append(MagicMock())
             return elements
 
         def get_cookies(self):
@@ -109,8 +113,12 @@ def mock_webdriver_with_recaptcha():
             elements = []
             if "g-recaptcha" in value or "recaptcha" in value:
                 elements.append(MagicMock())
-            if "iframe" in value and "google.com/recaptcha" in value:
-                elements.append(MagicMock())
+            # Use proper URL parsing to check for reCAPTCHA domain
+            if "iframe" in value:
+                from urllib.parse import urlparse
+                parsed = urlparse(value)
+                if parsed.hostname and parsed.hostname == "www.google.com" and "/recaptcha/" in parsed.path:
+                    elements.append(MagicMock())
             return elements
 
         def get_cookies(self):
@@ -208,7 +216,9 @@ class TestHCaptchaRealIntegration:
 
             # Verify site link generation works
             site_link = SiteKey.as_site_link(SiteKey.user_easy)
-            assert "hcaptcha.com" in site_link
+            from urllib.parse import urlparse
+            parsed = urlparse(site_link)
+            assert parsed.hostname and "hcaptcha.com" in parsed.hostname
         except ImportError:
             pytest.skip("hcaptcha-challenger not installed")
 
@@ -282,9 +292,11 @@ class TestReCaptchaRealIntegration:
 
         # In a real integration test, we would verify the page loads
         # For this test, we just verify the URL pattern
-        assert "google.com" in demo_url
-        assert "recaptcha" in demo_url
-        assert "demo" in demo_url
+        from urllib.parse import urlparse
+        parsed = urlparse(demo_url)
+        assert parsed.hostname == "www.google.com"
+        assert parsed.path.startswith("/recaptcha/")
+        assert parsed.path.endswith("/demo")
 
 
 class TestSolverManagerIntegration:
