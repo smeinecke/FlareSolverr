@@ -77,6 +77,14 @@ class MockWebDriver:
     def close(self):
         pass
 
+    @property
+    def switch_to(self):
+        """Mock switch_to for ActionChains compatibility."""
+        class MockSwitchTo:
+            def default_content(self):
+                pass
+        return MockSwitchTo()
+
 
 class TestTurnstileRetryFix:
     """Tests for turnstile captcha retry fix."""
