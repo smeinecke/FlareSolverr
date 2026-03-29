@@ -253,6 +253,13 @@ class TestTurnstileIntegration:
             def execute_script(self, script):
                 return None
 
+            @property
+            def switch_to(self):
+                class MockSwitchTo:
+                    def default_content(self):
+                        pass
+                return MockSwitchTo()
+
         driver = MockTurnstileDriver()
 
         req = V1RequestBase({
