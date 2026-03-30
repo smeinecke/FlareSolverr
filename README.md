@@ -1,11 +1,11 @@
 # FlareSolverr
 
-[![Latest release](https://img.shields.io/github/v/release/FlareSolverr/FlareSolverr)](https://github.com/FlareSolverr/FlareSolverr/releases)
-[![Docker Pulls](https://img.shields.io/docker/pulls/flaresolverr/flaresolverr)](https://hub.docker.com/r/flaresolverr/flaresolverr)
-[![Docker Stars](https://img.shields.io/docker/stars/flaresolverr/flaresolverr)](https://hub.docker.com/r/flaresolverr/flaresolverr)
-[![GitHub issues](https://img.shields.io/github/issues/FlareSolverr/FlareSolverr)](https://github.com/FlareSolverr/FlareSolverr/issues)
-[![GitHub pull requests](https://img.shields.io/github/issues-pr/FlareSolverr/FlareSolverr)](https://github.com/FlareSolverr/FlareSolverr/pulls)
-[![GitHub Repo stars](https://img.shields.io/github/stars/FlareSolverr/FlareSolverr)](https://github.com/FlareSolverr/FlareSolverr)
+[![Latest release](https://img.shields.io/github/v/release/smeinecke/FlareSolverr)](https://github.com/smeinecke/FlareSolverr/releases)
+[![Docker Pulls](https://img.shields.io/docker/pulls/smeinecke/flaresolverr)](https://github.com/smeinecke/FlareSolverr/pkgs/container/flaresolverr)
+[![Docker Stars](https://img.shields.io/docker/stars/smeinecke/flaresolverr)](https://github.com/smeinecke/FlareSolverr/pkgs/container/flaresolverr)
+[![GitHub issues](https://img.shields.io/github/issues/smeinecke/FlareSolverr)](https://github.com/smeinecke/FlareSolverr/issues)
+[![GitHub pull requests](https://img.shields.io/github/issues-pr/smeinecke/FlareSolverr)](https://github.com/smeinecke/FlareSolverr/pulls)
+[![GitHub Repo stars](https://img.shields.io/github/stars/smeinecke/FlareSolverr)](https://github.com/smeinecke/FlareSolverr)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/ngosang)
 
@@ -35,8 +35,8 @@ already included within the image.
 
 Docker images are available in:
 
-- GitHub Registry => https://github.com/orgs/FlareSolverr/packages/container/package/flaresolverr
-- DockerHub => https://hub.docker.com/r/flaresolverr/flaresolverr
+- GitHub Container Registry => `ghcr.io/smeinecke/flaresolverr:latest`
+- GitHub Packages => https://github.com/smeinecke/FlareSolverr/pkgs/container/flaresolverr
 
 Supported architectures are:
 
@@ -61,13 +61,13 @@ docker run -d \
   -p 8191:8191 \
   -e LOG_LEVEL=info \
   --restart unless-stopped \
-  ghcr.io/flaresolverr/flaresolverr:latest
+  ghcr.io/smeinecke/flaresolverr:latest
 ```
 
 **Command Prompt or Powershell**
 
 ```cmd
-docker run -d --name=flaresolverr -p 8191:8191 -e LOG_LEVEL=info --restart unless-stopped ghcr.io/flaresolverr/flaresolverr:latest
+docker run -d --name=flaresolverr -p 8191:8191 -e LOG_LEVEL=info --restart unless-stopped ghcr.io/smeinecke/flaresolverr:latest
 ```
 
 If your host OS is Debian, make sure `libseccomp2` version is 2.5.x. You can check the version with `sudo apt-cache policy libseccomp2`
@@ -81,7 +81,7 @@ Remember to restart the Docker daemon and the container after the update.
 
 This is the recommended way for Windows users.
 
-- Download the [FlareSolverr executable](https://github.com/FlareSolverr/FlareSolverr/releases) from the release's page. It is available for Windows x64 and Linux x64.
+- Download the [FlareSolverr executable](https://github.com/smeinecke/FlareSolverr/releases) from the release's page. It is available for Windows x64 and Linux x64.
 - Execute FlareSolverr binary. In the environment variables section you can find how to change the configuration.
 
 ### From source code
@@ -343,5 +343,5 @@ to the file name of one of the adapters inside the `/captcha` directory.
 
 ## Related projects
 
-- C# implementation => https://github.com/FlareSolverr/FlareSolverrSharp
+- C# implementation => https://github.com/smeinecke/FlareSolverrSharp
 
