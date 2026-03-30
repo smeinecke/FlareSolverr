@@ -105,13 +105,53 @@ jobs:
         run: |
           uv sync --group dev --extra test
 
-      - name: Build FlareSolverr Docker image
+      - name: Create test compose file
         run: |
-          docker build -t flaresolverr-integration:${{ github.sha }} .
+          cat > docker-compose.test.yml << 'EOF'
+          services:
+            flaresolverr:
+              build: .
+              ports:
+                - "127.0.0.1:8191:8191"
+              networks:
+                - test-network
+            proxy-http:
+              build:
+                context: .github/docker/tinyproxy
+                dockerfile: Dockerfile
+              ports:
+                - "127.0.0.1:8888:8888"
+              networks:
+                - test-network
+            proxy-socks:
+              image: serjs/go-socks5-proxy:latest
+              environment:
+                - REQUIRE_AUTH=false
+              ports:
+                - "127.0.0.1:1080:1080"
+              networks:
+                - test-network
+          networks:
+            test-network:
+              driver: bridge
+          EOF
 
-      - name: Start local HTTP and SOCKS proxies
+      - name: Start all services
         run: |
-          docker compose -f docker-compose.integration.yml up -d --build
+          docker compose -f docker-compose.test.yml up -d --build
+
+      - name: Wait for FlareSolverr to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8191/ >/dev/null 2>&1; then
+              echo "FlareSolverr is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "FlareSolverr failed to start"
+          docker compose -f docker-compose.test.yml logs flaresolverr
+          exit 1
 
       - name: Wait for proxies to be ready
         run: |
@@ -124,19 +164,29 @@ jobs:
             sleep 2
           done
           echo "Proxy readiness check failed"
-          docker compose -f docker-compose.integration.yml logs
+          docker compose -f docker-compose.test.yml logs
           exit 1
 
       - name: Run integration tests (proxy scenarios)
+        env:
+          FLARESOLVERR_URL: http://127.0.0.1:8191
+          PROXY_HTTP_URL: http://proxy-http:8888
+          PROXY_SOCKS_URL: socks5://proxy-socks:1080
         run: |
           uv run pytest -m integration tests/integration/test_api.py -k "proxy_http_param or proxy_http_param_with_credentials or proxy_socks_param" -vv
+
+      - name: Dump FlareSolverr logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.test.yml logs flaresolverr
 
       - name: Dump proxy logs on failure
         if: failure()
         run: |
-          docker compose -f docker-compose.integration.yml logs
+          docker compose -f docker-compose.test.yml logs
 
-      - name: Tear down proxy services
+      - name: Tear down services
         if: always()
         run: |
-          docker compose -f docker-compose.integration.yml down -v --remove-orphans
+          docker compose -f docker-compose.test.yml down -v --remove-orphans
+          rm -f docker-compose.test.yml

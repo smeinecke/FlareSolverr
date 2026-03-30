@@ -1,6 +1,6 @@
-FROM python:3.13-slim-trixie AS builder
+FROM python:3.13-slim-trixie AS dummy-packages
 
-# Build dummy packages to skip installing them and their dependencies
+# Keep the current workaround until all target arches are validated without it.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends equivs \
     && equivs-control libgl1-mesa-dri \
@@ -10,65 +10,79 @@ RUN apt-get update \
     && equivs-control adwaita-icon-theme \
     && printf 'Section: misc\nPriority: optional\nStandards-Version: 3.9.2\nPackage: adwaita-icon-theme\nVersion: 99.0.0\nDescription: Dummy package for adwaita-icon-theme\n' >> adwaita-icon-theme \
     && equivs-build adwaita-icon-theme \
-    && mv adwaita-icon-theme_*.deb /adwaita-icon-theme.deb
+    && mv adwaita-icon-theme_*.deb /adwaita-icon-theme.deb \
+    && rm -rf /var/lib/apt/lists/*
 
-FROM ghcr.io/astral-sh/uv:latest AS uv
+FROM python:3.13-slim-trixie AS python-deps
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Install uv for the correct target architecture (pinned version)
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && case "${TARGETARCH}" in \
+        amd64) UV_ARCH="x86_64-unknown-linux-gnu" ;; \
+        arm64) UV_ARCH="aarch64-unknown-linux-gnu" ;; \
+        arm) UV_ARCH="armv7-unknown-linux-gnueabihf" ;; \
+        386) UV_ARCH="i686-unknown-linux-gnu" ;; \
+        *) UV_ARCH="x86_64-unknown-linux-gnu" ;; \
+    esac \
+    && curl -sL "https://github.com/astral-sh/uv/releases/download/0.10.8/uv-${UV_ARCH}.tar.gz" | tar xz -C /usr/local/bin --strip-components=1 \
+    && chmod +x /usr/local/bin/uv /usr/local/bin/uvx
+
+WORKDIR /app
+
+# Preserve repo layout so the editable install still points at /app/src.
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+
+# Create the virtualenv and install locked, non-dev dependencies.
+RUN uv sync --frozen --no-dev \
+    && rm -rf /root/.cache /tmp/*
 
 FROM python:3.13-slim-trixie
 
-# Copy dummy packages
-COPY --from=builder /*.deb /
-# Copy uv binaries
-COPY --from=uv /uv /uvx /bin/
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/app \
+    PATH=/app/.venv/bin:$PATH
 
-# Install dependencies and create flaresolverr user
-# You can test Chromium running this command inside the container:
-#    xvfb-run -s "-screen 0 1600x1200x24" chromium --no-sandbox
-# The error traces is like this: "*** stack smashing detected ***: terminated"
-# To check the package versions available you can use this command:
-#    apt-cache madison chromium
 WORKDIR /app
-    # Install dummy packages
-RUN dpkg -i /libgl1-mesa-dri.deb \
-    && dpkg -i /adwaita-icon-theme.deb \
-    # Install dependencies
+
+COPY --from=dummy-packages /libgl1-mesa-dri.deb /adwaita-icon-theme.deb /
+
+RUN dpkg -i /libgl1-mesa-dri.deb /adwaita-icon-theme.deb \
     && apt-get update \
-    && apt-get install -y --no-install-recommends chromium chromium-common chromium-driver xvfb dumb-init \
-        procps curl vim xauth \
-    # Remove temporary files and hardware decoding libraries
+    && apt-get install -y --no-install-recommends \
+        chromium \
+        chromium-driver \
+        xvfb \
+        dumb-init \
+        xauth \
     && rm -rf /var/lib/apt/lists/* \
-    && rm -f /usr/lib/x86_64-linux-gnu/libmfxhw* \
-    && rm -f /usr/lib/x86_64-linux-gnu/mfx/* \
-    # Create flaresolverr user
+    && rm -f /libgl1-mesa-dri.deb /adwaita-icon-theme.deb \
+    && rm -f /usr/lib/*-linux-gnu/libmfxhw* \
+    && rm -f /usr/lib/*-linux-gnu/mfx/* \
     && useradd --home-dir /app --shell /bin/sh flaresolverr \
-    && mv /usr/bin/chromedriver chromedriver \
-    && chown -R flaresolverr:flaresolverr . \
-    # Create config dir
-    && mkdir /config \
-    && chown flaresolverr:flaresolverr /config
+    && mkdir -p /config "/app/.config/chromium/Crash Reports/pending" \
+    && cp /usr/bin/chromedriver /app/chromedriver \
+    && chown -R flaresolverr:flaresolverr /config /app
 
 VOLUME /config
 
-# Install Python dependencies
-COPY pyproject.toml uv.lock README.md ./
-RUN UV_PROJECT_ENVIRONMENT=/usr/local uv sync --locked --no-dev \
-    # Remove temporary files
-    && rm -rf /root/.cache
+COPY --from=python-deps --chown=flaresolverr:flaresolverr /app/.venv /app/.venv
+COPY --chown=flaresolverr:flaresolverr pyproject.toml /app/pyproject.toml
+COPY --chown=flaresolverr:flaresolverr src /app/src
 
 USER flaresolverr
-
-RUN mkdir -p "/app/.config/chromium/Crash Reports/pending"
-
-COPY src .
-COPY pyproject.toml ../
 
 EXPOSE 8191
 EXPOSE 8192
 
-# dumb-init avoids zombie chromium processes
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-
-CMD ["/bin/uv", "run", "--no-sync", "python", "-u", "/app/flaresolverr.py"]
+CMD ["python", "-u", "/app/src/flaresolverr.py"]
 
 # Local build
 # docker build -t ngosang/flaresolverr:3.4.6 .

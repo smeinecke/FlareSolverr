@@ -15,13 +15,13 @@ class Session:
     session_id: str
     driver: WebDriver
     created_at: datetime
-    lock: threading.Lock
+    lock: threading.Lock  # noqa
 
     def __init__(self, session_id: str, driver: WebDriver, created_at: datetime):
         self.session_id = session_id
         self.driver = driver
         self.created_at = created_at
-        self.lock = threading.Lock()
+        self.lock = threading.Lock()  # noqa
 
     def lifetime(self) -> timedelta:
         return datetime.now() - self.created_at
