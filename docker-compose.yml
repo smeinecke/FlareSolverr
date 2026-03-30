@@ -2,8 +2,8 @@
 version: "2.1"
 services:
   flaresolverr:
-    # DockerHub mirror flaresolverr/flaresolverr:latest
-    image: ghcr.io/flaresolverr/flaresolverr:latest
+    # GitHub Container Registry ghcr.io/smeinecke/flaresolverr:latest
+    image: ghcr.io/smeinecke/flaresolverr:latest
     container_name: flaresolverr
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}

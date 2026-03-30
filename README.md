@@ -1,13 +1,13 @@
 # FlareSolverr
 
 [![Latest release](https://img.shields.io/github/v/release/smeinecke/FlareSolverr)](https://github.com/smeinecke/FlareSolverr/releases)
-[![Docker Pulls](https://img.shields.io/docker/pulls/smeinecke/flaresolverr)](https://github.com/smeinecke/FlareSolverr/pkgs/container/flaresolverr)
-[![Docker Stars](https://img.shields.io/docker/stars/smeinecke/flaresolverr)](https://github.com/smeinecke/FlareSolverr/pkgs/container/flaresolverr)
 [![GitHub issues](https://img.shields.io/github/issues/smeinecke/FlareSolverr)](https://github.com/smeinecke/FlareSolverr/issues)
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/smeinecke/FlareSolverr)](https://github.com/smeinecke/FlareSolverr/pulls)
 [![GitHub Repo stars](https://img.shields.io/github/stars/smeinecke/FlareSolverr)](https://github.com/smeinecke/FlareSolverr)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/ngosang)
+
+> **Note:** This is a fork of the original [FlareSolverr/FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) repository with additional features and fixes.
 
 FlareSolverr is a proxy server to bypass Cloudflare and DDoS-GUARD protection.
 
@@ -343,5 +343,5 @@ to the file name of one of the adapters inside the `/captcha` directory.
 
 ## Related projects
 
-- C# implementation => https://github.com/smeinecke/FlareSolverrSharp
+- C# implementation => https://github.com/FlareSolverr/FlareSolverrSharp
 
