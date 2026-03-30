@@ -64,7 +64,7 @@ class HCaptchaChallengerSolver(CaptchaSolver):
     This is an AI-based solver that uses multimodal large language models
     to solve hCaptcha challenges without third-party services.
 
-    Install: pip install hcaptcha-challenger
+    Install: uv pip install hcaptcha-challenger
     Docs: https://github.com/QIN2DIM/hcaptcha-challenger
     """
 
@@ -128,7 +128,7 @@ class ReCaptchaChallengerSolver(CaptchaSolver):
 
     This is an AI-based solver for reCAPTCHA challenges.
 
-    Install: pip install recaptcha-challenger
+    Install: uv pip install recaptcha-challenger
     Docs: https://github.com/QIN2DIM/recaptcha-challenger
     """
 
