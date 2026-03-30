@@ -32,6 +32,7 @@ class MockWebDriver:
         self._executed_scripts = []
         self._token_value = ""
         self._find_attempts = 0
+        self.switch_to = MagicMock()
 
     def find_element(self, by, value):
         """Simulate finding the turnstile token input."""
@@ -215,6 +216,7 @@ class TestTurnstileIntegration:
                 self.current_url = "https://example.com"
                 self._token_value = ""
                 self._attempts = 0
+                self.switch_to = MagicMock()
 
             def get(self, url):
                 self.current_url = url
@@ -264,6 +266,9 @@ class TestTurnstileEdgeCases:
         import flaresolverr_service as service
 
         class NoTurnstileDriver:
+            def __init__(self):
+                self.switch_to = MagicMock()
+
             def get(self, url):
                 pass
 
@@ -286,7 +291,8 @@ class TestTurnstileEdgeCases:
         import flaresolverr_service as service
 
         class AnyDriver:
-            pass
+            def __init__(self):
+                self.switch_to = MagicMock()
 
         driver = AnyDriver()
 
