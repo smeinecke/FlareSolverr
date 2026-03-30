@@ -16,7 +16,19 @@ concurrency:
 jobs:
   build-docker-images:
     if: ${{ !github.event.pull_request.head.repo.fork }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/386
+            runner: ubuntu-latest
+          - platform: linux/arm/v7
+            runner: ubuntu-latest
+          - platform: linux/arm64/v8
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -37,6 +49,7 @@ jobs:
             latest=auto
 
       - name: Set up QEMU
+        if: ${{ matrix.runner == 'ubuntu-latest' }}
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
@@ -55,7 +68,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/386,linux/amd64,linux/arm/v7,linux/arm64/v8
+          platforms: ${{ matrix.platform }}
           push: true
           tags: ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}
