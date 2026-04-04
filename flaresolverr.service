@@ -10,7 +10,7 @@ Type=simple
 User=flaresolverr
 Group=flaresolverr
 Environment="LOG_LEVEL=info"
-Environment="CAPTCHA_SOLVER=none"
+Environment="CAPTCHA_SOLVER=default"
 WorkingDirectory=/opt/flaresolverr
 ExecStart=/opt/flaresolverr/flaresolverr
 TimeoutStopSec=30

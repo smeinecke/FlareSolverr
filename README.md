@@ -200,7 +200,7 @@ session. When you no longer need to use a session you should make sure to close 
 | headers             | Optional. Custom HTTP headers to send with the request. Useful for sites requiring specific referrers or custom headers. Supports dict format: `"headers": [{"name": "Referer", "value": "https://example.com"}]` or string format: `"headers": ["Referer: https://example.com"]`.                                                          |
 | returnOnlyCookies   | Optional, default false. Only returns the cookies. Response data, headers and other parts of the response are removed.                                                                                                                                                                                                                       |
 | returnScreenshot    | Optional, default false. Captures a screenshot of the final rendered page after all challenges and waits are completed. The screenshot is returned as a Base64-encoded PNG string in the `screenshot` field of the response.                                                                                                                 |
-| proxy               | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. You must include the proxy schema in the URL: `http://`, `socks4://` or `socks5://`. Authorization (username/password) is not supported. (When the `session` parameter is set, the proxy is ignored; a session specific proxy can be set in `sessions.create`.) |
+| proxy               | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. You must include the proxy schema in the URL: `http://`, `socks4://` or `socks5://`. Authorization (username/password) is supported when `username` and `password` are provided. Eg: `"proxy": {"url": "http://127.0.0.1:8888", "username": "testuser", "password": "testpass"}`. (When the `session` parameter is set, the proxy is ignored; a session specific proxy can be set in `sessions.create`.) |
 | waitInSeconds       | Optional, default none. Length to wait in seconds after solving the challenge, and before returning the results. Useful to allow it to load dynamic content.                                                                                                                                                                                 |
 | disableMedia        | Optional, default false. When true FlareSolverr will prevent media resources (images, CSS, and fonts) from being loaded to speed up navigation.                                                                                                                                                                                              |
 | tabs_till_verify    | Optional, default none. Number of times the `Tab` button is needed to be pressed to end up on the turnstile captcha, in order to verify it. After verifying the captcha, the result will be stored in the solution under `turnstile_token`.                                                                                                  |
@@ -287,12 +287,11 @@ This works like `request.get`, with the addition of the postData parameter. Note
 | PROXY_URL          | none                   | URL for proxy. Will be overwritten by `request` or `sessions` proxy, if used. Example: `http://127.0.0.1:8080`.                          |
 | PROXY_USERNAME     | none                   | Username for proxy. Will be overwritten by `request` or `sessions` proxy, if used. Example: `testuser`.                                  |
 | PROXY_PASSWORD     | none                   | Password for proxy. Will be overwritten by `request` or `sessions` proxy, if used. Example: `testpass`.                                  |
-| CAPTCHA_SOLVER     | none                   | Captcha solving method. It is used when a captcha is encountered. See the Captcha Solvers section.                                       |
+| CAPTCHA_SOLVER     | default                | Captcha solving method. It is used when a captcha is encountered. See the Captcha Solvers section.                                       |
 | TZ                 | UTC                    | Timezone used in the logs and the web browser. Example: `TZ=Europe/London`.                                                              |
 | LANG               | none                   | Language used in the web browser. Example: `LANG=en_GB`.                                                                                 |
 | HEADLESS           | true                   | Only for debugging. To run the web browser in headless mode or visible.                                                                  |
 | DISABLE_MEDIA      | false                  | To disable loading images, CSS, and other media in the web browser to save network bandwidth.                                            |
-| TEST_URL           | https://www.google.com | FlareSolverr makes a request on start to make sure the web browser is working. You can change that URL if it is blocked in your country. |
 | PORT               | 8191                   | Listening port. You don't need to change this if you are running on Docker.                                                              |
 | HOST               | 0.0.0.0                | Listening interface. You don't need to change this if you are running on Docker.                                                         |
 | PROMETHEUS_ENABLED | false                  | Enable Prometheus exporter. See the Prometheus section below.                                                                            |
@@ -333,15 +332,19 @@ flaresolverr_request_duration_created{domain="nowsecure.nl"} 1.6901416571570296e
 
 ## Captcha Solvers
 
-> **Warning**
-> At this time none of the captcha solvers work. You can check the status in the open issues. Any help is welcome.
+FlareSolverr always has a built-in `default` solver mode, which relies on the normal browser-driven challenge handling.
 
-Sometimes CloudFlare not only gives mathematical computations and browser tests, sometimes they also require the user to
-solve a captcha.
-If this is the case, FlareSolverr will return the error `Captcha detected but no automatic solver is configured.`
+Additional optional solver integrations are implemented in [`src/captcha_solvers.py`](src/captcha_solvers.py). The
+currently recognized solver names are:
 
-FlareSolverr can be customized to solve the CAPTCHA automatically by setting the environment variable `CAPTCHA_SOLVER`
-to the file name of one of the adapters inside the `/captcha` directory.
+- `default`
+- `hcaptcha-challenger` if the optional dependency is installed
+- `recaptcha-challenger` if the optional dependency is installed
+
+If a captcha cannot be solved by the configured solver, FlareSolverr will return an error such as
+`Captcha detected but no automatic solver is configured.`
+
+Set the `CAPTCHA_SOLVER` environment variable to one of the available solver names to change the behavior.
 
 ## Related projects
 
