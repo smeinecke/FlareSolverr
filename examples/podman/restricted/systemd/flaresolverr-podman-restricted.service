@@ -1,0 +1,28 @@
+[Unit]
+Description=Run restricted FlareSolverr with Podman
+Requires=flaresolverr-podman-networks.service flaresolverr-podman-dnsdist.service
+After=network-online.target flaresolverr-podman-networks.service flaresolverr-podman-dnsdist.service
+Wants=network-online.target
+
+[Service]
+Environment=IMAGE=ghcr.io/smeinecke/flaresolverr:latest
+Environment=CONFIG_DIR=/srv/flaresolverr/config
+Environment=RESTRICTED_NETWORK=flaresolverr_restricted
+Environment=RESTRICTED_GATEWAY=10.89.60.1
+Environment=DNSDIST_IP=10.89.60.53
+Environment=ALLOWED_PRIVATE_CIDRS=192.168.50.0/24
+Environment=LOG_LEVEL=info
+Environment=LOG_FILE=/config/flaresolverr.log
+Environment=TZ=UTC
+ExecStartPre=/usr/bin/mkdir -p ${CONFIG_DIR}
+ExecStartPre=-/usr/bin/podman rm -f flaresolverr
+ExecStartPre=/usr/bin/podman create --name flaresolverr --network ${RESTRICTED_NETWORK} --dns ${DNSDIST_IP} -p 127.0.0.1:8191:8191 -v ${CONFIG_DIR}:/config:Z -e LOG_LEVEL=${LOG_LEVEL} -e LOG_FILE=${LOG_FILE} -e TZ=${TZ} ${IMAGE}
+ExecStart=/usr/bin/podman start -a flaresolverr
+ExecStartPost=/usr/bin/bash -lc 'PID=$(/usr/bin/podman inspect -f "{{.State.Pid}}" flaresolverr); /usr/bin/nsenter -t "$PID" -n /usr/sbin/ip route del default || true; for cidr in ${ALLOWED_PRIVATE_CIDRS}; do /usr/bin/nsenter -t "$PID" -n /usr/sbin/ip route replace "$cidr" via "${RESTRICTED_GATEWAY}"; done'
+ExecStop=/usr/bin/podman stop -t 10 flaresolverr
+Restart=always
+RestartSec=5
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

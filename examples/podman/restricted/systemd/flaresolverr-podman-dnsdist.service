@@ -1,0 +1,24 @@
+[Unit]
+Description=Run the Podman dnsdist sidecar for FlareSolverr
+Requires=flaresolverr-podman-networks.service
+After=network-online.target flaresolverr-podman-networks.service
+Wants=network-online.target
+
+[Service]
+Environment=IMAGE=localhost/flaresolverr-dnsdist:latest
+Environment=RESTRICTED_NETWORK=flaresolverr_restricted
+Environment=DNS_UPLINK_NETWORK=flaresolverr_dns_uplink
+Environment=DNSDIST_IP=10.89.60.53
+Environment=DNSDIST_BIND_ADDRESS=10.89.60.53:53
+Environment=DNSDIST_ALLOW_FROM=10.89.60.0/24
+Environment=PUBLIC_DNSDIST_URL=https://raw.githubusercontent.com/disposable/public-dns/main/txt/dnsdist.conf
+ExecStartPre=-/usr/bin/podman rm -f flaresolverr-dnsdist
+ExecStartPre=/usr/bin/bash -lc '/usr/bin/podman create --name flaresolverr-dnsdist --network "${RESTRICTED_NETWORK}" --ip "${DNSDIST_IP}" -e DNSDIST_BIND_ADDRESS="${DNSDIST_BIND_ADDRESS}" -e DNSDIST_ALLOW_FROM="${DNSDIST_ALLOW_FROM}" -e PUBLIC_DNSDIST_URL="${PUBLIC_DNSDIST_URL}" "${IMAGE}" && /usr/bin/podman network connect "${DNS_UPLINK_NETWORK}" flaresolverr-dnsdist'
+ExecStart=/usr/bin/podman start -a flaresolverr-dnsdist
+ExecStop=/usr/bin/podman stop -t 10 flaresolverr-dnsdist
+Restart=always
+RestartSec=5
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
