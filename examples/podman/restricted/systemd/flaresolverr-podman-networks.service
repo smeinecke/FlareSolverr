@@ -1,0 +1,18 @@
+[Unit]
+Description=Prepare Podman networks for restricted FlareSolverr
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=RESTRICTED_NETWORK=flaresolverr_restricted
+Environment=RESTRICTED_SUBNET=10.89.60.0/24
+Environment=RESTRICTED_GATEWAY=10.89.60.1
+Environment=DNS_UPLINK_NETWORK=flaresolverr_dns_uplink
+Environment=DNS_UPLINK_SUBNET=10.89.61.0/24
+Environment=DNS_UPLINK_GATEWAY=10.89.61.1
+ExecStart=/usr/bin/bash -lc 'if ! /usr/bin/podman network inspect "${RESTRICTED_NETWORK}" >/dev/null 2>&1; then /usr/bin/podman network create --subnet "${RESTRICTED_SUBNET}" --gateway "${RESTRICTED_GATEWAY}" --disable-dns "${RESTRICTED_NETWORK}"; fi; if ! /usr/bin/podman network inspect "${DNS_UPLINK_NETWORK}" >/dev/null 2>&1; then /usr/bin/podman network create --subnet "${DNS_UPLINK_SUBNET}" --gateway "${DNS_UPLINK_GATEWAY}" "${DNS_UPLINK_NETWORK}"; fi'
+
+[Install]
+WantedBy=multi-user.target

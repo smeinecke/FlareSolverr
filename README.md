@@ -74,6 +74,13 @@ If your host OS is Debian, make sure `libseccomp2` version is 2.5.x. You can che
 and update the package with `sudo apt install libseccomp2=2.5.1-1~bpo10+1` or `sudo apt install libseccomp2=2.5.1-1+deb11u1`.
 Remember to restart the Docker daemon and the container after the update.
 
+### Podman
+
+If you prefer Podman, see [PODMAN.md](./PODMAN.md) for two ready-to-run examples:
+
+- a standard Podman deployment
+- a restricted deployment with separate networks and a `dnsdist` DNS sidecar so FlareSolverr itself has no public egress
+
 ### Precompiled binaries
 
 > **Warning**

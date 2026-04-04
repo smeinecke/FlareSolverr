@@ -1,16 +1,13 @@
 # Running FlareSolverr with Podman
 
-This document shows how to run FlareSolverr with Podman and how to harden the container so it can only open outbound connections to LAN addresses. The LAN-only setup is useful when FlareSolverr must talk only to local proxy servers and you want to reduce the chance of direct Internet traffic leaking out of the container.
+This repository ships two Podman example layouts:
 
-## Image and runtime facts
+- standard: FlareSolverr with normal outbound access
+- restricted: FlareSolverr on a private-only network with a separate `dnsdist` sidecar for DNS
 
-The current container image in this repository:
+The examples are centered around systemd-managed services so the containers start automatically on boot.
 
-- listens on `8191/tcp` for the API
-- optionally listens on `8192/tcp` when `PROMETHEUS_ENABLED=true`
-- stores persistent data in `/config`
-- runs as the non-root user `flaresolverr`
-- performs a startup browser smoke test by launching Chromium and reading the user agent
+## Image facts
 
 The published image is:
 
@@ -18,361 +15,147 @@ The published image is:
 ghcr.io/smeinecke/flaresolverr:latest
 ```
 
-## Startup test behavior
+The image:
 
-In the current codebase, FlareSolverr still performs a startup browser validation, but it does not use `TEST_URL`.
+- listens on `8191/tcp` for the API
+- optionally listens on `8192/tcp` when `PROMETHEUS_ENABLED=true`
+- stores persistent data in `/config`
+- runs as the non-root user `flaresolverr`
 
-- there is currently no `TEST_URL` environment variable in use
-- setting `TEST_URL` to an empty value does not disable anything
-- the startup check is a local browser launch and user-agent retrieval, not an outbound HTTP request to a fixed test site
+## Startup behavior
 
-That matters for locked-down Podman deployments: the LAN-only egress rules in this document do not need a special exception for a startup URL fetch.
+FlareSolverr performs a startup browser validation, but it does not fetch a fixed external test URL.
+The current startup check is a local browser launch and user-agent retrieval.
 
-## Recommendation for secure deployments
+That matters for restricted deployments: you do not need a special egress exception for startup.
 
-For normal Podman usage, both rootless and rootful containers work.
+## Recommendation
 
-For strict outbound traffic control, prefer a **rootful** Podman deployment with a dedicated bridge network. That gives you two useful controls:
+For strict outbound control, prefer a rootful Podman deployment with dedicated bridge networks.
+That keeps the network boundaries easy to reason about and makes systemd-managed startup straightforward.
 
-1. you can create a network with **no default route**
-2. you can add **only the LAN routes you want**
+## Standard deployment
 
-That is much easier to reason about than rootless user-mode networking when leakage prevention matters.
+Files:
 
-## Quick start
+- [flaresolverr-podman.service](/home/stefan/github/FlareSolverr/examples/podman/standard/systemd/flaresolverr-podman.service)
+- [run.sh](/home/stefan/github/FlareSolverr/examples/podman/standard/run.sh)
 
-Create a persistent config directory:
+Install:
 
 ```bash
 sudo mkdir -p /srv/flaresolverr/config
-sudo chown -R root:root /srv/flaresolverr
+sudo cp examples/podman/standard/systemd/flaresolverr-podman.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now flaresolverr-podman.service
 ```
 
-Run FlareSolverr with Podman:
-
-```bash
-sudo podman run -d \
-  --name flaresolverr \
-  --replace \
-  -p 127.0.0.1:8191:8191 \
-  -v /srv/flaresolverr/config:/config:Z \
-  -e LOG_LEVEL=info \
-  -e LOG_FILE=/config/flaresolverr.log \
-  -e TZ=UTC \
-  --restart unless-stopped \
-  ghcr.io/smeinecke/flaresolverr:latest
-```
-
-Notes:
-
-- `127.0.0.1:8191:8191` keeps the API bound to localhost on the host. That is usually safer than exposing it on every interface.
-- On SELinux hosts, the `:Z` suffix is important so the container can write to `/config`.
-- If you need metrics, also publish `8192` and set `PROMETHEUS_ENABLED=true`.
-
-Check that the service is up:
+Verify:
 
 ```bash
 curl http://127.0.0.1:8191/
 curl http://127.0.0.1:8191/health
+sudo systemctl status flaresolverr-podman.service
 sudo podman logs flaresolverr
 ```
 
-## Managing it with systemd
+Notes:
 
-Podman works well with systemd. A Quadlet unit is the cleanest long-term setup.
+- The API is bound to `127.0.0.1:8191` by default.
+- On SELinux hosts, the `:Z` volume suffix matters.
+- The `run.sh` helper is useful for manual testing, but the systemd unit is the recommended long-running setup.
 
-Create `/etc/containers/systemd/flaresolverr.container`:
+## Restricted deployment
 
-```ini
-[Unit]
-Description=FlareSolverr
-After=network-online.target
-Wants=network-online.target
+Files:
 
-[Container]
-Image=ghcr.io/smeinecke/flaresolverr:latest
-ContainerName=flaresolverr
-PublishPort=127.0.0.1:8191:8191
-Volume=/srv/flaresolverr/config:/config:Z
-Environment=LOG_LEVEL=info
-Environment=LOG_FILE=/config/flaresolverr.log
-Environment=TZ=UTC
+- [flaresolverr-podman-networks.service](/home/stefan/github/FlareSolverr/examples/podman/restricted/systemd/flaresolverr-podman-networks.service)
+- [flaresolverr-podman-dnsdist.service](/home/stefan/github/FlareSolverr/examples/podman/restricted/systemd/flaresolverr-podman-dnsdist.service)
+- [flaresolverr-podman-restricted.service](/home/stefan/github/FlareSolverr/examples/podman/restricted/systemd/flaresolverr-podman-restricted.service)
+- [10-build-dnsdist.sh](/home/stefan/github/FlareSolverr/examples/podman/restricted/10-build-dnsdist.sh)
+- [01-create-networks.sh](/home/stefan/github/FlareSolverr/examples/podman/restricted/01-create-networks.sh)
+- [Containerfile](/home/stefan/github/FlareSolverr/examples/podman/restricted/dnsdist/Containerfile)
+- [fetch-and-run.sh](/home/stefan/github/FlareSolverr/examples/podman/restricted/dnsdist/fetch-and-run.sh)
 
-[Service]
-Restart=always
-TimeoutStartSec=120
+Security model:
 
-[Install]
-WantedBy=multi-user.target
-```
+- FlareSolverr is single-homed on `flaresolverr_restricted`.
+- `dnsdist` is dual-homed: it listens on `flaresolverr_restricted` and uses `flaresolverr_dns_uplink` for upstream public resolvers.
+- FlareSolverr uses only the `dnsdist` listener as DNS.
+- FlareSolverr's default route is removed after start, and only the private CIDRs in `ALLOWED_PRIVATE_CIDRS` are added back.
 
-Enable it:
+Defaults used by the example:
+
+- restricted network: `10.89.60.0/24`
+- restricted gateway: `10.89.60.1`
+- dnsdist IP on restricted network: `10.89.60.53`
+- dnsdist upstream source: `https://raw.githubusercontent.com/disposable/public-dns/main/txt/dnsdist.conf`
+
+Install:
 
 ```bash
+sudo cp examples/podman/restricted/systemd/flaresolverr-podman-networks.service /etc/systemd/system/
+sudo cp examples/podman/restricted/systemd/flaresolverr-podman-dnsdist.service /etc/systemd/system/
+sudo cp examples/podman/restricted/systemd/flaresolverr-podman-restricted.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now flaresolverr.service
-sudo systemctl status flaresolverr.service
+sudo systemctl enable --now flaresolverr-podman-networks.service
+sudo ./examples/podman/restricted/10-build-dnsdist.sh
+sudo mkdir -p /srv/flaresolverr/config
+sudo systemctl enable --now flaresolverr-podman-dnsdist.service
+sudo systemctl enable --now flaresolverr-podman-restricted.service
 ```
 
-Useful commands later:
+Before enabling `flaresolverr-podman-restricted.service`, edit the copied unit and set `ALLOWED_PRIVATE_CIDRS` for your environment.
+If needed, also adjust `RESTRICTED_GATEWAY`, `DNSDIST_IP`, or `PUBLIC_DNSDIST_URL`.
+
+Notes:
+
+- `01-create-networks.sh` remains useful for manual setup and debugging.
+- `dnsdist` tracks `disposable/public-dns` `main` by default, so the resolver set can drift over time.
+- This separate-network design is intentional: it keeps public resolver access out of the FlareSolverr namespace.
+
+## Verification
+
+Inspect service state and network attachments:
 
 ```bash
-sudo systemctl restart flaresolverr
-sudo journalctl -u flaresolverr -f
-sudo podman ps
-```
-
-## Environment variables you are likely to use
-
-Common settings:
-
-- `LOG_LEVEL=info` or `debug`
-- `LOG_FILE=/config/flaresolverr.log`
-- `TZ=Europe/Berlin` or your timezone
-- `HEADLESS=true`
-- `DISABLE_MEDIA=true` if you want to reduce bandwidth usage
-- `PROXY_URL=http://192.168.1.10:3128` if every request should use the same proxy by default
-- `PROXY_USERNAME` and `PROXY_PASSWORD` if your proxy requires authentication
-- `PROMETHEUS_ENABLED=true` and `PROMETHEUS_PORT=8192` if you want metrics
-
-## LAN-only egress: recommended design
-
-If FlareSolverr must only connect to proxy servers on your LAN, the safest Podman design is:
-
-- create a dedicated Podman bridge network for FlareSolverr
-- give that network **no default route**
-- add routes only for the LAN subnets or, better, only for the proxy subnet(s)
-- keep the API bound to `127.0.0.1` unless other hosts truly need access
-- do not enable IPv6 unless you also plan and filter IPv6 explicitly
-
-### Why this works
-
-A container normally gets a default route, so any destination can be attempted and host-side NAT decides where it goes.
-
-With `no_default_route=1`, the container has no catch-all route. If you then add only the LAN routes you need, there is simply no route for public Internet addresses.
-
-That is a strong first layer against leakage.
-
-## Example: allow only one LAN subnet
-
-This example allows FlareSolverr to reach only `192.168.50.0/24` through the host. Replace the subnets with your own LAN and proxy network.
-
-Create a dedicated network:
-
-```bash
-sudo podman network create \
-  --subnet 10.89.50.0/24 \
-  --gateway 10.89.50.1 \
-  --opt no_default_route=1 \
-  --route 192.168.50.0/24,10.89.50.1 \
-  flaresolverr_lanonly
-```
-
-Attach FlareSolverr to that network:
-
-```bash
-sudo podman run -d \
-  --name flaresolverr \
-  --replace \
-  --network flaresolverr_lanonly \
-  -p 127.0.0.1:8191:8191 \
-  -v /srv/flaresolverr/config:/config:Z \
-  -e LOG_LEVEL=info \
-  -e LOG_FILE=/config/flaresolverr.log \
-  -e TZ=UTC \
-  --restart unless-stopped \
-  ghcr.io/smeinecke/flaresolverr:latest
-```
-
-If your proxies live on several private subnets, add one `--route` per subnet when creating the network, for example:
-
-```bash
-sudo podman network create \
-  --subnet 10.89.50.0/24 \
-  --gateway 10.89.50.1 \
-  --opt no_default_route=1 \
-  --route 192.168.50.0/24,10.89.50.1 \
-  --route 10.20.30.0/24,10.89.50.1 \
-  --route 172.16.40.0/24,10.89.50.1 \
-  flaresolverr_lanonly
-```
-
-### Better than allowing all RFC1918 ranges
-
-If you know the exact proxy subnet, allow only that subnet.
-
-This is better than allowing all of:
-
-- `10.0.0.0/8`
-- `172.16.0.0/12`
-- `192.168.0.0/16`
-
-The smaller the allowed destination space is, the less room there is for accidental leakage.
-
-## Using a fixed proxy with LAN-only egress
-
-If FlareSolverr should always use one local proxy, set it directly on the container:
-
-```bash
-sudo podman run -d \
-  --name flaresolverr \
-  --replace \
-  --network flaresolverr_lanonly \
-  -p 127.0.0.1:8191:8191 \
-  -v /srv/flaresolverr/config:/config:Z \
-  -e LOG_LEVEL=info \
-  -e LOG_FILE=/config/flaresolverr.log \
-  -e TZ=UTC \
-  -e PROXY_URL=http://192.168.50.10:3128 \
-  --restart unless-stopped \
-  ghcr.io/smeinecke/flaresolverr:latest
-```
-
-If you need per-request proxies instead, leave `PROXY_URL` unset and pass the `proxy` field in the API request. The LAN-only network still prevents direct connections outside the allowed LAN routes.
-
-## DNS and leakage considerations
-
-The safest option is to configure proxies by **IP address**, not by hostname. That avoids DNS becoming an extra outbound path.
-
-If you must use a hostname for the proxy:
-
-- point the container at a DNS server on your LAN
-- allow routing only to that DNS server's subnet or address
-- add host firewall rules so DNS can only go to the intended resolver
-
-Example with an explicit DNS server on the LAN:
-
-```bash
-sudo podman run -d \
-  --name flaresolverr \
-  --replace \
-  --network flaresolverr_lanonly \
-  --dns 192.168.50.1 \
-  -p 127.0.0.1:8191:8191 \
-  -v /srv/flaresolverr/config:/config:Z \
-  -e PROXY_URL=http://proxy.lan:3128 \
-  --restart unless-stopped \
-  ghcr.io/smeinecke/flaresolverr:latest
-```
-
-## Defense in depth: add host firewall rules too
-
-Routing-only controls are already useful, but if leakage prevention is important, add host firewall rules as a second layer.
-
-A good pattern is:
-
-- allow the container subnet to talk only to the exact proxy IPs you want
-- optionally allow DNS only to one LAN resolver
-- reject everything else from the container subnet
-
-### nftables example
-
-This example assumes:
-
-- Podman network subnet: `10.89.50.0/24`
-- LAN DNS server: `192.168.50.1`
-- allowed proxies: `192.168.50.10` and `192.168.50.11`
-
-Create `/etc/nftables.d/flaresolverr.nft`:
-
-```nft
-#!/usr/sbin/nft -f
-
-define fs_net = 10.89.50.0/24
-define lan_dns = 192.168.50.1
-define proxy_hosts = { 192.168.50.10, 192.168.50.11 }
-
-table inet flaresolverr {
-  chain forward {
-    type filter hook forward priority filter; policy accept;
-
-    ip saddr $fs_net udp dport 53 ip daddr $lan_dns accept
-    ip saddr $fs_net tcp dport 53 ip daddr $lan_dns accept
-    ip saddr $fs_net ip daddr $proxy_hosts accept
-
-    ip saddr $fs_net counter reject with icmpx type admin-prohibited
-  }
-}
-```
-
-Load it:
-
-```bash
-sudo nft -f /etc/nftables.d/flaresolverr.nft
-sudo nft list ruleset
-```
-
-If your distro uses `/etc/nftables.conf`, include the file there so it survives reboot.
-
-### Why the firewall rule still matters
-
-The `no_default_route` setup prevents normal routing to the public Internet.
-
-The host firewall adds a second guarantee: even if the network definition changes later, traffic from the FlareSolverr subnet can still be restricted to your proxy IPs and LAN DNS only.
-
-## Quadlet with the LAN-only network
-
-Create the dedicated network once:
-
-```bash
-sudo podman network create \
-  --subnet 10.89.50.0/24 \
-  --gateway 10.89.50.1 \
-  --opt no_default_route=1 \
-  --route 192.168.50.0/24,10.89.50.1 \
-  flaresolverr_lanonly
-```
-
-Then point the Quadlet unit at that pre-created network:
-
-```ini
-[Unit]
-Description=FlareSolverr
-After=network-online.target
-Wants=network-online.target
-
-[Container]
-Image=ghcr.io/smeinecke/flaresolverr:latest
-ContainerName=flaresolverr
-Network=flaresolverr_lanonly
-PublishPort=127.0.0.1:8191:8191
-Volume=/srv/flaresolverr/config:/config:Z
-Environment=LOG_LEVEL=info
-Environment=LOG_FILE=/config/flaresolverr.log
-Environment=TZ=UTC
-Environment=PROXY_URL=http://192.168.50.10:3128
-
-[Service]
-Restart=always
-TimeoutStartSec=120
-
-[Install]
-WantedBy=multi-user.target
-```
-
-If you prefer, you can also manage the network itself with a separate Quadlet `.network` unit, but pre-creating the network manually is often simpler when you need custom route planning.
-
-## Verifying that leakage is blocked
-
-Confirm the container is attached to the expected network:
-
-```bash
+sudo systemctl status flaresolverr-podman-networks.service
+sudo systemctl status flaresolverr-podman-dnsdist.service
+sudo systemctl status flaresolverr-podman-restricted.service
 sudo podman inspect flaresolverr
-sudo podman network inspect flaresolverr_lanonly
+sudo podman inspect flaresolverr-dnsdist
+sudo podman network inspect flaresolverr_restricted
+sudo podman network inspect flaresolverr_dns_uplink
 ```
 
-Test an allowed destination and a disallowed one from inside the container:
+Confirm FlareSolverr routes:
+
+```bash
+FS_PID=$(sudo podman inspect -f '{{.State.Pid}}' flaresolverr)
+sudo nsenter -t "$FS_PID" -n ip route
+```
+
+Expected result:
+
+- the default route is gone
+- only the restricted subnet and allowed private routes remain
+
+Check DNS wiring:
+
+```bash
+sudo podman exec flaresolverr cat /etc/resolv.conf
+```
+
+Expected result:
+
+- `/etc/resolv.conf` points at `10.89.60.53`
+
+Check allowed vs blocked destinations:
 
 ```bash
 sudo podman exec flaresolverr python - <<'PY'
 import socket
-
-tests = [
-    ("192.168.50.10", 3128),
-    ("1.1.1.1", 80),
-]
-
-for host, port in tests:
+for host, port in [("192.168.50.10", 3128), ("1.1.1.1", 80)]:
     s = socket.socket()
     s.settimeout(3)
     try:
@@ -385,52 +168,75 @@ for host, port in tests:
 PY
 ```
 
-Expected result:
+## Defense in depth
 
-- the proxy IP on your LAN should connect successfully
-- a public IP such as `1.1.1.1` should fail
+If leakage prevention matters, add host firewall rules as a second layer.
+A good pattern is:
 
-If you added the nftables rule, also confirm it is loaded:
+- allow the restricted subnet to reach the `dnsdist` sidecar on TCP/UDP `53`
+- allow the restricted subnet to reach only the private proxy IPs you want
+- reject everything else from the restricted subnet
 
-```bash
-sudo nft list ruleset | sed -n '/table inet flaresolverr/,$p'
+Example nftables fragment:
+
+```nft
+#!/usr/sbin/nft -f
+
+define fs_net = 10.89.60.0/24
+define dns_sidecar = 10.89.60.53
+define proxy_hosts = { 192.168.50.10, 192.168.50.11 }
+
+table inet flaresolverr {
+  chain forward {
+    type filter hook forward priority filter; policy accept;
+
+    ip saddr $fs_net udp dport 53 ip daddr $dns_sidecar accept
+    ip saddr $fs_net tcp dport 53 ip daddr $dns_sidecar accept
+    ip saddr $fs_net ip daddr $proxy_hosts accept
+    ip saddr $fs_net counter reject with icmpx type admin-prohibited
+  }
+}
 ```
 
-## Rootless Podman note
-
-A rootless container is fine for convenience, but it is not the best choice when your main requirement is strict per-container egress control.
-
-If you only want a simple rootless deployment, this works:
+Load it with:
 
 ```bash
-podman run -d \
-  --name flaresolverr \
-  --replace \
-  -p 127.0.0.1:8191:8191 \
-  -v "$HOME/.local/share/flaresolverr/config:/config:Z" \
-  -e LOG_LEVEL=info \
-  --restart unless-stopped \
-  ghcr.io/smeinecke/flaresolverr:latest
+sudo nft -f /etc/nftables.d/flaresolverr.nft
+sudo nft list ruleset
 ```
 
-For leakage prevention, use the rootful dedicated-network design above instead.
+## Useful settings
 
-## Operational tips
+Common environment variables:
 
-- Do not use `--network host` if you care about containment.
-- Do not publish the API on `0.0.0.0` unless another machine really needs it.
-- Do not enable IPv6 unless you also intentionally route and filter IPv6 destinations.
-- Prefer proxy IP addresses over proxy hostnames.
-- Prefer allowing specific proxy IPs in nftables instead of entire LAN ranges.
-- Keep `/config` persistent so logs and browser state survive restarts.
+- `LOG_LEVEL=info` or `debug`
+- `LOG_FILE=/config/flaresolverr.log`
+- `TZ=Europe/Berlin` or your timezone
+- `HEADLESS=true`
+- `DISABLE_MEDIA=true`
+- `PROXY_URL=http://192.168.1.10:3128`
+- `PROXY_USERNAME` and `PROXY_PASSWORD`
+- `PROMETHEUS_ENABLED=true` and `PROMETHEUS_PORT=8192`
 
-## Updating the container
+## Rootless note
 
-Pull the new image and recreate the container:
+Rootless Podman is fine for convenience, but it is not the best fit for strict per-container egress control.
+For the restricted design, use the rootful dedicated-network setup above.
+
+## Updating
+
+Standard service:
 
 ```bash
 sudo podman pull ghcr.io/smeinecke/flaresolverr:latest
-sudo podman rm -f flaresolverr
+sudo systemctl restart flaresolverr-podman.service
 ```
 
-Then run the same `podman run` command again, or restart the systemd-managed service.
+Restricted service:
+
+```bash
+sudo podman pull ghcr.io/smeinecke/flaresolverr:latest
+sudo ./examples/podman/restricted/10-build-dnsdist.sh
+sudo systemctl restart flaresolverr-podman-dnsdist.service
+sudo systemctl restart flaresolverr-podman-restricted.service
+```
