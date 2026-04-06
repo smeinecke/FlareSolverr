@@ -33,6 +33,206 @@ def get_config_disable_media() -> bool:
     return os.environ.get("DISABLE_MEDIA", "false").lower() == "true"
 
 
+def get_config_stealth_mode() -> bool:
+    return os.environ.get("STEALTH_MODE", "false").lower() == "true"
+
+
+def _apply_stealth_patches(driver: WebDriver) -> None:
+    # Experimental stealth patching to reduce modern JS/CDP fingerprint signals.
+    # This is intentionally opt-in through STEALTH_MODE because it can change page behavior.
+    script = """
+(() => {
+  const installCdpConsoleGuard = () => {
+    try {
+      // Avoid devtools-style formatting side effects when pages call console.log(new Error()).
+      const origLog = console.log.bind(console);
+      const safeLog = (...args) => {
+        const mapped = args.map((arg) => {
+          if (arg instanceof Error) {
+            return `${arg.name}: ${arg.message}`;
+          }
+          return arg;
+        });
+        return origLog(...mapped);
+      };
+      try {
+        Object.defineProperty(console, "log", {
+          value: safeLog,
+          writable: false,
+          configurable: false,
+        });
+      } catch (_) {
+        console.log = safeLog;
+      }
+    } catch (_) {}
+  };
+
+  installCdpConsoleGuard();
+
+  try {
+    // Hide webdriver where possible (both instance + prototype path).
+    Object.defineProperty(Navigator.prototype, "webdriver", {
+      get: () => undefined,
+      configurable: true,
+    });
+  } catch (_) {}
+  try {
+    Object.defineProperty(navigator, "webdriver", {
+      get: () => undefined,
+      configurable: true,
+    });
+  } catch (_) {}
+
+  try {
+    // Chromium-based browsers expose a window.chrome object.
+    if (!window.chrome) {
+      window.chrome = {
+        app: { isInstalled: false },
+        runtime: {},
+      };
+    } else if (!window.chrome.runtime) {
+      window.chrome.runtime = {};
+    }
+  } catch (_) {}
+
+  try {
+    // Keep language hints non-empty and internally consistent.
+    const langs = Array.isArray(navigator.languages) && navigator.languages.length > 0
+      ? navigator.languages
+      : ["en-US", "en"];
+    const mainLang = (navigator.language && typeof navigator.language === "string")
+      ? navigator.language
+      : langs[0];
+    Object.defineProperty(Navigator.prototype, "languages", {
+      get: () => langs,
+      configurable: true,
+    });
+    Object.defineProperty(Navigator.prototype, "language", {
+      get: () => mainLang,
+      configurable: true,
+    });
+  } catch (_) {}
+
+  try {
+    // Some hardened/automated environments expose empty plugins/mimeTypes.
+    const makePluginArray = () => {
+      const pdfPlugin = {
+        name: "Chrome PDF Viewer",
+        filename: "internal-pdf-viewer",
+        description: "Portable Document Format",
+        version: "1",
+      };
+      const pluginArray = {
+        0: pdfPlugin,
+        length: 1,
+        item: (i) => (i === 0 ? pdfPlugin : null),
+        namedItem: (name) => (name === pdfPlugin.name ? pdfPlugin : null),
+      };
+      return pluginArray;
+    };
+    const makeMimeTypeArray = () => {
+      const pdfMime = {
+        type: "application/pdf",
+        suffixes: "pdf",
+        description: "Portable Document Format",
+      };
+      const mimeArray = {
+        0: pdfMime,
+        length: 1,
+        item: (i) => (i === 0 ? pdfMime : null),
+        namedItem: (name) => (name === pdfMime.type ? pdfMime : null),
+      };
+      return mimeArray;
+    };
+    const currentPlugins = navigator.plugins;
+    if (!currentPlugins || currentPlugins.length === 0) {
+      Object.defineProperty(Navigator.prototype, "plugins", {
+        get: () => makePluginArray(),
+        configurable: true,
+      });
+    }
+    const currentMimeTypes = navigator.mimeTypes;
+    if (!currentMimeTypes || currentMimeTypes.length === 0) {
+      Object.defineProperty(Navigator.prototype, "mimeTypes", {
+        get: () => makeMimeTypeArray(),
+        configurable: true,
+      });
+    }
+  } catch (_) {}
+
+  try {
+    // Some containerized Chrome builds expose no voices at all.
+    if (window.speechSynthesis && typeof window.speechSynthesis.getVoices === "function") {
+      const originalGetVoices = window.speechSynthesis.getVoices.bind(window.speechSynthesis);
+      window.speechSynthesis.getVoices = () => {
+        const voices = originalGetVoices();
+        if (Array.isArray(voices) && voices.length > 0) {
+          return voices;
+        }
+        return [
+          {
+            default: true,
+            lang: "en-US",
+            localService: true,
+            name: "Google US English",
+            voiceURI: "Google US English",
+          },
+        ];
+      };
+    }
+  } catch (_) {}
+
+  try {
+    // Keep notifications query behavior closer to normal browsers.
+    const originalQuery = navigator.permissions && navigator.permissions.query;
+    if (originalQuery) {
+      navigator.permissions.query = (parameters) => {
+        if (parameters && parameters.name === "notifications") {
+          return Promise.resolve({ state: Notification.permission, onchange: null });
+        }
+        return originalQuery(parameters);
+      };
+    }
+  } catch (_) {}
+
+  try {
+    // Ensure worker context receives the same CDP guard as the main context.
+    const NativeWorker = window.Worker;
+    if (NativeWorker) {
+      const workerPrelude = `
+        (() => {
+          try {
+            const origLog = console.log.bind(console);
+            console.log = (...args) => origLog(...args.map((arg) => arg instanceof Error ? \`\${arg.name}: \${arg.message}\` : arg));
+          } catch (_) {}
+          try {
+            Object.defineProperty(Navigator.prototype, "webdriver", { get: () => undefined, configurable: true });
+          } catch (_) {}
+        })();
+      `;
+      const WrappedWorker = function(scriptURL, options) {
+        try {
+          const wrappedBody = `${workerPrelude}\\nimportScripts(${JSON.stringify(String(scriptURL))});`;
+          const blob = new Blob([wrappedBody], { type: "application/javascript" });
+          const wrappedUrl = URL.createObjectURL(blob);
+          return new NativeWorker(wrappedUrl, options);
+        } catch (_) {
+          return new NativeWorker(scriptURL, options);
+        }
+      };
+      WrappedWorker.prototype = NativeWorker.prototype;
+      Object.defineProperty(window, "Worker", {
+        value: WrappedWorker,
+        configurable: true,
+        writable: true,
+      });
+    }
+  } catch (_) {}
+})();
+"""
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": script})
+
+
 def get_flaresolverr_version() -> str:
     global FLARESOLVERR_VERSION
     if FLARESOLVERR_VERSION is not None:
@@ -148,6 +348,7 @@ def get_webdriver(proxy: dict[str, Any] | None = None) -> WebDriver:
         options.add_argument("--disable-gpu-sandbox")
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
+    options.add_argument("--disable-blink-features=AutomationControlled")
 
     language = os.environ.get("LANG", None)
     if language is not None:
@@ -207,6 +408,13 @@ def get_webdriver(proxy: dict[str, Any] | None = None) -> WebDriver:
         logging.error("Error starting Chrome: %s" % e)
         # No point in continuing if we cannot retrieve the driver
         raise e
+
+    if get_config_stealth_mode():
+        try:
+            _apply_stealth_patches(driver)
+            logging.info("Applied experimental stealth patches (STEALTH_MODE=true).")
+        except Exception as e:
+            logging.warning("Failed applying stealth patches: %s", e)
 
     # save the patched driver to avoid re-downloads
     if driver_exe_path is None:

@@ -1,85 +1,24 @@
-name: Python Code Checks
+name: Manual Integration Tests
 
 permissions:
   contents: read
-  checks: write
 
 on:
-  pull_request:
-  push:
-    branches: [ master ]
   workflow_dispatch:
+    inputs:
+      scope:
+        description: "Integration test scope"
+        required: true
+        default: "non-proxy"
+        type: choice
+        options:
+          - non-proxy
+          - proxy
+          - all
 
 jobs:
-  docker-build:
-    name: Build Docker Image
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build FlareSolverr Docker image
-        run: |
-          docker build -t flaresolverr-ci:${{ github.sha }} .
-
-  test:
-    name: Validate Code
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Cache uv
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: uv-cache-${{ hashFiles('**/pyproject.toml') }}
-          restore-keys: |
-            uv-cache-
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: "latest"
-
-      - name: Install dependencies
-        run: |
-          uv sync --group dev --extra test
-
-      - name: Run Ruff (Formatting Check)
-        run: |
-          uv run make format
-
-      - name: Run Ruff (Linting)
-        run: |
-          uv run make check || true  # Allow some linting errors for now
-
-      - name: Run vulture (Dead Code)
-        run: |
-          uv run make vulture || true  # Allow failures for third-party code
-
-      - name: Run xenon (Complexity)
-        run: |
-          uv run make xenon
-
-      - name: Run bandit (Security)
-        run: |
-          uv run make bandit
-
-      - name: Run pyright (Type Checking)
-        run: |
-          uv run make pyright || true  # Type checking may have issues
-
-      - name: Run pytest (Unit Tests)
-        run: |
-          uv run make test
-
-  integration:
-    name: Integration Tests (Docker + Proxies)
+  integration-manual:
+    name: Manual Integration (Docker)
     runs-on: ubuntu-latest
 
     steps:
@@ -167,7 +106,15 @@ jobs:
           docker compose -f docker-compose.test.yml logs
           exit 1
 
+      - name: Run integration tests (non-proxy scenarios)
+        if: ${{ github.event.inputs.scope == 'non-proxy' || github.event.inputs.scope == 'all' }}
+        env:
+          FLARESOLVERR_URL: http://127.0.0.1:8191
+        run: |
+          uv run pytest -m integration tests/integration -k "not proxy_http_param and not proxy_http_param_with_credentials and not proxy_socks_param" -vv
+
       - name: Run integration tests (proxy scenarios)
+        if: ${{ github.event.inputs.scope == 'proxy' || github.event.inputs.scope == 'all' }}
         env:
           FLARESOLVERR_URL: http://127.0.0.1:8191
           PROXY_HTTP_URL: http://proxy-http:8888
