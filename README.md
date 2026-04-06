@@ -284,6 +284,50 @@ This works like `request.get`, with the addition of the postData parameter. Note
 | postData  | Must be a string with `application/x-www-form-urlencoded`. Eg: `a=b&c=d` |
 | headers   | Optional. Same format as `request.get`. Custom HTTP headers to send.    |
 
+## Request Flow
+
+The following diagram illustrates how FlareSolverr processes requests:
+
+```mermaid
+flowchart TD
+    A[API Client] -->|POST /v1| B[FlareSolverr API]
+    B --> C{Session?}
+    C -->|New session| D[Launch Chrome]
+    C -->|Existing| E[Reuse browser]
+    D --> F[Navigate to URL]
+    E --> F
+    F --> G{Challenge detected?}
+    G -->|No| H[Wait for page load]
+    G -->|Yes| I[Default Solver]
+    I --> J[Check page title<br/>for challenge markers]
+    J --> K[Check CSS selectors<br/>e.g., #cf-challenge-running]
+    K --> L{Challenge found?}
+    L -->|No| H
+    L -->|Yes| M[Wait for challenge<br/>elements to disappear]
+    M --> N[Click verify checkbox<br/>if needed]
+    N --> O[Wait for page redirect]
+    O --> P{Solve successful?}
+    P -->|No| Q[Return error response]
+    P -->|Yes| H
+    H --> R{waitInSeconds?}
+    R -->|Yes| S[Wait specified time]
+    R -->|No| T[returnScreenshot?]
+    S --> T
+    T -->|Yes| U[Capture screenshot]
+    T -->|No| V[Build response]
+    U --> V
+    V --> W[Return cookies, HTML,<br/>headers, userAgent]
+    W --> X[Send JSON response]
+    X --> A
+    Q --> X
+```
+
+The **default solver** handles Cloudflare challenges through browser automation:
+- Detects challenges by checking page titles ("Just a moment...") and CSS selectors
+- Waits for challenge elements to disappear from the DOM
+- Automatically clicks the verify checkbox when presented
+- Waits for page redirect after successful verification
+
 ## Environment variables
 
 | Name               | Default                | Notes                                                                                                                                    |
@@ -341,19 +385,20 @@ flaresolverr_request_duration_created{domain="nowsecure.nl"} 1.6901416571570296e
 
 ## Captcha Solvers
 
-FlareSolverr always has a built-in `default` solver mode, which relies on the normal browser-driven challenge handling.
+FlareSolverr includes support for multiple captcha solving methods. The built-in `default` solver handles Cloudflare challenges automatically.
 
-Additional optional solver integrations are implemented in [`src/captcha_solvers.py`](src/captcha_solvers.py). The
-currently recognized solver names are:
+For sites with hCaptcha or reCAPTCHA, optional AI-based solvers can be installed:
 
-- `default`
-- `hcaptcha-challenger` if the optional dependency is installed
-- `recaptcha-challenger` if the optional dependency is installed
+- `hcaptcha-challenger` - AI-based hCaptcha solver
+- `recaptcha-challenger` - AI-based reCAPTCHA solver
 
-If a captcha cannot be solved by the configured solver, FlareSolverr will return an error such as
-`Captcha detected but no automatic solver is configured.`
+Set the `CAPTCHA_SOLVER` environment variable to select a solver:
 
-Set the `CAPTCHA_SOLVER` environment variable to one of the available solver names to change the behavior.
+```bash
+CAPTCHA_SOLVER=hcaptcha-challenger
+```
+
+For detailed installation and usage instructions, see [CAPTCHA_SOLVERS.md](./CAPTCHA_SOLVERS.md).
 
 ## Related projects
 
