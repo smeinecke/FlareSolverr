@@ -350,7 +350,8 @@ def start_xvfb_display() -> None:
 
         width = int(os.environ.get("XVFB_WIDTH", "1280"))
         height = int(os.environ.get("XVFB_HEIGHT", "720"))
-        XVFB_DISPLAY = Xvfb(width=width, height=height)
+        colordepth = int(os.environ.get("XVFB_COLORDEPTH", "24"))
+        XVFB_DISPLAY = Xvfb(width=width, height=height, colordepth=colordepth)
         XVFB_DISPLAY.start()
 
 

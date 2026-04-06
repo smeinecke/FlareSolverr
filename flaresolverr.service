@@ -13,6 +13,7 @@ Environment="LOG_LEVEL=info"
 Environment="CAPTCHA_SOLVER=default"
 # Environment="XVFB_WIDTH=1280"
 # Environment="XVFB_HEIGHT=720"
+# Environment="XVFB_COLORDEPTH=24"
 WorkingDirectory=/opt/flaresolverr
 ExecStart=/opt/flaresolverr/flaresolverr
 TimeoutStopSec=30
