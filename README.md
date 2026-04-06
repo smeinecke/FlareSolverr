@@ -343,7 +343,7 @@ The **default solver** handles Cloudflare challenges through browser automation:
 | LANG               | none                   | Language used in the web browser. Example: `LANG=en_GB`.                                                                                 |
 | HEADLESS           | true                   | Only for debugging. To run the web browser in headless mode or visible.                                                                  |
 | DISABLE_MEDIA      | false                  | To disable loading images, CSS, and other media in the web browser to save network bandwidth.                                            |
-| STEALTH_MODE       | false                  | Experimental. Adds extra anti-fingerprinting JavaScript patches (CDP/automation weak-signal mitigations). Can break some sites.         |
+| STEALTH_MODE       | **true**               | Adds extra anti-fingerprinting JavaScript patches (CDP/automation weak-signal mitigations). Set to `false` to disable if it causes issues with some sites. |
 | PORT               | 8191                   | Listening port. You don't need to change this if you are running on Docker.                                                              |
 | HOST               | 0.0.0.0                | Listening interface. You don't need to change this if you are running on Docker.                                                         |
 | PROMETHEUS_ENABLED | false                  | Enable Prometheus exporter. See the Prometheus section below.                                                                            |
