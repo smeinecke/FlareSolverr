@@ -309,10 +309,10 @@ def click_verify(driver: WebDriver, num_tabs: int = 1) -> None:
     try:
         logging.debug("Try to find the Cloudflare verify checkbox...")
         actions = ActionChains(driver)
-        actions.pause(5)
+        actions.pause(_random_delay(4.0, 6.0))
         for _ in range(num_tabs):
-            actions.send_keys(Keys.TAB).pause(0.1)
-        actions.pause(1)
+            actions.send_keys(Keys.TAB).pause(_random_delay(0.08, 0.15))
+        actions.pause(_random_delay(0.8, 1.2))
         actions.send_keys(Keys.SPACE).perform()
 
         logging.debug(f"Cloudflare verify checkbox clicked after {num_tabs} tabs!")
@@ -328,15 +328,125 @@ def click_verify(driver: WebDriver, num_tabs: int = 1) -> None:
             value="//input[@type='button' and @value='Verify you are human']",
         )
         if button:
-            actions = ActionChains(driver)
-            actions.move_to_element_with_offset(button, 5, 7)
-            actions.click(button)
-            actions.perform()
+            _human_like_click(driver, button)
             logging.debug("The Cloudflare 'Verify you are human' button found and clicked!")
     except Exception:
         logging.debug("The Cloudflare 'Verify you are human' button not found on the page.")
 
-    time.sleep(2)
+    time.sleep(_random_delay(1.5, 2.5))
+
+
+def _random_delay(min_sec: float, max_sec: float) -> float:
+    """Generate a random delay with slight gaussian distribution for natural feel."""
+    import random
+
+    mean = (min_sec + max_sec) / 2
+    std_dev = (max_sec - min_sec) / 6
+    delay = random.gauss(mean, std_dev)
+    return max(min_sec, min(max_sec, delay))
+
+
+def _human_like_click(driver: WebDriver, element) -> None:
+    """Perform a human-like mouse movement and click with bezier curves and randomness."""
+    import random
+    from selenium.webdriver.common.action_chains import ActionChains
+
+    # Get element location and size
+    location = element.location
+    size = element.size
+    element_center_x = location["x"] + size["width"] / 2
+    element_center_y = location["y"] + size["height"] / 2
+
+    # Random offset within the element (avoid edges, focus on center area)
+    offset_x = random.gauss(0, size["width"] / 8)
+    offset_y = random.gauss(0, size["height"] / 8)
+    target_x = element_center_x + offset_x
+    target_y = element_center_y + offset_y
+
+    # Get current mouse position or start from random screen edge
+    # Start from a random position near the viewport edges (common human pattern)
+    viewport_width = driver.execute_script("return window.innerWidth")
+    viewport_height = driver.execute_script("return window.innerHeight")
+
+    start_edge = random.choice(["top", "bottom", "left", "right"])  # nosec B311
+    if start_edge == "top":
+        start_x = random.uniform(0, viewport_width)  # nosec B311
+        start_y = random.uniform(0, 100)  # nosec B311
+    elif start_edge == "bottom":
+        start_x = random.uniform(0, viewport_width)  # nosec B311
+        start_y = random.uniform(viewport_height - 100, viewport_height)  # nosec B311
+    elif start_edge == "left":
+        start_x = random.uniform(0, 100)  # nosec B311
+        start_y = random.uniform(0, viewport_height)  # nosec B311
+    else:
+        start_x = random.uniform(viewport_width - 100, viewport_width)  # nosec B311
+        start_y = random.uniform(0, viewport_height)  # nosec B311
+
+    # Generate bezier curve points for natural movement
+    points = _generate_bezier_curve((start_x, start_y), (target_x, target_y), control_points=random.randint(1, 2))  # nosec B311
+
+    # Execute movement through points with variable speed
+    actions = ActionChains(driver)
+    for i, (x, y) in enumerate(points):
+        if i == 0:
+            actions.move_by_offset(x - viewport_width / 2, y - viewport_height / 2)
+        else:
+            actions.move_by_offset(x - points[i - 1][0], y - points[i - 1][1])
+        # Variable delay between movements (faster in middle, slower at start/end)
+        progress = i / len(points)
+        delay = 0.01 + 0.03 * (1 - abs(progress - 0.5) * 2)  # 0.01 to 0.04
+        actions.pause(delay)
+
+    # Slight hesitation before clicking
+    actions.pause(_random_delay(0.05, 0.15))
+
+    # Click with slight movement during press (human hand tremor)
+    actions.click_and_hold()
+    actions.move_by_offset(random.gauss(0, 1), random.gauss(0, 1))
+    actions.pause(_random_delay(0.03, 0.08))
+    actions.release()
+
+    actions.perform()
+
+
+def _generate_bezier_curve(start: tuple[float, float], end: tuple[float, float], control_points: int = 1) -> list[tuple[float, float]]:
+    """Generate points along a bezier curve for natural mouse movement."""
+    import random
+
+    points = [start]
+
+    # Generate control points with randomness
+    for i in range(control_points):
+        # Control points deviate from the direct line
+        t = (i + 1) / (control_points + 1)
+        base_x = start[0] + (end[0] - start[0]) * t
+        base_y = start[1] + (end[1] - start[1]) * t
+
+        # Add perpendicular deviation
+        deviation = max(abs(end[0] - start[0]), abs(end[1] - start[1])) * random.uniform(0.1, 0.3)  # nosec B311
+        ctrl_x = base_x + deviation * random.gauss(0, 0.5)
+        ctrl_y = base_y + deviation * random.gauss(0, 0.5)
+        points.append((ctrl_x, ctrl_y))
+
+    points.append(end)
+
+    # Generate interpolated points along the curve
+    num_steps = random.randint(15, 25)  # nosec B311
+    curve_points = []
+
+    for t in [i / num_steps for i in range(num_steps + 1)]:
+        # De Casteljau's algorithm for bezier curves
+        temp_points = points.copy()
+        while len(temp_points) > 1:
+            new_points = []
+            for i in range(len(temp_points) - 1):
+                x = temp_points[i][0] + (temp_points[i + 1][0] - temp_points[i][0]) * t
+                y = temp_points[i][1] + (temp_points[i + 1][1] - temp_points[i][1]) * t
+                new_points.append((x, y))
+            temp_points = new_points
+        curve_points.append(temp_points[0])
+
+    return curve_points
 
 
 def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
