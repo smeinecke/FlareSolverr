@@ -1,4 +1,5 @@
 import os
+import re
 import unittest
 from typing import Optional
 
@@ -23,13 +24,14 @@ class TestFlareSolverr(unittest.TestCase):
     proxy_url = os.environ.get("PROXY_HTTP_URL", "http://127.0.0.1:8888")
     proxy_socks_url = os.environ.get("PROXY_SOCKS_URL", "socks5://127.0.0.1:1080")
     google_url = "https://www.google.com"
+    are_you_a_bot_url = "https://deviceandbrowserinfo.com/are_you_a_bot"
+    are_you_a_bot_interactions_url = "https://deviceandbrowserinfo.com/are_you_a_bot_interactions"
     post_url = "https://httpbin.org/post"
     cloudflare_url = "https://nowsecure.nl/"
-    cloudflare_url_2 = "https://idope.se/torrent-list/harry/"
+    cloudflare_url_2 = "https://bt4g.org/search/2022"
     ddos_guard_url = "https://www.litres.ru/"
     fairlane_url = "https://www.pararius.com/apartments/amsterdam"
     custom_cloudflare_url = "https://www.muziekfabriek.org/"
-    cloudflare_blocked_url = "https://cpasbiens3.fr/index.php?do=search&subaction=search"
 
     base_url = None
 
@@ -116,6 +118,58 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
+    def test_v1_endpoint_request_get_are_you_a_bot_reports_false(self):
+        res = self._request(
+            "POST",
+            "/v1",
+            {"cmd": "request.get", "url": self.are_you_a_bot_url, "waitInSeconds": 3},
+        )
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertEqual("Challenge not detected!", body.message)
+        self.assertGreater(body.startTimestamp, 10000)
+        self.assertGreaterEqual(body.endTimestamp, body.startTimestamp)
+        self.assertEqual(utils.get_flaresolverr_version(), body.version)
+
+        solution = body.solution
+        self.assertIn(self.are_you_a_bot_url, solution.url)
+        self.assertEqual(solution.status, 200)
+        self.assertIs(len(solution.headers), 0)
+        self.assertIn("<title>Bot detection test: verify if your bot is detected</title>", solution.response)
+        self.assertRegex(solution.response, re.compile(r'"isBot"\s*:\s*false'))
+        self.assertGreater(len(solution.cookies), 0)
+        self.assertIn("Chrome/", solution.userAgent)
+
+    def test_v1_endpoint_request_get_are_you_a_bot_interactions_page_content(self):
+        res = self._request(
+            "POST",
+            "/v1",
+            {"cmd": "request.get", "url": self.are_you_a_bot_interactions_url},
+        )
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertEqual("Challenge not detected!", body.message)
+        self.assertGreater(body.startTimestamp, 10000)
+        self.assertGreaterEqual(body.endTimestamp, body.startTimestamp)
+        self.assertEqual(utils.get_flaresolverr_version(), body.version)
+
+        solution = body.solution
+        self.assertIn(self.are_you_a_bot_interactions_url, solution.url)
+        self.assertEqual(solution.status, 200)
+        self.assertIs(len(solution.headers), 0)
+        self.assertIn("<title>Bot detection test: verify if your bot is detected</title>", solution.response)
+        self.assertIn('id="loginForm"', solution.response)
+        self.assertIn("Email address", solution.response)
+        self.assertIn("Password", solution.response)
+        self.assertIn(">Login</button>", solution.response)
+        self.assertIn("The bot detection results only appear after the form is submitted.", solution.response)
+        self.assertGreater(len(solution.cookies), 0)
+        self.assertIn("Chrome/", solution.userAgent)
+
     def test_v1_endpoint_request_get_disable_resources(self):
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.google_url, "disableMedia": True})
         self.assertEqual(res.status_code, 200)
@@ -173,7 +227,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn(self.cloudflare_url_2, solution.url)
         self.assertEqual(solution.status, 200)
         self.assertIs(len(solution.headers), 0)
-        self.assertIn("<title>harry - idope torrent search</title>", solution.response)
+        self.assertIn("<title>Download 2022 Torrents - BT4G</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
@@ -227,6 +281,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIsNotNone(cf_cookie, "Fairlane cookie not found")
         self.assertGreater(len(cf_cookie["value"]), 50)
 
+    @unittest.skip("Custom anti-DDoS target www.muziekfabriek.org no longer resolves; replace with a live equivalent.")
     def test_v1_endpoint_request_get_custom_cloudflare_js(self):
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.custom_cloudflare_url})
         self.assertEqual(res.status_code, 200)
@@ -252,6 +307,7 @@ class TestFlareSolverr(unittest.TestCase):
 
     # todo: test Cmd 'request.get' should return fail with Cloudflare CAPTCHA
 
+    @unittest.skip("Blocked-site target cpasbiens3.fr no longer resolves; replace with a live Access denied target.")
     def test_v1_endpoint_request_get_cloudflare_blocked(self):
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.cloudflare_blocked_url}, status=500)
         self.assertEqual(res.status_code, 500)
