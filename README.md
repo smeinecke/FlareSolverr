@@ -211,6 +211,7 @@ session. When you no longer need to use a session you should make sure to close 
 | waitInSeconds       | Optional, default none. Length to wait in seconds after solving the challenge, and before returning the results. Useful to allow it to load dynamic content.                                                                                                                                                                                 |
 | disableMedia        | Optional, default false. When true FlareSolverr will prevent media resources (images, CSS, and fonts) from being loaded to speed up navigation.                                                                                                                                                                                              |
 | tabs_till_verify    | Optional, default none. Number of times the `Tab` button is needed to be pressed to end up on the turnstile captcha, in order to verify it. After verifying the captcha, the result will be stored in the solution under `turnstile_token`.                                                                                                  |
+| actions             | Optional, default none. List of browser actions to perform after the page loads and any challenge is resolved, but before capturing the response. See [Browser Actions](#browser-actions) below.                                                                                                                                             |
 
 > **Warning**
 > If you want to use Cloudflare clearance cookie in your scripts, make sure you use the FlareSolverr User-Agent too. If they don't match you will see the challenge.
@@ -275,6 +276,37 @@ Example response from running the `curl` above:
 }
 ```
 
+### Browser Actions
+
+The `actions` parameter accepts a list of action objects executed sequentially in the live browser after the page has loaded. This enables form filling, button clicks, and waiting for dynamic content — useful for pages where bot detection only runs after user interaction.
+
+All `selector` values must be **XPath** expressions.
+
+| Action type | Parameters | Description |
+| ----------- | ---------- | ----------- |
+| `fill` | `selector` (XPath), `value` (string) | Scrolls to the element, clicks to focus, then types the value character-by-character with randomised inter-key delays to mimic human typing speed. |
+| `click` | `selector` (XPath), `humanLike` (bool, default `false`) | Scrolls the element into view and clicks. When `humanLike` is `true`, uses bezier-curve mouse movement for a more natural trajectory; the default uses `move_to_element` which is more robust for elements near viewport edges. |
+| `wait_for` | `selector` (XPath) | Blocks until the matched element becomes visible. Useful to wait for XHR-driven results to appear. |
+| `wait` | `seconds` (number) | Sleeps for the given number of seconds. Useful to allow interaction trackers to warm up before the first input. |
+
+Example — fill and submit a login form, then wait for the result element to appear:
+
+```json
+{
+  "cmd": "request.get",
+  "url": "https://example.com/login",
+  "actions": [
+    { "type": "wait",     "seconds": 2 },
+    { "type": "fill",     "selector": "//input[@id='email']",    "value": "user@example.com" },
+    { "type": "fill",     "selector": "//input[@id='password']", "value": "s3cr3t!" },
+    { "type": "click",    "selector": "//button[@type='submit']" },
+    { "type": "wait_for", "selector": "//div[@id='dashboard']" }
+  ]
+}
+```
+
+> **Note:** `fill` types one character at a time with random delays (60–180 ms per keystroke). This is intentional — bot-detection interaction trackers flag instant value injection as superhuman behaviour.
+
 ### + `request.post`
 
 This works like `request.get`, with the addition of the postData parameter. Note that `tabs_till_verify` is currently supported only for GET requests and requires one extra argument.
@@ -309,7 +341,10 @@ flowchart TD
     O --> P{Solve successful?}
     P -->|No| Q[Return error response]
     P -->|Yes| H
-    H --> R{waitInSeconds?}
+    H --> AA{actions?}
+    AA -->|Yes| AB[Execute browser actions<br/>fill / click / wait_for / wait]
+    AA -->|No| R{waitInSeconds?}
+    AB --> R{waitInSeconds?}
     R -->|Yes| S[Wait specified time]
     R -->|No| T[returnScreenshot?]
     S --> T
@@ -348,8 +383,8 @@ The **default solver** handles Cloudflare challenges through browser automation:
 | HOST               | 0.0.0.0                | Listening interface. You don't need to change this if you are running on Docker.                                                         |
 | PROMETHEUS_ENABLED | false                  | Enable Prometheus exporter. See the Prometheus section below.                                                                            |
 | PROMETHEUS_PORT    | 8192                   | Listening port for Prometheus exporter. See the Prometheus section below.                                                                |
-| XVFB_WIDTH         | 1280                   | Width of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
-| XVFB_HEIGHT        | 720                    | Height of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
+| XVFB_WIDTH         | 1920                   | Width of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
+| XVFB_HEIGHT        | 1080                   | Height of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
 | XVFB_COLORDEPTH    | 24                     | Color depth (bits per pixel) of the Xvfb virtual display. Common values: 8, 16, 24, 32. Only used in headless mode on Linux.          |
 
 Environment variables are set differently depending on the operating system. Some examples:

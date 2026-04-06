@@ -52,6 +52,13 @@ class V1RequestBase(object):
     disableMedia: bool | None = None
     # Optional when you've got a turnstile captcha that needs to be clicked after X number of Tab presses
     tabs_till_verify: int | None = None
+    # Optional list of browser actions to perform after the page loads (before capturing the result).
+    # Supported action types:
+    #   {"type": "fill",           "selector": "//input[@id='id']", "value": "text"} — clear and type into a field
+    #   {"type": "click",          "selector": "//button", "humanLike": false} — click; set humanLike=true for bezier-curve mouse movement
+    #   {"type": "wait_for",       "selector": "//div[@id='result']"}    — wait until selector is visible
+    #   {"type": "wait",           "seconds": 2}                         — sleep N seconds
+    actions: list[dict[str, Any]] | None = None
 
     def __init__(self, _dict: dict[str, Any]):
         self.__dict__.update(_dict)

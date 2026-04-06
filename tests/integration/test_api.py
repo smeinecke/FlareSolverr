@@ -141,7 +141,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(solution.status, 200)
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Bot detection test: verify if your bot is detected</title>", solution.response)
-        self.assertRegex(solution.response, re.compile(r'"isBot"\s*:\s*true'))
+        self.assertRegex(solution.response, re.compile(r'"isBot"\s*:\s*false'))
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
@@ -149,7 +149,17 @@ class TestFlareSolverr(unittest.TestCase):
         res = self._request(
             "POST",
             "/v1",
-            {"cmd": "request.get", "url": self.are_you_a_bot_interactions_url},
+            {
+                "cmd": "request.get",
+                "url": self.are_you_a_bot_interactions_url,
+                "actions": [
+                    {"type": "wait",     "seconds": 2},
+                    {"type": "fill",     "selector": "//input[@id='email']",                                         "value": "test@example.com"},
+                    {"type": "fill",     "selector": "//input[@id='password']",                                      "value": "TestPass@123"},
+                    {"type": "click",    "selector": "//form[@id='loginForm']//button[@type='submit']"},
+                    {"type": "wait_for", "selector": "//*[@id='resultsBotTest'][contains(@class,'is-human') or contains(@class,'is-bot')]"},
+                ],
+            },
         )
         self.assertEqual(res.status_code, 200)
 
@@ -166,10 +176,8 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Bot detection test: verify if your bot is detected</title>", solution.response)
         self.assertIn('id="loginForm"', solution.response)
-        self.assertIn("Email address", solution.response)
-        self.assertIn("Password", solution.response)
-        self.assertIn(">Login</button>", solution.response)
-        self.assertIn("The bot detection results only appear after the form is submitted.", solution.response)
+        self.assertRegex(solution.response, re.compile(r'"isBot"\s*:\s*false'))
+        self.assertIn("You are human!", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 

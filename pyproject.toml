@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flaresolverr"
-version = "3.6.0"
+version = "3.5.1"
 description = "Proxy server to bypass Cloudflare protection"
 readme = "README.md"
 license = {text = "MIT"}

@@ -12,7 +12,7 @@ from selenium.common import TimeoutException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.expected_conditions import presence_of_element_located, staleness_of, title_is
+from selenium.webdriver.support.expected_conditions import presence_of_element_located, staleness_of, title_is, visibility_of_element_located
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.wait import WebDriverWait
 
@@ -610,6 +610,51 @@ def _wait_for_challenge(driver: WebDriver, html_element) -> None:
         logging.debug("Timeout waiting for redirect")
 
 
+def _execute_actions(driver: WebDriver, actions: list) -> None:
+    """Execute a list of browser actions after page load (fill forms, click, wait)."""
+    action_timeout = 15
+    for action in actions:
+        action_type = action.get("type")
+        selector = action.get("selector")
+        if action_type == "fill":
+            import random
+            el = WebDriverWait(driver, action_timeout).until(
+                presence_of_element_located((By.XPATH, selector))
+            )
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+            time.sleep(_random_delay(0.3, 0.6))
+            ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.1)).click().perform()
+            time.sleep(_random_delay(0.1, 0.2))
+            el.clear()
+            # Type character-by-character with realistic inter-key delays
+            for ch in action.get("value", ""):
+                el.send_keys(ch)
+                time.sleep(random.uniform(0.06, 0.18))  # nosec B311
+            logging.debug(f"Action fill: selector={selector}")
+        elif action_type == "click":
+            el = WebDriverWait(driver, action_timeout).until(
+                presence_of_element_located((By.XPATH, selector))
+            )
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+            time.sleep(_random_delay(0.2, 0.4))
+            if action.get("humanLike"):
+                _human_like_click(driver, el)
+            else:
+                ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.15)).click().perform()
+            logging.debug(f"Action click: selector={selector}")
+        elif action_type == "wait_for":
+            WebDriverWait(driver, action_timeout).until(
+                visibility_of_element_located((By.XPATH, selector))
+            )
+            logging.debug(f"Action wait_for: selector={selector}")
+        elif action_type == "wait":
+            seconds = float(action.get("seconds", 1))
+            logging.debug(f"Action wait: {seconds}s")
+            time.sleep(seconds)
+        else:
+            logging.warning(f"Unknown action type: {action_type!r}")
+
+
 def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_token: str | None) -> ChallengeResolutionResultT:
     challenge_res = ChallengeResolutionResultT({})
     challenge_res.url = driver.current_url
@@ -619,6 +664,9 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
 
     if not req.returnOnlyCookies:
         challenge_res.headers = {}  # todo: fix, selenium not provides this info
+
+        if req.actions:
+            _execute_actions(driver, req.actions)
 
         if req.waitInSeconds and req.waitInSeconds > 0:
             logging.info("Waiting " + str(req.waitInSeconds) + " seconds before returning the response...")
