@@ -210,6 +210,7 @@ Common environment variables:
 - `PROXY_URL=http://192.168.1.10:3128`
 - `PROXY_USERNAME` and `PROXY_PASSWORD`
 - `PROMETHEUS_ENABLED=true` and `PROMETHEUS_PORT=8192`
+- `XVFB_WIDTH=1280` and `XVFB_HEIGHT=720` (Xvfb virtual display resolution)
 
 ## Rootless note
 

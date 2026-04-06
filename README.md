@@ -303,6 +303,8 @@ This works like `request.get`, with the addition of the postData parameter. Note
 | HOST               | 0.0.0.0                | Listening interface. You don't need to change this if you are running on Docker.                                                         |
 | PROMETHEUS_ENABLED | false                  | Enable Prometheus exporter. See the Prometheus section below.                                                                            |
 | PROMETHEUS_PORT    | 8192                   | Listening port for Prometheus exporter. See the Prometheus section below.                                                                |
+| XVFB_WIDTH         | 1280                   | Width of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
+| XVFB_HEIGHT        | 720                    | Height of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
 
 Environment variables are set differently depending on the operating system. Some examples:
 
