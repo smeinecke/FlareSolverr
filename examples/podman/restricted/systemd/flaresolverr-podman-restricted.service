@@ -5,15 +5,7 @@ After=network-online.target flaresolverr-podman-networks.service flaresolverr-po
 Wants=network-online.target
 
 [Service]
-Environment=IMAGE=ghcr.io/smeinecke/flaresolverr:latest
-Environment=CONFIG_DIR=/srv/flaresolverr/config
-Environment=RESTRICTED_NETWORK=flaresolverr_restricted
-Environment=RESTRICTED_GATEWAY=10.89.60.1
-Environment=DNSDIST_IP=10.89.60.53
-Environment=ALLOWED_PRIVATE_CIDRS=192.168.50.0/24
-Environment=LOG_LEVEL=info
-Environment=LOG_FILE=/config/flaresolverr.log
-Environment=TZ=UTC
+EnvironmentFile=-/etc/flaresolverr/podman-restricted.env
 ExecStartPre=/usr/bin/mkdir -p ${CONFIG_DIR}
 ExecStartPre=-/usr/bin/podman rm -f flaresolverr
 ExecStartPre=/usr/bin/podman create --name flaresolverr --network ${RESTRICTED_NETWORK} --dns ${DNSDIST_IP} -p 127.0.0.1:8191:8191 -v ${CONFIG_DIR}:/config:Z -e LOG_LEVEL=${LOG_LEVEL} -e LOG_FILE=${LOG_FILE} -e TZ=${TZ} ${IMAGE}
