@@ -349,6 +349,7 @@ The **default solver** handles Cloudflare challenges through browser automation:
 | PROMETHEUS_PORT    | 8192                   | Listening port for Prometheus exporter. See the Prometheus section below.                                                                |
 | XVFB_WIDTH         | 1280                   | Width of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
 | XVFB_HEIGHT        | 720                    | Height of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
+| XVFB_COLORDEPTH    | 24                     | Color depth (bits per pixel) of the Xvfb virtual display. Common values: 8, 16, 24, 32. Only used in headless mode on Linux.          |
 
 Environment variables are set differently depending on the operating system. Some examples:
 
