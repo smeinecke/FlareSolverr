@@ -348,7 +348,9 @@ def start_xvfb_display() -> None:
     if XVFB_DISPLAY is None:
         from xvfbwrapper import Xvfb
 
-        XVFB_DISPLAY = Xvfb()
+        width = int(os.environ.get("XVFB_WIDTH", "1280"))
+        height = int(os.environ.get("XVFB_HEIGHT", "720"))
+        XVFB_DISPLAY = Xvfb(width=width, height=height)
         XVFB_DISPLAY.start()
 
 
