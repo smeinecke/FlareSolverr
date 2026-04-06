@@ -33,29 +33,19 @@ Files:
 - `restricted/systemd/flaresolverr-podman-networks.service`
 - `restricted/systemd/flaresolverr-podman-dnsdist.service`
 - `restricted/systemd/flaresolverr-podman-restricted.service`
-- `restricted/01-create-networks.sh`
-- `restricted/10-build-dnsdist.sh`
-- `restricted/20-run-dnsdist.sh`
-- `restricted/30-run-flaresolverr.sh`
-- `restricted/40-allow-private-routes.sh`
-- `restricted/dnsdist/Containerfile`
-- `restricted/dnsdist/fetch-and-run.sh`
+- `restricted/systemd/podman-restricted.env.example`
+- `restricted/install.sh`
+- `restricted/dnsdist/dnsdist.conf`
 
 Quick start:
 
 ```bash
-sudo cp examples/podman/restricted/systemd/flaresolverr-podman-networks.service /etc/systemd/system/
-sudo cp examples/podman/restricted/systemd/flaresolverr-podman-dnsdist.service /etc/systemd/system/
-sudo cp examples/podman/restricted/systemd/flaresolverr-podman-restricted.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now flaresolverr-podman-networks.service
-sudo ./examples/podman/restricted/10-build-dnsdist.sh
-sudo mkdir -p /srv/flaresolverr/config
-sudo systemctl enable --now flaresolverr-podman-dnsdist.service
-sudo systemctl enable --now flaresolverr-podman-restricted.service
+sudo ALLOWED_PRIVATE_CIDRS="192.168.50.0/24 192.168.60.0/24" ./examples/podman/restricted/install.sh
 ```
 
-Before enabling `flaresolverr-podman-restricted.service`, edit the copied unit in `/etc/systemd/system/` and set `ALLOWED_PRIVATE_CIDRS` to the private CIDRs FlareSolverr is allowed to reach.
+`install.sh` writes `/etc/flaresolverr/podman-restricted.env`.
+Update that file (or rerun `install.sh` with different variables) whenever your settings change.
+You can use `restricted/systemd/podman-restricted.env.example` as a reference for all available keys.
 
 Verification:
 
@@ -70,6 +60,6 @@ sudo podman exec flaresolverr cat /etc/resolv.conf
 
 Notes:
 
-- The restricted example fetches upstream resolver backends from `https://raw.githubusercontent.com/disposable/public-dns/main/txt/dnsdist.conf`.
-- That URL tracks `main` and can change over time.
+- The restricted example uses `docker.io/powerdns/dnsdist-19:latest`.
+- The resolver list is pinned in `restricted/dnsdist/dnsdist.conf`.
 - `PODMAN.md` contains the full explanation, security model, and verification steps.

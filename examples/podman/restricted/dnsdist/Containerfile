@@ -1,9 +1,0 @@
-FROM debian:bookworm-slim
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl dnsdist \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY fetch-and-run.sh /usr/local/bin/fetch-and-run.sh
-
-ENTRYPOINT ["/usr/local/bin/fetch-and-run.sh"]

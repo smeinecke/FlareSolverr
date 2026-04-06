@@ -72,10 +72,9 @@ Files:
 - [flaresolverr-podman-networks.service](/home/stefan/github/FlareSolverr/examples/podman/restricted/systemd/flaresolverr-podman-networks.service)
 - [flaresolverr-podman-dnsdist.service](/home/stefan/github/FlareSolverr/examples/podman/restricted/systemd/flaresolverr-podman-dnsdist.service)
 - [flaresolverr-podman-restricted.service](/home/stefan/github/FlareSolverr/examples/podman/restricted/systemd/flaresolverr-podman-restricted.service)
-- [10-build-dnsdist.sh](/home/stefan/github/FlareSolverr/examples/podman/restricted/10-build-dnsdist.sh)
-- [01-create-networks.sh](/home/stefan/github/FlareSolverr/examples/podman/restricted/01-create-networks.sh)
-- [Containerfile](/home/stefan/github/FlareSolverr/examples/podman/restricted/dnsdist/Containerfile)
-- [fetch-and-run.sh](/home/stefan/github/FlareSolverr/examples/podman/restricted/dnsdist/fetch-and-run.sh)
+- [podman-restricted.env.example](/home/stefan/github/FlareSolverr/examples/podman/restricted/systemd/podman-restricted.env.example)
+- [install.sh](/home/stefan/github/FlareSolverr/examples/podman/restricted/install.sh)
+- [dnsdist.conf](/home/stefan/github/FlareSolverr/examples/podman/restricted/dnsdist/dnsdist.conf)
 
 Security model:
 
@@ -89,29 +88,23 @@ Defaults used by the example:
 - restricted network: `10.89.60.0/24`
 - restricted gateway: `10.89.60.1`
 - dnsdist IP on restricted network: `10.89.60.53`
-- dnsdist upstream source: `https://raw.githubusercontent.com/disposable/public-dns/main/txt/dnsdist.conf`
+- dnsdist image: `docker.io/powerdns/dnsdist-19:latest`
+- dnsdist resolver source: `examples/podman/restricted/dnsdist/dnsdist.conf`
 
 Install:
 
 ```bash
-sudo cp examples/podman/restricted/systemd/flaresolverr-podman-networks.service /etc/systemd/system/
-sudo cp examples/podman/restricted/systemd/flaresolverr-podman-dnsdist.service /etc/systemd/system/
-sudo cp examples/podman/restricted/systemd/flaresolverr-podman-restricted.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now flaresolverr-podman-networks.service
-sudo ./examples/podman/restricted/10-build-dnsdist.sh
-sudo mkdir -p /srv/flaresolverr/config
-sudo systemctl enable --now flaresolverr-podman-dnsdist.service
-sudo systemctl enable --now flaresolverr-podman-restricted.service
+sudo ALLOWED_PRIVATE_CIDRS="192.168.50.0/24 192.168.60.0/24" ./examples/podman/restricted/install.sh
 ```
 
-Before enabling `flaresolverr-podman-restricted.service`, edit the copied unit and set `ALLOWED_PRIVATE_CIDRS` for your environment.
-If needed, also adjust `RESTRICTED_GATEWAY`, `DNSDIST_IP`, or `PUBLIC_DNSDIST_URL`.
+`install.sh` writes `/etc/flaresolverr/podman-restricted.env`.
+Edit that file (or rerun `install.sh` with different variables) for your environment.
+Use `examples/podman/restricted/systemd/podman-restricted.env.example` as the full key reference.
+If needed, also adjust `RESTRICTED_GATEWAY`, `DNSDIST_IP`, or `DNSDIST_CONFIG_PATH`.
 
 Notes:
 
-- `01-create-networks.sh` remains useful for manual setup and debugging.
-- `dnsdist` tracks `disposable/public-dns` `main` by default, so the resolver set can drift over time.
+- `dnsdist` uses the pinned resolver list in `examples/podman/restricted/dnsdist/dnsdist.conf`.
 - This separate-network design is intentional: it keeps public resolver access out of the FlareSolverr namespace.
 
 ## Verification
@@ -236,7 +229,6 @@ Restricted service:
 
 ```bash
 sudo podman pull ghcr.io/smeinecke/flaresolverr:latest
-sudo ./examples/podman/restricted/10-build-dnsdist.sh
 sudo systemctl restart flaresolverr-podman-dnsdist.service
 sudo systemctl restart flaresolverr-podman-restricted.service
 ```
