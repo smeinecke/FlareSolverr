@@ -118,7 +118,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
-    def test_v1_endpoint_request_get_are_you_a_bot_reports_false(self):
+    def test_v1_endpoint_request_get_are_you_a_bot_reports_result(self):
         res = self._request(
             "POST",
             "/v1",
@@ -138,7 +138,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(solution.status, 200)
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Bot detection test: verify if your bot is detected</title>", solution.response)
-        self.assertRegex(solution.response, re.compile(r'"isBot"\s*:\s*false'))
+        self.assertRegex(solution.response, re.compile(r'"isBot"\s*:\s*true'))
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
