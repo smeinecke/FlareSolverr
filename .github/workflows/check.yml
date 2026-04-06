@@ -167,6 +167,12 @@ jobs:
           docker compose -f docker-compose.test.yml logs
           exit 1
 
+      - name: Run integration tests (non-proxy scenarios)
+        env:
+          FLARESOLVERR_URL: http://127.0.0.1:8191
+        run: |
+          uv run pytest -m integration tests/integration -k "not proxy_http_param and not proxy_http_param_with_credentials and not proxy_socks_param" -vv
+
       - name: Run integration tests (proxy scenarios)
         env:
           FLARESOLVERR_URL: http://127.0.0.1:8191
