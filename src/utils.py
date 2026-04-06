@@ -34,7 +34,7 @@ def get_config_disable_media() -> bool:
 
 
 def get_config_stealth_mode() -> bool:
-    return os.environ.get("STEALTH_MODE", "false").lower() == "true"
+    return os.environ.get("STEALTH_MODE", "true").lower() == "true"
 
 
 def _apply_stealth_patches(driver: WebDriver) -> None:
