@@ -7,7 +7,10 @@ import shutil
 import tempfile
 import urllib.parse
 from typing import Any
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib  # type: ignore[no-redef]
 
 from selenium.webdriver.chrome.webdriver import WebDriver
 import undetected_chromedriver as uc
@@ -19,6 +22,16 @@ CHROME_MAJOR_VERSION: str | None = None
 USER_AGENT: str | None = None
 XVFB_DISPLAY = None
 PATCHED_DRIVER_PATH: str | None = None
+_STEALTH_SCRIPT: str | None = None
+
+
+def _load_stealth_script() -> str:
+    global _STEALTH_SCRIPT
+    if _STEALTH_SCRIPT is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stealth.js")
+        with open(path) as f:
+            _STEALTH_SCRIPT = f.read()
+    return _STEALTH_SCRIPT
 
 
 def get_config_log_html() -> bool:
@@ -38,199 +51,7 @@ def get_config_stealth_mode() -> bool:
 
 
 def _apply_stealth_patches(driver: WebDriver) -> None:
-    # Experimental stealth patching to reduce modern JS/CDP fingerprint signals.
-    # This is intentionally opt-in through STEALTH_MODE because it can change page behavior.
-    script = """
-(() => {
-  const installCdpConsoleGuard = () => {
-    try {
-      // Avoid devtools-style formatting side effects when pages call console.log(new Error()).
-      const origLog = console.log.bind(console);
-      const safeLog = (...args) => {
-        const mapped = args.map((arg) => {
-          if (arg instanceof Error) {
-            return `${arg.name}: ${arg.message}`;
-          }
-          return arg;
-        });
-        return origLog(...mapped);
-      };
-      try {
-        Object.defineProperty(console, "log", {
-          value: safeLog,
-          writable: false,
-          configurable: false,
-        });
-      } catch (_) {
-        console.log = safeLog;
-      }
-    } catch (_) {}
-  };
-
-  installCdpConsoleGuard();
-
-  try {
-    // Hide webdriver where possible (both instance + prototype path).
-    Object.defineProperty(Navigator.prototype, "webdriver", {
-      get: () => undefined,
-      configurable: true,
-    });
-  } catch (_) {}
-  try {
-    Object.defineProperty(navigator, "webdriver", {
-      get: () => undefined,
-      configurable: true,
-    });
-  } catch (_) {}
-
-  try {
-    // Chromium-based browsers expose a window.chrome object.
-    if (!window.chrome) {
-      window.chrome = {
-        app: { isInstalled: false },
-        runtime: {},
-      };
-    } else if (!window.chrome.runtime) {
-      window.chrome.runtime = {};
-    }
-  } catch (_) {}
-
-  try {
-    // Keep language hints non-empty and internally consistent.
-    const langs = Array.isArray(navigator.languages) && navigator.languages.length > 0
-      ? navigator.languages
-      : ["en-US", "en"];
-    const mainLang = (navigator.language && typeof navigator.language === "string")
-      ? navigator.language
-      : langs[0];
-    Object.defineProperty(Navigator.prototype, "languages", {
-      get: () => langs,
-      configurable: true,
-    });
-    Object.defineProperty(Navigator.prototype, "language", {
-      get: () => mainLang,
-      configurable: true,
-    });
-  } catch (_) {}
-
-  try {
-    // Some hardened/automated environments expose empty plugins/mimeTypes.
-    const makePluginArray = () => {
-      const pdfPlugin = {
-        name: "Chrome PDF Viewer",
-        filename: "internal-pdf-viewer",
-        description: "Portable Document Format",
-        version: "1",
-      };
-      const pluginArray = {
-        0: pdfPlugin,
-        length: 1,
-        item: (i) => (i === 0 ? pdfPlugin : null),
-        namedItem: (name) => (name === pdfPlugin.name ? pdfPlugin : null),
-      };
-      return pluginArray;
-    };
-    const makeMimeTypeArray = () => {
-      const pdfMime = {
-        type: "application/pdf",
-        suffixes: "pdf",
-        description: "Portable Document Format",
-      };
-      const mimeArray = {
-        0: pdfMime,
-        length: 1,
-        item: (i) => (i === 0 ? pdfMime : null),
-        namedItem: (name) => (name === pdfMime.type ? pdfMime : null),
-      };
-      return mimeArray;
-    };
-    const currentPlugins = navigator.plugins;
-    if (!currentPlugins || currentPlugins.length === 0) {
-      Object.defineProperty(Navigator.prototype, "plugins", {
-        get: () => makePluginArray(),
-        configurable: true,
-      });
-    }
-    const currentMimeTypes = navigator.mimeTypes;
-    if (!currentMimeTypes || currentMimeTypes.length === 0) {
-      Object.defineProperty(Navigator.prototype, "mimeTypes", {
-        get: () => makeMimeTypeArray(),
-        configurable: true,
-      });
-    }
-  } catch (_) {}
-
-  try {
-    // Some containerized Chrome builds expose no voices at all.
-    if (window.speechSynthesis && typeof window.speechSynthesis.getVoices === "function") {
-      const originalGetVoices = window.speechSynthesis.getVoices.bind(window.speechSynthesis);
-      window.speechSynthesis.getVoices = () => {
-        const voices = originalGetVoices();
-        if (Array.isArray(voices) && voices.length > 0) {
-          return voices;
-        }
-        return [
-          {
-            default: true,
-            lang: "en-US",
-            localService: true,
-            name: "Google US English",
-            voiceURI: "Google US English",
-          },
-        ];
-      };
-    }
-  } catch (_) {}
-
-  try {
-    // Keep notifications query behavior closer to normal browsers.
-    const originalQuery = navigator.permissions && navigator.permissions.query;
-    if (originalQuery) {
-      navigator.permissions.query = (parameters) => {
-        if (parameters && parameters.name === "notifications") {
-          return Promise.resolve({ state: Notification.permission, onchange: null });
-        }
-        return originalQuery(parameters);
-      };
-    }
-  } catch (_) {}
-
-  try {
-    // Ensure worker context receives the same CDP guard as the main context.
-    const NativeWorker = window.Worker;
-    if (NativeWorker) {
-      const workerPrelude = `
-        (() => {
-          try {
-            const origLog = console.log.bind(console);
-            console.log = (...args) => origLog(...args.map((arg) => arg instanceof Error ? \`\${arg.name}: \${arg.message}\` : arg));
-          } catch (_) {}
-          try {
-            Object.defineProperty(Navigator.prototype, "webdriver", { get: () => undefined, configurable: true });
-          } catch (_) {}
-        })();
-      `;
-      const WrappedWorker = function(scriptURL, options) {
-        try {
-          const wrappedBody = `${workerPrelude}\\nimportScripts(${JSON.stringify(String(scriptURL))});`;
-          const blob = new Blob([wrappedBody], { type: "application/javascript" });
-          const wrappedUrl = URL.createObjectURL(blob);
-          return new NativeWorker(wrappedUrl, options);
-        } catch (_) {
-          return new NativeWorker(scriptURL, options);
-        }
-      };
-      WrappedWorker.prototype = NativeWorker.prototype;
-      Object.defineProperty(window, "Worker", {
-        value: WrappedWorker,
-        configurable: true,
-        writable: true,
-      });
-    }
-  } catch (_) {}
-})();
-"""
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": script})
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": _load_stealth_script()})
 
 
 def get_flaresolverr_version() -> str:
@@ -556,8 +377,8 @@ def start_xvfb_display() -> None:
     if XVFB_DISPLAY is None:
         from xvfbwrapper import Xvfb
 
-        width = int(os.environ.get("XVFB_WIDTH", "1280"))
-        height = int(os.environ.get("XVFB_HEIGHT", "720"))
+        width = int(os.environ.get("XVFB_WIDTH", "1920"))
+        height = int(os.environ.get("XVFB_HEIGHT", "1080"))
         colordepth = int(os.environ.get("XVFB_COLORDEPTH", "24"))
         XVFB_DISPLAY = Xvfb(width=width, height=height, colordepth=colordepth)
         XVFB_DISPLAY.start()
