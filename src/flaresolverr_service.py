@@ -210,10 +210,7 @@ def _cmd_request_get(req: V1RequestBase) -> V1ResponseBase:
     if req.captchaSolver is not None:
         available = get_available_solvers()
         if req.captchaSolver not in available:
-            raise Exception(
-                f"Request parameter 'captchaSolver' = '{req.captchaSolver}' is invalid. "
-                f"Available solvers: {available}"
-            )
+            raise Exception(f"Request parameter 'captchaSolver' = '{req.captchaSolver}' is invalid. Available solvers: {available}")
 
     challenge_res = _resolve_challenge(req, "GET")
     res = V1ResponseBase({})
@@ -234,10 +231,7 @@ def _cmd_request_post(req: V1RequestBase) -> V1ResponseBase:
     if req.captchaSolver is not None:
         available = get_available_solvers()
         if req.captchaSolver not in available:
-            raise Exception(
-                f"Request parameter 'captchaSolver' = '{req.captchaSolver}' is invalid. "
-                f"Available solvers: {available}"
-            )
+            raise Exception(f"Request parameter 'captchaSolver' = '{req.captchaSolver}' is invalid. Available solvers: {available}")
 
     challenge_res = _resolve_challenge(req, "POST")
     res = V1ResponseBase({})
