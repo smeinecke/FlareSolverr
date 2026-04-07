@@ -618,9 +618,8 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
         selector = action.get("selector")
         if action_type == "fill":
             import random
-            el = WebDriverWait(driver, action_timeout).until(
-                presence_of_element_located((By.XPATH, selector))
-            )
+
+            el = WebDriverWait(driver, action_timeout).until(presence_of_element_located((By.XPATH, selector)))
             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
             time.sleep(_random_delay(0.3, 0.6))
             ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.1)).click().perform()
@@ -632,9 +631,7 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
                 time.sleep(random.uniform(0.06, 0.18))  # nosec B311
             logging.debug(f"Action fill: selector={selector}")
         elif action_type == "click":
-            el = WebDriverWait(driver, action_timeout).until(
-                presence_of_element_located((By.XPATH, selector))
-            )
+            el = WebDriverWait(driver, action_timeout).until(presence_of_element_located((By.XPATH, selector)))
             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
             time.sleep(_random_delay(0.2, 0.4))
             if action.get("humanLike"):
@@ -643,9 +640,7 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
                 ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.15)).click().perform()
             logging.debug(f"Action click: selector={selector}")
         elif action_type == "wait_for":
-            WebDriverWait(driver, action_timeout).until(
-                visibility_of_element_located((By.XPATH, selector))
-            )
+            WebDriverWait(driver, action_timeout).until(visibility_of_element_located((By.XPATH, selector)))
             logging.debug(f"Action wait_for: selector={selector}")
         elif action_type == "wait":
             seconds = float(action.get("seconds", 1))
