@@ -48,11 +48,23 @@ def _patch_wait(monkeypatch, element=None):
 
 # ── fill ──────────────────────────────────────────────────────────────────────
 
+def _patch_action_chains(monkeypatch):
+    """Patch ActionChains with a fluent MagicMock to avoid real Selenium WebElement checks."""
+    import flaresolverr_service as svc
+    chains = MagicMock()
+    chains.return_value.move_to_element.return_value = chains.return_value
+    chains.return_value.pause.return_value = chains.return_value
+    chains.return_value.click.return_value = chains.return_value
+    monkeypatch.setattr(svc, "ActionChains", chains)
+    return chains
+
+
 class TestFillAction:
     def test_clears_and_types_value(self, monkeypatch):
         import flaresolverr_service as svc
         driver = _make_driver()
         el, _ = _patch_wait(monkeypatch)
+        _patch_action_chains(monkeypatch)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
 
         svc._execute_actions(driver, [
@@ -67,6 +79,7 @@ class TestFillAction:
         import flaresolverr_service as svc
         driver = _make_driver()
         el, _ = _patch_wait(monkeypatch)
+        _patch_action_chains(monkeypatch)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
 
         svc._execute_actions(driver, [
@@ -80,6 +93,7 @@ class TestFillAction:
         import flaresolverr_service as svc
         driver = _make_driver()
         el, _ = _patch_wait(monkeypatch)
+        _patch_action_chains(monkeypatch)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
 
         svc._execute_actions(driver, [{"type": "fill", "selector": "//input", "value": ""}])
@@ -91,6 +105,7 @@ class TestFillAction:
         import flaresolverr_service as svc
         driver = _make_driver()
         _patch_wait(monkeypatch)
+        _patch_action_chains(monkeypatch)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         scripts = []
         driver.execute_script.side_effect = lambda s, *_: scripts.append(s)
@@ -104,6 +119,7 @@ class TestFillAction:
         from selenium.webdriver.common.by import By
         driver = _make_driver()
         _patch_wait(monkeypatch)
+        _patch_action_chains(monkeypatch)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         captured = []
         monkeypatch.setattr(svc, "presence_of_element_located", lambda loc: captured.append(loc) or loc)
