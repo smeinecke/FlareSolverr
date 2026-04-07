@@ -211,7 +211,7 @@ session. When you no longer need to use a session you should make sure to close 
 | disableMedia        | Optional, default false. When true FlareSolverr will prevent media resources (images, CSS, and fonts) from being loaded to speed up navigation.                                                                                                                                                                                              |
 | tabs_till_verify    | Optional, default none. Number of times the `Tab` button is needed to be pressed to end up on the turnstile captcha, in order to verify it. After verifying the captcha, the result will be stored in the solution under `turnstile_token`.                                                                                                  |
 | actions             | Optional, default none. List of browser actions to perform after the page loads and any challenge is resolved, but before capturing the response. See [Browser Actions](#browser-actions) below.                                                                                                                                             |
-| captchaSolver       | Optional, default uses the global `CAPTCHA_SOLVER` environment variable (fallback: `"default"`). Overrides the solver used for this specific request. Available values depend on installed packages: `"default"` (always), `"hcaptcha-challenger"` (requires `hcaptcha-challenger`), `"recaptcha-challenger"` (requires `recaptcha-challenger`). An unknown or unavailable solver name returns an error immediately. |
+| captchaSolver       | Optional, default uses the global `CAPTCHA_SOLVER` environment variable (fallback: `"default"`). Overrides the solver used for this specific request. Currently only `"default"` is supported. Custom solvers can be registered via the `SolverManager` API. An unknown solver name returns an error immediately. |
 
 > **Warning**
 > If you want to use Cloudflare clearance cookie in your scripts, make sure you use the FlareSolverr User-Agent too. If they don't match you will see the challenge.
@@ -422,20 +422,11 @@ flaresolverr_request_duration_created{domain="nowsecure.nl"} 1.6901416571570296e
 
 ## Captcha Solvers
 
-FlareSolverr includes support for multiple captcha solving methods. The built-in `default` solver handles Cloudflare challenges automatically.
+FlareSolverr includes a pluggable captcha solver interface. The built-in `default` solver handles Cloudflare challenges automatically.
 
-For sites with hCaptcha or reCAPTCHA, optional AI-based solvers can be installed:
+The `CAPTCHA_SOLVER` environment variable selects the active solver (default: `"default"`). Custom solvers can be added by subclassing `CaptchaSolver` and registering them with `SOLVER_MANAGER.register_solver()`.
 
-- `hcaptcha-challenger` - AI-based hCaptcha solver
-- `recaptcha-challenger` - AI-based reCAPTCHA solver
-
-Set the `CAPTCHA_SOLVER` environment variable to select a solver:
-
-```bash
-CAPTCHA_SOLVER=hcaptcha-challenger
-```
-
-For detailed installation and usage instructions, see [CAPTCHA_SOLVERS.md](./CAPTCHA_SOLVERS.md).
+For details on the solver API, see [CAPTCHA_SOLVERS.md](./CAPTCHA_SOLVERS.md).
 
 ## Related projects
 
