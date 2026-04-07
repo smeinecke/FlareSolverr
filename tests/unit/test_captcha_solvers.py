@@ -338,3 +338,152 @@ class TestIntegration:
         # Get solver using configured name
         solver = SOLVER_MANAGER.get_solver(configured)
         assert isinstance(solver, DefaultSolver)
+
+
+class TestPerRequestCaptchaSolverValidation:
+    """Unit tests for captchaSolver request parameter validation."""
+
+    def _make_service(self):
+        import flaresolverr_service as svc
+        return svc
+
+    def test_invalid_solver_raises_on_request_get(self):
+        """_cmd_request_get raises Exception for unknown captchaSolver."""
+        from flaresolverr_service import _cmd_request_get
+        from dtos import V1RequestBase
+
+        req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "captchaSolver": "no-such-solver"})
+        with pytest.raises(Exception, match="no-such-solver"):
+            _cmd_request_get(req)
+
+    def test_invalid_solver_raises_on_request_post(self):
+        """_cmd_request_post raises Exception for unknown captchaSolver."""
+        from flaresolverr_service import _cmd_request_post
+        from dtos import V1RequestBase
+
+        req = V1RequestBase({"cmd": "request.post", "url": "https://example.com", "postData": "a=b", "captchaSolver": "no-such-solver"})
+        with pytest.raises(Exception, match="no-such-solver"):
+            _cmd_request_post(req)
+
+    def test_invalid_solver_error_lists_available(self):
+        """Error message for invalid captchaSolver includes available solvers."""
+        from flaresolverr_service import _cmd_request_get
+        from dtos import V1RequestBase
+
+        req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "captchaSolver": "no-such-solver"})
+        with pytest.raises(Exception, match="default"):
+            _cmd_request_get(req)
+
+    def test_valid_default_solver_passes_validation(self, monkeypatch):
+        """captchaSolver='default' passes validation and reaches _resolve_challenge."""
+        from flaresolverr_service import _cmd_request_get
+        from dtos import V1RequestBase
+
+        req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "captchaSolver": "default"})
+        monkeypatch.setattr("flaresolverr_service._resolve_challenge", lambda req, method: (_ for _ in ()).throw(StopIteration("reached")))
+        with pytest.raises((StopIteration, Exception), match="reached"):
+            _cmd_request_get(req)
+
+    def test_none_captcha_solver_passes_validation(self, monkeypatch):
+        """captchaSolver=None (absent) passes validation and reaches _resolve_challenge."""
+        from flaresolverr_service import _cmd_request_get
+        from dtos import V1RequestBase
+
+        req = V1RequestBase({"cmd": "request.get", "url": "https://example.com"})
+        monkeypatch.setattr("flaresolverr_service._resolve_challenge", lambda req, method: (_ for _ in ()).throw(StopIteration("reached")))
+        with pytest.raises((StopIteration, Exception), match="reached"):
+            _cmd_request_get(req)
+
+
+class TestEffectiveSolverSelection:
+    """Unit tests for per-request vs global solver resolution in _evil_logic."""
+
+    def _make_req(self, captcha_solver=None):
+        from dtos import V1RequestBase
+        payload = {"cmd": "request.get", "url": "https://example.com"}
+        if captcha_solver is not None:
+            payload["captchaSolver"] = captcha_solver
+        return V1RequestBase(payload)
+
+    def _stub_evil_logic_deps(self, monkeypatch, *, challenge_found=True, captcha_type="hcaptcha"):
+        """Patch all I/O-touching helpers in _evil_logic so it runs without a browser."""
+        import captcha_solvers as cs
+        import flaresolverr_service as svc
+
+        calls = []
+
+        def spy_solve(driver, ct, solver_name=None):
+            calls.append(solver_name)
+            return False  # return False so _wait_for_challenge is still skipped below
+
+        monkeypatch.setattr(cs.SOLVER_MANAGER, "solve", spy_solve)
+        monkeypatch.setattr(svc, "_configure_blocked_media", lambda *a: None)
+        monkeypatch.setattr(svc, "_set_custom_headers", lambda *a: None)
+        monkeypatch.setattr(svc, "_navigate_request", lambda *a: None)
+        monkeypatch.setattr(svc, "_set_request_cookies", lambda *a: None)
+        monkeypatch.setattr(svc, "_raise_if_access_denied", lambda *a: None)
+        monkeypatch.setattr(svc, "_challenge_found", lambda *a: challenge_found)
+        monkeypatch.setattr(svc, "_detect_captcha_type", lambda *a: captcha_type)
+        monkeypatch.setattr(svc, "_wait_for_challenge", lambda *a: None)
+        monkeypatch.setattr(svc, "_build_challenge_result", lambda *a: None)
+        monkeypatch.setattr(svc.utils, "get_config_log_html", lambda: False)
+
+        mock_driver = MockWebDriver()
+        mock_driver.title = ""
+        mock_driver.find_element = lambda by, tag: MagicMock(get_attribute=lambda a: "")
+        mock_driver.current_url = "https://example.com"
+        mock_driver.page_source = "<html><body>ok</body></html>"
+        mock_driver.get_cookies = lambda: []
+
+        return mock_driver, calls
+
+    def test_per_request_solver_overrides_global_on_challenge(self, monkeypatch):
+        """When captchaSolver is set on req and a challenge is found, that solver
+        name is passed to SOLVER_MANAGER.solve instead of the global env var."""
+        import captcha_solvers as cs
+        import flaresolverr_service as svc
+
+        # Register a dummy solver so "recaptcha-challenger" passes available check
+        class _DummySolver(cs.CaptchaSolver):
+            name = "recaptcha-challenger"
+            def is_available(self): return True
+            def solve(self, driver, captcha_type): return False
+
+        cs.SOLVER_MANAGER.register_solver(_DummySolver())
+        monkeypatch.setenv("CAPTCHA_SOLVER", "hcaptcha-challenger")
+
+        mock_driver, calls = self._stub_evil_logic_deps(monkeypatch, challenge_found=True, captcha_type="recaptcha")
+
+        req = self._make_req(captcha_solver="recaptcha-challenger")
+        svc._evil_logic(req, mock_driver, "GET")
+
+        assert calls == ["recaptcha-challenger"]
+
+    def test_absent_captcha_solver_uses_global_on_challenge(self, monkeypatch):
+        """When captchaSolver is None and a challenge is found, the global
+        CAPTCHA_SOLVER env var name is passed to SOLVER_MANAGER.solve."""
+        import captcha_solvers as cs
+        import flaresolverr_service as svc
+
+        class _DummySolver(cs.CaptchaSolver):
+            name = "hcaptcha-challenger"
+            def is_available(self): return True
+            def solve(self, driver, captcha_type): return False
+
+        cs.SOLVER_MANAGER.register_solver(_DummySolver())
+        monkeypatch.setenv("CAPTCHA_SOLVER", "hcaptcha-challenger")
+
+        mock_driver, calls = self._stub_evil_logic_deps(monkeypatch, challenge_found=True, captcha_type="hcaptcha")
+
+        req = self._make_req()  # no captchaSolver
+        svc._evil_logic(req, mock_driver, "GET")
+
+        assert calls == ["hcaptcha-challenger"]
+
+    def test_absent_captcha_solver_falls_back_to_global(self, monkeypatch):
+        """When captchaSolver is None, global CAPTCHA_SOLVER env var is used."""
+        monkeypatch.setenv("CAPTCHA_SOLVER", "hcaptcha-challenger")
+
+        req = self._make_req()
+        assert req.captchaSolver is None
+        assert get_config_captcha_solver() == "hcaptcha-challenger"

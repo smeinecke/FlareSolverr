@@ -1,4 +1,4 @@
-from dtos import ChallengeResolutionT, HealthResponse, IndexResponse, STATUS_OK, V1ResponseBase
+from dtos import ChallengeResolutionT, HealthResponse, IndexResponse, STATUS_OK, V1RequestBase, V1ResponseBase
 
 
 def test_index_response_maps_fields() -> None:
@@ -36,6 +36,30 @@ def test_v1_response_wraps_solution_dict() -> None:
     assert response.solution.url == "https://example.com"
     assert response.solution.status == 200
     assert response.solution.cookies[0]["name"] == "cookie"
+
+
+def test_v1_request_base_captcha_solver_defaults_to_none() -> None:
+    req = V1RequestBase({"cmd": "request.get", "url": "https://example.com"})
+
+    assert req.captchaSolver is None
+
+
+def test_v1_request_base_captcha_solver_accepts_string() -> None:
+    req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "captchaSolver": "hcaptcha-challenger"})
+
+    assert req.captchaSolver == "hcaptcha-challenger"
+
+
+def test_v1_request_base_captcha_solver_accepts_default() -> None:
+    req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "captchaSolver": "default"})
+
+    assert req.captchaSolver == "default"
+
+
+def test_v1_request_base_captcha_solver_not_present_in_empty_request() -> None:
+    req = V1RequestBase({})
+
+    assert req.captchaSolver is None
 
 
 def test_challenge_resolution_wraps_nested_result() -> None:
