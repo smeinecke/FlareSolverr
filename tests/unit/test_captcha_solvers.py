@@ -12,8 +12,6 @@ import captcha_solvers as solvers_module
 from captcha_solvers import (
     CaptchaSolver,
     DefaultSolver,
-    HCaptchaChallengerSolver,
-    ReCaptchaChallengerSolver,
     SolverManager,
     get_config_captcha_solver,
     get_available_solvers,
@@ -77,76 +75,6 @@ class TestDefaultSolver:
         """Test DefaultSolver has correct name."""
         solver = DefaultSolver()
         assert solver.name == "default"
-
-
-class TestHCaptchaChallengerSolver:
-    """Tests for HCaptchaChallengerSolver."""
-
-    def test_hcaptcha_solver_name(self):
-        """Test HCaptchaChallengerSolver has correct name."""
-        solver = HCaptchaChallengerSolver()
-        assert solver.name == "hcaptcha-challenger"
-
-    def test_hcaptcha_solver_unavailable_without_library(self):
-        """Test that solver is unavailable when library not installed."""
-        # The solver checks for import, which should fail in test environment
-        solver = HCaptchaChallengerSolver()
-        # Should be unavailable since we don't have the actual library
-        assert not solver.is_available()
-
-    def test_hcaptcha_solver_returns_false_when_unavailable(self):
-        """Test solve returns False when solver unavailable."""
-        solver = HCaptchaChallengerSolver()
-        mock_driver = MockWebDriver()
-        result = solver.solve(mock_driver, "hcaptcha")
-        assert result is False
-
-    def test_hcaptcha_solver_only_handles_hcaptcha(self):
-        """Test that solver only attempts to solve hcaptcha type."""
-        solver = HCaptchaChallengerSolver()
-        mock_driver = MockWebDriver()
-        # Should return False for non-hcaptcha types
-        result = solver.solve(mock_driver, "recaptcha")
-        assert result is False
-
-
-class TestReCaptchaChallengerSolver:
-    """Tests for ReCaptchaChallengerSolver."""
-
-    def test_recaptcha_solver_name(self):
-        """Test ReCaptchaChallengerSolver has correct name."""
-        solver = ReCaptchaChallengerSolver()
-        assert solver.name == "recaptcha-challenger"
-
-    def test_recaptcha_solver_unavailable_without_library(self):
-        """Test that solver is unavailable when library not installed."""
-        solver = ReCaptchaChallengerSolver()
-        assert not solver.is_available()
-
-    def test_recaptcha_solver_returns_false_when_unavailable(self):
-        """Test solve returns False when solver unavailable."""
-        solver = ReCaptchaChallengerSolver()
-        mock_driver = MockWebDriver()
-        result = solver.solve(mock_driver, "recaptcha")
-        assert result is False
-
-    def test_recaptcha_solver_handles_recaptcha_types(self):
-        """Test that solver handles various recaptcha types."""
-        solver = ReCaptchaChallengerSolver()
-        mock_driver = MockWebDriver()
-
-        # Should attempt recaptcha types
-        for captcha_type in ["recaptcha", "recaptcha-v2", "recaptcha-v3"]:
-            # Since solver is unavailable, should still return False
-            result = solver.solve(mock_driver, captcha_type)
-            assert result is False
-
-    def test_recaptcha_solver_ignores_other_types(self):
-        """Test that solver ignores non-recaptcha types."""
-        solver = ReCaptchaChallengerSolver()
-        mock_driver = MockWebDriver()
-        result = solver.solve(mock_driver, "hcaptcha")
-        assert result is False
 
 
 class TestSolverManager:
@@ -443,21 +371,26 @@ class TestEffectiveSolverSelection:
         import captcha_solvers as cs
         import flaresolverr_service as svc
 
-        # Register a dummy solver so "recaptcha-challenger" passes available check
-        class _DummySolver(cs.CaptchaSolver):
-            name = "recaptcha-challenger"
+        class _CustomSolverA(cs.CaptchaSolver):
+            name = "custom-solver-a"
             def is_available(self): return True
             def solve(self, driver, captcha_type): return False
 
-        cs.SOLVER_MANAGER.register_solver(_DummySolver())
-        monkeypatch.setenv("CAPTCHA_SOLVER", "hcaptcha-challenger")
+        class _CustomSolverB(cs.CaptchaSolver):
+            name = "custom-solver-b"
+            def is_available(self): return True
+            def solve(self, driver, captcha_type): return False
 
-        mock_driver, calls = self._stub_evil_logic_deps(monkeypatch, challenge_found=True, captcha_type="recaptcha")
+        cs.SOLVER_MANAGER.register_solver(_CustomSolverA())
+        cs.SOLVER_MANAGER.register_solver(_CustomSolverB())
+        monkeypatch.setenv("CAPTCHA_SOLVER", "custom-solver-a")
 
-        req = self._make_req(captcha_solver="recaptcha-challenger")
+        mock_driver, calls = self._stub_evil_logic_deps(monkeypatch, challenge_found=True, captcha_type="hcaptcha")
+
+        req = self._make_req(captcha_solver="custom-solver-b")
         svc._evil_logic(req, mock_driver, "GET")
 
-        assert calls == ["recaptcha-challenger"]
+        assert calls == ["custom-solver-b"]
 
     def test_absent_captcha_solver_uses_global_on_challenge(self, monkeypatch):
         """When captchaSolver is None and a challenge is found, the global
@@ -465,25 +398,25 @@ class TestEffectiveSolverSelection:
         import captcha_solvers as cs
         import flaresolverr_service as svc
 
-        class _DummySolver(cs.CaptchaSolver):
-            name = "hcaptcha-challenger"
+        class _CustomSolverC(cs.CaptchaSolver):
+            name = "custom-solver-c"
             def is_available(self): return True
             def solve(self, driver, captcha_type): return False
 
-        cs.SOLVER_MANAGER.register_solver(_DummySolver())
-        monkeypatch.setenv("CAPTCHA_SOLVER", "hcaptcha-challenger")
+        cs.SOLVER_MANAGER.register_solver(_CustomSolverC())
+        monkeypatch.setenv("CAPTCHA_SOLVER", "custom-solver-c")
 
         mock_driver, calls = self._stub_evil_logic_deps(monkeypatch, challenge_found=True, captcha_type="hcaptcha")
 
         req = self._make_req()  # no captchaSolver
         svc._evil_logic(req, mock_driver, "GET")
 
-        assert calls == ["hcaptcha-challenger"]
+        assert calls == ["custom-solver-c"]
 
     def test_absent_captcha_solver_falls_back_to_global(self, monkeypatch):
         """When captchaSolver is None, global CAPTCHA_SOLVER env var is used."""
-        monkeypatch.setenv("CAPTCHA_SOLVER", "hcaptcha-challenger")
+        monkeypatch.setenv("CAPTCHA_SOLVER", "custom-solver-c")
 
         req = self._make_req()
         assert req.captchaSolver is None
-        assert get_config_captcha_solver() == "hcaptcha-challenger"
+        assert get_config_captcha_solver() == "custom-solver-c"
