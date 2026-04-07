@@ -17,7 +17,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.wait import WebDriverWait
 
 import utils
-from captcha_solvers import SOLVER_MANAGER, get_config_captcha_solver
+from captcha_solvers import SOLVER_MANAGER, get_available_solvers, get_config_captcha_solver
 from dtos import STATUS_ERROR, STATUS_OK, ChallengeResolutionResultT, ChallengeResolutionT, HealthResponse, IndexResponse, V1RequestBase, V1ResponseBase
 from sessions import SessionsStorage
 
@@ -207,6 +207,13 @@ def _cmd_request_get(req: V1RequestBase) -> V1ResponseBase:
         logging.warning("Request parameter 'returnRawHtml' was removed in FlareSolverr v2.")
     if req.download is not None:
         logging.warning("Request parameter 'download' was removed in FlareSolverr v2.")
+    if req.captchaSolver is not None:
+        available = get_available_solvers()
+        if req.captchaSolver not in available:
+            raise Exception(
+                f"Request parameter 'captchaSolver' = '{req.captchaSolver}' is invalid. "
+                f"Available solvers: {available}"
+            )
 
     challenge_res = _resolve_challenge(req, "GET")
     res = V1ResponseBase({})
@@ -224,6 +231,13 @@ def _cmd_request_post(req: V1RequestBase) -> V1ResponseBase:
         logging.warning("Request parameter 'returnRawHtml' was removed in FlareSolverr v2.")
     if req.download is not None:
         logging.warning("Request parameter 'download' was removed in FlareSolverr v2.")
+    if req.captchaSolver is not None:
+        available = get_available_solvers()
+        if req.captchaSolver not in available:
+            raise Exception(
+                f"Request parameter 'captchaSolver' = '{req.captchaSolver}' is invalid. "
+                f"Available solvers: {available}"
+            )
 
     challenge_res = _resolve_challenge(req, "POST")
     res = V1ResponseBase({})
@@ -703,14 +717,14 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     if challenge_found:
         # Try external captcha solver first if configured
         solver_used = False
-        configured_solver = get_config_captcha_solver()
-        if configured_solver != "default":
+        effective_solver = req.captchaSolver if req.captchaSolver is not None else get_config_captcha_solver()
+        if effective_solver != "default":
             solver_type = _detect_captcha_type(driver)
             if solver_type:
-                logging.info(f"Attempting to solve {solver_type} captcha with {configured_solver} solver")
-                solver_used = SOLVER_MANAGER.solve(driver, solver_type)
+                logging.info(f"Attempting to solve {solver_type} captcha with {effective_solver} solver")
+                solver_used = SOLVER_MANAGER.solve(driver, solver_type, effective_solver)
                 if solver_used:
-                    logging.info(f"Captcha solved successfully with {configured_solver}")
+                    logging.info(f"Captcha solved successfully with {effective_solver}")
 
         if not solver_used:
             # Fall back to default challenge resolution
