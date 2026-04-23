@@ -32,12 +32,12 @@ class Cookie:
     value: str
     domain: str
     path: str
-    expires: float | None = None
+    expires: float | None = None  # noqa
     size: int | None = None
-    httpOnly: bool = False
-    secure: bool = False
+    httpOnly: bool = False  # noqa
+    secure: bool = False  # noqa
     session: bool = False
-    sameSite: str | None = None
+    sameSite: str | None = None  # noqa
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Cookie:
@@ -102,7 +102,7 @@ class ChallengeSolution:
     response: str | None = None
     cookies: list[Cookie] = field(default_factory=list)
     userAgent: str | None = None
-    screenshot: str | None = None
+    screenshot: str | None = None  # noqa
     turnstile_token: str | None = None
 
     @classmethod
@@ -134,7 +134,7 @@ class V1Response:
     sessions: list[str] | None = None
     startTimestamp: int | None = None
     endTimestamp: int | None = None
-    version: str | None = None
+    version: str | None = None  # noqa
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> V1Response:
@@ -173,8 +173,8 @@ class HealthResponse:
 class IndexResponse:
     """Response from the index endpoint."""
 
-    msg: str
-    version: str
+    msg: str  # noqa
+    version: str  # noqa
     userAgent: str
 
     @classmethod

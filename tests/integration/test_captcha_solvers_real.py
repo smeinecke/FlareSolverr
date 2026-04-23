@@ -178,7 +178,7 @@ class TestHCaptchaRealIntegration:
 
     def test_hcaptcha_detection_on_page(self, mock_webdriver_with_hcaptcha):
         """Test that hCaptcha is correctly detected on a page."""
-        from flaresolverr_service import _detect_captcha_type
+        from flaresolverr.flaresolverr_service import _detect_captcha_type
 
         driver = mock_webdriver_with_hcaptcha
         captcha_type = _detect_captcha_type(driver)
@@ -267,7 +267,7 @@ class TestReCaptchaRealIntegration:
 
     def test_recaptcha_detection_on_page(self, mock_webdriver_with_recaptcha):
         """Test that reCAPTCHA is correctly detected on a page."""
-        from flaresolverr_service import _detect_captcha_type
+        from flaresolverr.flaresolverr_service import _detect_captcha_type
 
         driver = mock_webdriver_with_recaptcha
         captcha_type = _detect_captcha_type(driver)

@@ -7,6 +7,10 @@ import signal
 from subprocess import PIPE
 from subprocess import Popen
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from multiprocessing.connection import Connection
 
 
 CREATE_NEW_PROCESS_GROUP = 0x00000200
@@ -46,7 +50,7 @@ def start_detached(executable, *args):
     return pid
 
 
-def _start_detached(executable, *args, writer: multiprocessing.Pipe = None):
+def _start_detached(executable, *args, writer=None):
     # configure launch
     kwargs = {}
     if platform.system() == "Windows":
@@ -61,7 +65,8 @@ def _start_detached(executable, *args, writer: multiprocessing.Pipe = None):
     p = Popen([executable, *args], stdin=PIPE, stdout=PIPE, stderr=PIPE, **kwargs)
 
     # send pid to pipe
-    writer.send(p.pid)
+    if writer is not None:
+        writer.send(p.pid)
     sys.exit()
 
 

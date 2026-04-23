@@ -9,7 +9,7 @@ from datetime import datetime
 
 import pytest
 
-import sessions
+from flaresolverr import sessions
 
 
 class DummyDriver:
@@ -213,7 +213,7 @@ class TestSessionLockIntegration:
 
         This tests the actual integration with flaresolverr_service.
         """
-        from dtos import V1RequestBase
+        from flaresolverr.dtos import V1RequestBase
         from unittest.mock import MagicMock
 
         # Mock the webdriver creation

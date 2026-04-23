@@ -70,7 +70,7 @@ test-integration-proxy:
 	exit $$status
 
 vulture:
-	vulture src/metrics.py src/sessions.py src/bottle_plugins --ignore-names "error_plugin,logger_plugin,setup,prometheus_plugin,SessionsStorage,session_ids"
+	vulture src/ --exclude src/flaresolverr/undetected_chromedriver --ignore-names "error_plugin,logger_plugin,setup,prometheus_plugin,SessionsStorage,session_ids"
 
 complexity:
 	radon cc . -a -nc
@@ -79,10 +79,10 @@ xenon:
 	xenon -b D -m B -a B .
 
 bandit:
-	bandit -c pyproject.toml -r src -x src/undetected_chromedriver,src/build_package.py,src/utils.py,src/flaresolverr.py
+	bandit -c pyproject.toml -r src -x src/flaresolverr/undetected_chromedriver,src/flaresolverr/build_package.py,src/flaresolverr/utils.py,src/flaresolverr/flaresolverr.py
 
 pyright:
-	pyright src/metrics.py src/bottle_plugins
+	pyright src/
 
 # Validate the code (format + check)
 validate: format check complexity bandit pyright vulture

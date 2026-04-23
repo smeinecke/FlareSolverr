@@ -47,7 +47,8 @@ FROM python:3.13-slim-trixie
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HOME=/app \
-    PATH=/app/.venv/bin:$PATH
+    PATH=/app/.venv/bin:$PATH \
+    PYTHONPATH=/app/src
 
 WORKDIR /app
 

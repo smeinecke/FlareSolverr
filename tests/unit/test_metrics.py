@@ -1,4 +1,4 @@
-import metrics
+from flaresolverr import metrics
 
 
 def test_serve_starts_http_server_and_sleeps(monkeypatch) -> None:

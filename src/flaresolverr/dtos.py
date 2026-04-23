@@ -11,7 +11,7 @@ class ChallengeResolutionResultT:
     response: str | None = None
     cookies: list[dict[str, Any]] | None = None
     userAgent: str | None = None
-    screenshot: str | None = None
+    screenshot: str | None = None  # noqa
     turnstile_token: str | None = None
 
     def __init__(self, _dict: dict[str, Any]):
@@ -73,7 +73,7 @@ class V1ResponseBase(object):
     sessions: list[str] | None = None
     startTimestamp: int | None = None
     endTimestamp: int | None = None
-    version: str | None = None
+    version: str | None = None  # noqa
 
     # V1ResponseSolution
     solution: ChallengeResolutionResultT | None = None
@@ -88,8 +88,8 @@ class V1ResponseBase(object):
 
 
 class IndexResponse(object):
-    msg: str | None = None
-    version: str | None = None
+    msg: str | None = None  # noqa
+    version: str | None = None  # noqa
     userAgent: str | None = None
 
     def __init__(self, _dict: dict[str, Any]):

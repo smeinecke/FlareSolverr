@@ -3,9 +3,13 @@
 
 import json
 import logging
+from typing import TYPE_CHECKING
 
 import requests
 import websockets
+
+if TYPE_CHECKING:
+    from .options import ChromeOptions
 
 
 log = logging.getLogger(__name__)
@@ -47,35 +51,47 @@ class CDP:
     )
 
     def __init__(self, options: "ChromeOptions"):  # noqa
-        self.server_addr = "http://{0}:{1}".format(*options.debugger_address.split(":"))
+        debugger_addr = getattr(options, 'debugger_address', None)
+        if not debugger_addr:
+            raise ValueError("ChromeOptions must have debugger_address set")
+        self.server_addr = "http://{0}:{1}".format(*debugger_addr.split(":"))
 
         self._reqid = 0
         self._session = requests.Session()
         self._last_resp = None
         self._last_json = None
 
-        resp = self.get(self.endpoints.json)  # noqa
+        resp = self.get(str(self.endpoints.json))  # type: ignore[attr-defined]  # noqa
+        if resp is None or not isinstance(resp, list) or len(resp) == 0:
+            raise RuntimeError("Could not get CDP session info")
         self.sessionId = resp[0]["id"]
         self.wsurl = resp[0]["webSocketDebuggerUrl"]
 
     def tab_activate(self, id=None):
         if not id:
-            active_tab = self.tab_list()[0]
-            id = active_tab.id  # noqa
-            self.wsurl = active_tab.webSocketDebuggerUrl  # noqa
+            tabs = self.tab_list()
+            if not tabs:
+                return None
+            active_tab = tabs[0]
+            id = active_tab.id  # type: ignore[attr-defined] # noqa
+            self.wsurl = active_tab.webSocketDebuggerUrl  # type: ignore[attr-defined] # noqa
         return self.post(self.endpoints["activate"].format(id=id))
 
     def tab_list(self):
-        retval = self.get(self.endpoints["list"])
+        retval = self.get(str(self.endpoints["list"]))
+        if retval is None:
+            return []
         return [PageElement(o) for o in retval]
 
     def tab_new(self, url):
-        return self.post(self.endpoints["new"].format(url=url))
+        return self.post(str(self.endpoints["new"]).format(url=url))
 
     def tab_close_last_opened(self):
         sessions = self.tab_list()
-        opentabs = [s for s in sessions if s["type"] == "page"]
-        return self.post(self.endpoints["close"].format(id=opentabs[-1]["id"]))
+        opentabs = [s for s in sessions if s.get("type") == "page"]
+        if not opentabs:
+            return None
+        return self.post(str(self.endpoints["close"]).format(id=opentabs[-1].get("id", "")))
 
     async def send(self, method: str, params: dict):
         self._reqid += 1
@@ -85,18 +101,18 @@ class CDP:
             self._last_json = json.loads(self._last_resp)
             self.log.info(self._last_json)
 
-    def get(self, uri):
+    def get(self, uri) -> list | dict | None:
         resp = self._session.get(self.server_addr + uri)
         try:
             self._last_resp = resp
             self._last_json = resp.json()
         except Exception:
-            return
+            return None
         else:
             return self._last_json
 
-    def post(self, uri, data: dict = None):
-        if not data:
+    def post(self, uri, data: dict | None = None):
+        if data is None:
             data = {}
         resp = self._session.post(self.server_addr + uri, json=data)
         try:

@@ -299,7 +299,7 @@ class FlareSolverrClient:
         self.sessions = _SessionManager(self)
         self.request = _RequestManager(self)
 
-    def health(self) -> HealthResponse:
+    def health(self) -> HealthResponse:  # noqa
         """Check the health status of the FlareSolverr service.
 
         Returns:
@@ -313,7 +313,7 @@ class FlareSolverrClient:
         response.raise_for_status()
         return HealthResponse.from_dict(response.json())
 
-    def index(self) -> IndexResponse:
+    def index(self) -> IndexResponse:  # noqa
         """Get the FlareSolverr service information.
 
         Returns:

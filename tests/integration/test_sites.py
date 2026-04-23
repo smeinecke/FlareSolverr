@@ -6,9 +6,9 @@ import pytest
 pytest.importorskip("webtest")
 from webtest import TestApp
 
-from dtos import V1ResponseBase, STATUS_OK
+from flaresolverr.dtos import V1ResponseBase, STATUS_OK
 import flaresolverr
-import utils
+from flaresolverr import utils
 
 pytestmark = pytest.mark.integration
 

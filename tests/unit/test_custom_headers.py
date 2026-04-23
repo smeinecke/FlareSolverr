@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dtos import V1RequestBase
+from flaresolverr.dtos import V1RequestBase
 
 
 class MockWebDriver:
@@ -40,7 +40,7 @@ class TestSetCustomHeaders:
 
     def test_no_headers_does_nothing(self):
         """Test that no CDP call is made when headers is None."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -55,7 +55,7 @@ class TestSetCustomHeaders:
 
     def test_empty_headers_does_nothing(self):
         """Test that no CDP call is made when headers is empty list."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -70,7 +70,7 @@ class TestSetCustomHeaders:
 
     def test_dict_format_headers(self):
         """Test headers in dict format {name, value}."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -92,7 +92,7 @@ class TestSetCustomHeaders:
 
     def test_string_format_headers(self):
         """Test headers in string format 'Name: Value'."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -114,7 +114,7 @@ class TestSetCustomHeaders:
 
     def test_mixed_format_headers(self):
         """Test headers with mixed formats (both dict and string)."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -134,7 +134,7 @@ class TestSetCustomHeaders:
 
     def test_invalid_string_format_ignored(self):
         """Test that invalid string formats are skipped gracefully."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -154,7 +154,7 @@ class TestSetCustomHeaders:
 
     def test_headers_with_whitespace(self):
         """Test that whitespace is stripped from headers."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -172,7 +172,7 @@ class TestSetCustomHeaders:
 
     def test_multiple_colons_in_string(self):
         """Test that only first colon separates name and value."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -190,7 +190,7 @@ class TestSetCustomHeaders:
 
     def test_cdp_failure_handled_gracefully(self, caplog):
         """Test that CDP command failure is handled gracefully with warning."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
         import logging
 
         mock_driver = MockWebDriver()
@@ -217,7 +217,7 @@ class TestHeadersIntegration:
 
     def test_headers_set_before_navigation(self):
         """Test that headers are set before page navigation."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         call_order = []
@@ -254,7 +254,7 @@ class TestHeadersIntegration:
 
     def test_headers_with_post_request(self):
         """Test that headers work with POST requests."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -271,7 +271,7 @@ class TestHeadersIntegration:
 
     def test_headers_preserved_in_session(self):
         """Test that headers are set for each request in a session."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
 
@@ -306,7 +306,7 @@ class TestHeadersEdgeCases:
 
     def test_empty_dict_header_skipped(self):
         """Test that empty dict headers are handled."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -326,7 +326,7 @@ class TestHeadersEdgeCases:
 
     def test_dict_missing_name_or_value(self):
         """Test dict without name or value is handled."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -347,7 +347,7 @@ class TestHeadersEdgeCases:
 
     def test_special_characters_in_header_value(self):
         """Test that special characters in header values are preserved."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({
@@ -367,7 +367,7 @@ class TestHeadersEdgeCases:
 
     def test_very_long_header_value(self):
         """Test handling of very long header values."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         long_value = "x" * 10000
@@ -384,7 +384,7 @@ class TestHeadersEdgeCases:
 
     def test_unicode_in_headers(self):
         """Test that unicode characters in headers are handled."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         req = V1RequestBase({

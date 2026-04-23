@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from bottle_plugins import error_plugin, logger_plugin, prometheus_plugin
+from flaresolverr.bottle_plugins import error_plugin, logger_plugin, prometheus_plugin
 
 
 def test_error_plugin_returns_callback_response(monkeypatch) -> None:

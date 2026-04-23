@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-import sessions
+from flaresolverr import sessions
 
 
 class DummyDriver:

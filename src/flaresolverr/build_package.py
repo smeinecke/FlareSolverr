@@ -104,10 +104,10 @@ def compress_package():
     else:
 
         def _reset_tarinfo(tarinfo):
-            tarinfo.uid = 0
-            tarinfo.gid = 0
-            tarinfo.uname = ""
-            tarinfo.gname = ""
+            tarinfo.uid = 0  # noqa
+            tarinfo.gid = 0  # noqa
+            tarinfo.uname = ""  # noqa
+            tarinfo.gname = ""  # noqa
             return tarinfo
 
         tar_path = compr_file_path + ".tar.gz"

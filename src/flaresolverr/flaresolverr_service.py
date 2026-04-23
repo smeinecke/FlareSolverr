@@ -144,8 +144,8 @@ def test_browser_installation() -> None:
 
 def index_endpoint() -> IndexResponse:
     res = IndexResponse({})
-    res.msg = "FlareSolverr is ready!"
-    res.version = utils.get_flaresolverr_version()
+    res.msg = "FlareSolverr is ready!"  # noqa
+    res.version = utils.get_flaresolverr_version()  # noqa
     res.userAgent = utils.get_user_agent()
     return res
 
@@ -171,7 +171,7 @@ def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
 
     res.startTimestamp = start_ts
     res.endTimestamp = int(time.time() * 1000)
-    res.version = utils.get_flaresolverr_version()
+    res.version = utils.get_flaresolverr_version()  # noqa
     logging.debug(f"Response => POST /v1 body: {utils.object_to_dict(res)}")
     logging.info(f"Response in {(res.endTimestamp - res.startTimestamp) / 1000} s")
     return res
@@ -406,9 +406,9 @@ def _human_like_click(driver: WebDriver, element) -> None:
     actions = ActionChains(driver)
     for i, (x, y) in enumerate(points):
         if i == 0:
-            actions.move_by_offset(x - viewport_width / 2, y - viewport_height / 2)
+            actions.move_by_offset(int(x - viewport_width / 2), int(y - viewport_height / 2))
         else:
-            actions.move_by_offset(x - points[i - 1][0], y - points[i - 1][1])
+            actions.move_by_offset(int(x - points[i - 1][0]), int(y - points[i - 1][1]))
         # Variable delay between movements (faster in middle, slower at start/end)
         progress = i / len(points)
         delay = 0.01 + 0.03 * (1 - abs(progress - 0.5) * 2)  # 0.01 to 0.04
@@ -419,7 +419,7 @@ def _human_like_click(driver: WebDriver, element) -> None:
 
     # Click with slight movement during press (human hand tremor)
     actions.click_and_hold()
-    actions.move_by_offset(random.gauss(0, 1), random.gauss(0, 1))
+    actions.move_by_offset(int(random.gauss(0, 1)), int(random.gauss(0, 1)))
     actions.pause(_random_delay(0.03, 0.08))
     actions.release()
 
@@ -690,7 +690,7 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
     challenge_res.cookies = driver.get_cookies()
 
     if req.returnScreenshot:
-        challenge_res.screenshot = driver.get_screenshot_as_base64()
+        challenge_res.screenshot = driver.get_screenshot_as_base64()  # noqa
 
     return challenge_res
 
