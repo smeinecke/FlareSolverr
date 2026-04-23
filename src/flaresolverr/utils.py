@@ -60,15 +60,29 @@ def get_flaresolverr_version() -> str:
     if FLARESOLVERR_VERSION is not None:
         return FLARESOLVERR_VERSION
 
-    pyproject_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "pyproject.toml")
-    if not os.path.isfile(pyproject_path):
-        pyproject_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pyproject.toml")
-
-    with open(pyproject_path, "rb") as f:
-        data = tomllib.load(f)
-        FLARESOLVERR_VERSION = data["project"]["version"]
-        assert FLARESOLVERR_VERSION is not None
+    # Prefer installed package metadata (works in Docker and after pip install).
+    try:
+        from importlib.metadata import version
+        FLARESOLVERR_VERSION = version("flaresolverr")
         return FLARESOLVERR_VERSION
+    except Exception:
+        pass
+
+    # Fall back to pyproject.toml for in-tree development runs.
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, os.pardir, "pyproject.toml"),           # src/pyproject.toml
+        os.path.join(here, os.pardir, os.pardir, "pyproject.toml"), # repo root
+    ]
+    for pyproject_path in candidates:
+        if os.path.isfile(pyproject_path):
+            with open(pyproject_path, "rb") as f:
+                data = tomllib.load(f)
+                FLARESOLVERR_VERSION = data["project"]["version"]
+                assert FLARESOLVERR_VERSION is not None
+                return FLARESOLVERR_VERSION
+
+    raise RuntimeError("Could not determine FlareSolverr version")
 
 
 def get_current_platform() -> str:
