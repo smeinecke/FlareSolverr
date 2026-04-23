@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 pytest.importorskip("func_timeout")
-import flaresolverr
+from flaresolverr import flaresolverr
 
 
 def test_default_error_handler_returns_json_body(monkeypatch) -> None:

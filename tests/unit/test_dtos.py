@@ -1,4 +1,4 @@
-from dtos import ChallengeResolutionT, HealthResponse, IndexResponse, STATUS_OK, V1RequestBase, V1ResponseBase
+from flaresolverr.dtos import ChallengeResolutionT, HealthResponse, IndexResponse, STATUS_OK, V1RequestBase, V1ResponseBase
 
 
 def test_index_response_maps_fields() -> None:

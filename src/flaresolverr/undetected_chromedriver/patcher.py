@@ -132,7 +132,7 @@ class Patcher(object):
             self.platform_name = "freebsd"
             self.exe_name %= ""
 
-    def auto(self, executable_path=None, force=False, version_main=None, _=None):
+    def auto(self, executable_path=None, force=False, version_main=None, _=None) -> bool | None:
         """
 
         Args:
@@ -163,7 +163,7 @@ class Patcher(object):
             if not ispatched:
                 return self.patch_exe()
             else:
-                return
+                return True
 
         if version_main:
             self.version_main = version_main
@@ -173,9 +173,9 @@ class Patcher(object):
         if self.platform_name == "freebsd":
             chromedriver_path = shutil.which("chromedriver")
 
-            if not os.path.isfile(chromedriver_path) or not os.access(chromedriver_path, os.X_OK):
+            if not chromedriver_path or not os.path.isfile(chromedriver_path) or not os.access(chromedriver_path, os.X_OK):
                 logging.error("Chromedriver not installed!")
-                return
+                return False
 
             version_path = os.path.join(os.path.dirname(self.executable_path), "version.txt")
 
@@ -221,7 +221,7 @@ class Patcher(object):
 
         return self.patch()
 
-    def driver_binary_in_use(self, path: str = None) -> bool:
+    def driver_binary_in_use(self, path: str | None = None) -> bool:
         """
         naive test to check if a found chromedriver binary is
         currently in use
@@ -255,7 +255,7 @@ class Patcher(object):
             # ok safe to assume this is in use
         except Exception:
             # logger.exception("whoops ", e)
-            pass
+            return False
 
     def cleanup_unused_files(self):
         p = pathlib.Path(self.data_path)
@@ -342,7 +342,7 @@ class Patcher(object):
         logger.debug("unzipping %s" % fp)
         try:
             os.unlink(self.zip_path)
-        except (FileNotFoundError, OSError):
+        except OSError:
             pass
 
         os.makedirs(self.zip_path, mode=0o755, exist_ok=True)
@@ -445,8 +445,8 @@ class Patcher(object):
                     os.unlink(self.executable_path)
                     logger.debug("successfully unlinked %s" % self.executable_path)
                     break
+                except FileNotFoundError:
+                    break
                 except (OSError, RuntimeError, PermissionError):
                     time.sleep(0.01)
                     continue
-                except FileNotFoundError:
-                    break

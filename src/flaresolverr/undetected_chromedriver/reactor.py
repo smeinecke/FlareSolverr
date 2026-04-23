@@ -5,7 +5,10 @@ import asyncio
 import json
 import logging
 import threading
+from typing import TYPE_CHECKING, Callable
 
+if TYPE_CHECKING:
+    from . import Chrome
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +25,7 @@ class Reactor(threading.Thread):
         self.daemon = True
         self.handlers = {}
 
-    def add_event_handler(self, method_name, callback: callable):
+    def add_event_handler(self, method_name, callback: Callable):
         """
 
         Parameters

@@ -17,7 +17,7 @@ class WebElement(selenium.webdriver.remote.webelement.WebElement):
         if tag:
             script += ".filter( node => node.tagName === '%s')" % tag.upper()
         if recursive:
-            return list(_recursive_children(self, tag))
+            return list(_recursive_children(self, tag or ""))
         return list(self._parent.execute_script(script, self))
 
 
@@ -43,11 +43,11 @@ class UCWebElement(WebElement):
         if not self._attrs:
             self._attrs = self._parent.execute_script(
                 """
-                var items = {}; 
-                for (index = 0; index < arguments[0].attributes.length; ++index) 
+                var items = {};
+                for (index = 0; index < arguments[0].attributes.length; ++index)
                 {
-                 items[arguments[0].attributes[index].name] = arguments[0].attributes[index].value 
-                }; 
+                 items[arguments[0].attributes[index].name] = arguments[0].attributes[index].value
+                };
                 return items;
                 """,
                 self,
@@ -61,7 +61,7 @@ class UCWebElement(WebElement):
         return f"{self.__class__.__name__} <{self.tag_name}{strattrs}>"
 
 
-def _recursive_children(element, tag: str = None, _results=None):
+def _recursive_children(element, tag: str | None = None, _results=None):
     """
     returns all children of <element> recursively
 

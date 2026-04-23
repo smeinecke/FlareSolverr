@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dtos import V1RequestBase
+from flaresolverr.dtos import V1RequestBase
 
 
 class MockWebDriver:
@@ -82,7 +82,7 @@ class TestTurnstileRetryFix:
 
     def test_focus_helper_has_unique_id(self):
         """Test that focus helper script creates element with unique ID."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
 
@@ -114,7 +114,7 @@ class TestTurnstileRetryFix:
 
     def test_focus_helper_has_proper_styling(self):
         """Test that focus helper has opacity and pointerEvents styling."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
 
@@ -140,7 +140,7 @@ class TestTurnstileRetryFix:
 
     def test_old_focus_helper_removed_on_retry(self):
         """Test that old focus helper elements are removed before creating new one."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
 
@@ -168,7 +168,7 @@ class TestTurnstileRetryFix:
 
     def test_turnstile_eventually_succeeds(self):
         """Test that turnstile captcha eventually succeeds after retries."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
 
@@ -185,7 +185,7 @@ class TestTurnstileIntegration:
 
     def test_turnstile_detected_on_page(self):
         """Test that turnstile is detected correctly."""
-        from flaresolverr_service import _detect_captcha_type
+        from flaresolverr.flaresolverr_service import _detect_captcha_type
 
         class TurnstileWebDriver:
             def __init__(self):
@@ -209,7 +209,7 @@ class TestTurnstileIntegration:
 
     def test_resolve_turnstile_with_tabs(self):
         """Test turnstile resolution with tabs_till_verify parameter."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         class MockTurnstileDriver:
             def __init__(self):
@@ -263,7 +263,7 @@ class TestTurnstileEdgeCases:
 
     def test_turnstile_not_found_returns_none(self):
         """Test that missing turnstile returns None."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         class NoTurnstileDriver:
             def __init__(self):
@@ -288,7 +288,7 @@ class TestTurnstileEdgeCases:
 
     def test_no_tabs_till_verify_skips_turnstile(self):
         """Test that turnstile resolution is skipped without tabs_till_verify."""
-        import flaresolverr_service as service
+        from flaresolverr import flaresolverr_service as service
 
         class AnyDriver:
             def __init__(self):

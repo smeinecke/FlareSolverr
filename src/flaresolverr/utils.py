@@ -14,7 +14,7 @@ except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore[no-redef]
 
 from selenium.webdriver.chrome.webdriver import WebDriver
-import undetected_chromedriver as uc
+from flaresolverr import undetected_chromedriver as uc  # type: ignore[import-untyped]
 
 FLARESOLVERR_VERSION: str | None = None
 PLATFORM_VERSION: str | None = None

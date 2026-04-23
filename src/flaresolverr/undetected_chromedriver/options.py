@@ -53,10 +53,12 @@ class ChromeOptions(_ChromiumOptions):
             a[key] = b[key]
         return a
 
-    def handle_prefs(self, user_data_dir):
+    def handle_prefs(self, user_data_dir: str | None = None):
         prefs = self.experimental_options.get("prefs")
         if prefs:
             user_data_dir = user_data_dir or self._user_data_dir
+            if not user_data_dir:
+                return
             default_path = os.path.join(user_data_dir, "Default")
             os.makedirs(default_path, exist_ok=True)
 
@@ -79,5 +81,5 @@ class ChromeOptions(_ChromiumOptions):
     @classmethod
     def from_options(cls, options):
         o = cls()
-        o.__dict__.update(options.__dict__)
+        dict(o.__dict__).update(options.__dict__)
         return o

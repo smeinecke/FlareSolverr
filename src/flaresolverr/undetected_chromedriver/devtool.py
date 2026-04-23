@@ -63,7 +63,7 @@ class Structure(dict):
     def __eq__(self, other):
         return frozenset(other.items()) == frozenset(self.items())
 
-    def __hash__(self):
+    def __hash__(self):  # type: ignore[override]
         return hash(frozenset(self.items()))
 
     @classmethod
@@ -76,7 +76,7 @@ class Structure(dict):
                 self[k] = v.strip()
 
 
-def timeout(seconds=3, on_timeout: Optional[Callable[[callable], Any]] = None):
+def timeout(seconds=3, on_timeout: Optional[Callable[[Callable], Any]] = None):
     def wrapper(func):
         @wraps(func)
         def wrapped(*args, **kwargs):
@@ -105,12 +105,12 @@ def test():
     import sys
 
     sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-    import undetected_chromedriver as uc
+    from flaresolverr import undetected_chromedriver as uc  # type: ignore[import-untyped]
     import threading
 
     def collector(
-        driver: uc.Chrome,
-        stop_event: threading.Event,
+        driver,
+        stop_event,
         on_event_coro: Optional[Callable[[List[str]], Awaitable[Any]]] = None,
         listen_events: Sequence = ("browser", "network", "performance"),
     ):
@@ -172,7 +172,8 @@ def test():
     driver = uc.Chrome(version_main=96, options=options)
 
     # driver.command_executor._request = timeout(seconds=1)(driver.command_executor._request)
-    driver.command_executor._request = func_called(driver.command_executor._request)
+    if hasattr(driver.command_executor, '_request'):
+        driver.command_executor._request = func_called(driver.command_executor._request)  # type: ignore[method-assign]
     collector_stop = threading.Event()
     collector(driver, collector_stop, on_event)
 

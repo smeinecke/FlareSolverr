@@ -6,8 +6,8 @@ from typing import Optional
 import pytest
 import requests
 
-from dtos import IndexResponse, HealthResponse, V1ResponseBase, STATUS_OK, STATUS_ERROR
-import utils
+from flaresolverr.dtos import IndexResponse, HealthResponse, V1ResponseBase, STATUS_OK, STATUS_ERROR
+from flaresolverr import utils
 
 pytestmark = pytest.mark.integration
 

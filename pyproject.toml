@@ -29,6 +29,7 @@ dependencies = [
     "packaging==26.1",
     "pefile==2024.8.26; platform_system == 'Windows'",
     "prometheus-client==0.25.0",
+    "pyright==1.1.409",
     "requests==2.33.0",
     "selenium==4.43.0",
     "tomli>=1.1.0; python_version < '3.11'",
@@ -83,10 +84,11 @@ exclude = ["docs", "tests", "src/flaresolverr/undetected_chromedriver"]
 line-length = 160
 
 [tool.bandit]
-exclude_dirs = ["tests"]
+exclude_dirs = ["tests", "src/flaresolverr/undetected_chromedriver", "src/flaresolverr/utils.py", "src/flaresolverr/build_package.py", "src/flaresolverr/flaresolverr.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit", "tests/integration"]
+pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

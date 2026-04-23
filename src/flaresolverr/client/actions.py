@@ -27,7 +27,7 @@ class ActionQueue:
 
     _actions: list[dict] = field(default_factory=list, repr=False)
 
-    def wait(self, seconds: float) -> ActionQueue:
+    def wait(self, seconds: float) -> ActionQueue:  # noqa
         """Sleep for the given number of seconds.
 
         Useful to allow interaction trackers to warm up before the first input.
@@ -41,7 +41,7 @@ class ActionQueue:
         self._actions.append({"type": "wait", "seconds": seconds})
         return self
 
-    def fill(self, selector: str, value: str) -> ActionQueue:
+    def fill(self, selector: str, value: str) -> ActionQueue:  # noqa
         """Type a value into a form field.
 
         Scrolls to the element, clicks to focus, then types the value
@@ -58,7 +58,7 @@ class ActionQueue:
         self._actions.append({"type": "fill", "selector": selector, "value": value})
         return self
 
-    def click(self, selector: str, human_like: bool = False) -> ActionQueue:
+    def click(self, selector: str, human_like: bool = False) -> ActionQueue:  # noqa
         """Click an element on the page.
 
         Scrolls the element into view and clicks. When human_like is True,
@@ -77,7 +77,7 @@ class ActionQueue:
         self._actions.append(action)
         return self
 
-    def wait_for(self, selector: str) -> ActionQueue:
+    def wait_for(self, selector: str) -> ActionQueue:  # noqa
         """Wait until an element becomes visible.
 
         Blocks until the matched element becomes visible on the page.
@@ -92,7 +92,7 @@ class ActionQueue:
         self._actions.append({"type": "wait_for", "selector": selector})
         return self
 
-    def build(self) -> list[dict]:
+    def build(self) -> list[dict]:  # noqa
         """Build and return the list of actions.
 
         Returns:

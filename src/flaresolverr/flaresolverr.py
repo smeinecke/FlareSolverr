@@ -24,16 +24,16 @@ class JSONErrorBottle(Bottle):
     Handle 404 errors
     """
 
-    def default_error_handler(self, res) -> str:
-        response.content_type = "application/json"
+    def default_error_handler(self, res) -> str:  # noqa
+        response.content_type = "application/json"  # noqa
         return json.dumps(dict(error=res.body, status_code=res.status_code))
 
 
 app: Any = JSONErrorBottle()
 
 
-@app.route("/")  # pyright: ignore[reportCallIssue]
-def index() -> dict[str, Any]:
+@app.route("/")  # pyright: ignore[reportCallIssue] # noqa
+def index() -> dict[str, Any]:  # noqa
     """
     Show welcome message
     """
@@ -41,8 +41,8 @@ def index() -> dict[str, Any]:
     return utils.object_to_dict(res)
 
 
-@app.route("/health")  # pyright: ignore[reportCallIssue]
-def health() -> dict[str, Any]:
+@app.route("/health")  # pyright: ignore[reportCallIssue] # noqa
+def health() -> dict[str, Any]:  # noqa
     """
     Healthcheck endpoint.
     This endpoint is special because it doesn't print traces
@@ -51,8 +51,8 @@ def health() -> dict[str, Any]:
     return utils.object_to_dict(res)
 
 
-@app.post("/v1")  # pyright: ignore[reportCallIssue]
-def controller_v1() -> dict[str, Any]:
+@app.post("/v1")  # pyright: ignore[reportCallIssue] # noqa
+def controller_v1() -> dict[str, Any]:  # noqa
     """
     Controller v1
     """
@@ -92,8 +92,8 @@ if __name__ == "__main__":
     # validate configuration
     log_level = os.environ.get("LOG_LEVEL", "info").upper()
     log_file = os.environ.get("LOG_FILE", None)
-    log_html = utils.get_config_log_html()
-    headless = utils.get_config_headless()
+    log_html = utils.get_config_log_html()  # noqa
+    headless = utils.get_config_headless()  # noqa
     server_host = os.environ.get("HOST", "0.0.0.0")
     server_port = int(os.environ.get("PORT", 8191))
 

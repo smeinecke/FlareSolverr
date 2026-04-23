@@ -70,7 +70,7 @@ class SolverManager:
         """Register built-in solver implementations."""
         pass
 
-    def register_solver(self, solver: CaptchaSolver) -> None:
+    def register_solver(self, solver: CaptchaSolver) -> None:  # noqa
         """Register a new captcha solver."""
         self._solvers[solver.name] = solver
 

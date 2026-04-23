@@ -278,11 +278,13 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             desired_capabilities = options.to_capabilities()
         self.browser_pid = self._start_browser_process(options, use_subprocess, windows_headless)
 
+        if not self.patcher:
+            raise RuntimeError("Patcher not initialized")
         service = selenium.webdriver.chromium.service.ChromiumService(self.patcher.executable_path)
 
         super().__init__(
-            service=service,
-            options=options,
+            service=service,  # type: ignore[arg-type]
+            options=options,  # type: ignore[arg-type]
             keep_alive=keep_alive,
         )
 
@@ -325,12 +327,13 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                 raise RuntimeError("you cannot reuse the ChromeOptions object")
         except AttributeError:
             pass
-        options._session = self
+        options._session = self  # type: ignore[attr-defined]
         return options
 
     def _configure_debugger(self, options, port, enable_cdp_events):
         if not options.debugger_address:
-            debug_port = port if port != 0 else selenium.webdriver.common.service.utils.free_port()
+            from selenium.webdriver.common.service import utils as service_utils
+            debug_port = port if port != 0 else service_utils.free_port()
             debug_host = "127.0.0.1"
             options.debugger_address = "%s:%d" % (debug_host, debug_port)
         else:
@@ -353,20 +356,22 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
             if "lang" in arg:
                 m = re.search("(?:--)?lang(?:[ =])?(.*)", arg)
-                try:
-                    language = m[1]
-                except IndexError:
-                    logger.debug("will set the language to en-US,en;q=0.9")
-                    language = "en-US,en;q=0.9"
+                if m:
+                    try:
+                        language = m[1]
+                    except IndexError:
+                        logger.debug("will set the language to en-US,en;q=0.9")
+                        language = "en-US,en;q=0.9"
 
             if "user-data-dir" in arg:
                 m = re.search("(?:--)?user-data-dir(?:[ =])?(.*)", arg)
-                try:
-                    user_data_dir = m[1]
-                    logger.debug("user-data-dir found in user argument %s => %s" % (arg, m[1]))
-                    keep_user_data_dir = True
-                except IndexError:
-                    logger.debug("no user data dir could be extracted from supplied argument %s " % arg)
+                if m:
+                    try:
+                        user_data_dir = m[1]
+                        logger.debug("user-data-dir found in user argument %s => %s" % (arg, m[1]))
+                        keep_user_data_dir = True
+                    except IndexError:
+                        logger.debug("no user data dir could be extracted from supplied argument %s " % arg)
 
         return language, user_data_dir, keep_user_data_dir
 
@@ -404,7 +409,9 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         try:
             import locale
 
-            language = locale.getdefaultlocale()[0].replace("_", "-")
+            default_locale = locale.getdefaultlocale()[0]
+            if default_locale:
+                language = default_locale.replace("_", "-")
         except Exception:
             pass
         if not language:
@@ -434,7 +441,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         if headless or getattr(options, "headless", None):
             # workaround until a better checking is found
             try:
-                v_main = int(self.patcher.version_main) if self.patcher.version_main else 108
+                v_main = int(self.patcher.version_main) if self.patcher and self.patcher.version_main else 108
                 if v_main < 108:
                     options.add_argument("--headless=chrome")
                 elif v_main >= 108:
@@ -752,13 +759,16 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         try:
             self.service.stop()
             self.service.process.kill()
-            self.command_executor.close()
+            ce = getattr(self, 'command_executor', None)
+            if ce is not None and not isinstance(ce, str) and hasattr(ce, 'close'):
+                ce.close()
             self.service.process.wait(5)
             logger.debug("webdriver process ended")
         except (AttributeError, RuntimeError, OSError):
             pass
         try:
-            self.reactor.event.set()
+            if self.reactor is not None:
+                self.reactor.event.set()
             logger.debug("shutting down reactor")
         except AttributeError:
             pass
@@ -846,7 +856,10 @@ def find_chrome_executable():
     """
     candidates = set()
     if IS_POSIX:
-        for item in os.environ.get("PATH").split(os.pathsep):
+        path_env = os.environ.get("PATH")
+        if path_env is None:
+            return None
+        for item in path_env.split(os.pathsep):
             for subitem in (
                 "google-chrome",
                 "chromium",
