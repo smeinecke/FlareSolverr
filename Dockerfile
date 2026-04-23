@@ -83,7 +83,7 @@ EXPOSE 8191
 EXPOSE 8192
 
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-CMD ["python", "-u", "/app/src/flaresolverr/flaresolverr.py"]
+CMD ["python", "-u", "-m", "flaresolverr.flaresolverr"]
 
 # Local build
 # docker build -t ngosang/flaresolverr:3.4.6 .
