@@ -192,7 +192,7 @@ class TestHCaptchaRealIntegration:
         and returns False. This test documents the expected behavior
         until full integration is implemented.
         """
-        from captcha_solvers import HCaptchaChallengerSolver
+        from flaresolverr.captcha_solvers import HCaptchaChallengerSolver
 
         solver = HCaptchaChallengerSolver()
         driver = mock_webdriver_with_hcaptcha
@@ -276,7 +276,7 @@ class TestReCaptchaRealIntegration:
 
     def test_recaptcha_solver_placeholder_behavior(self, mock_webdriver_with_recaptcha):
         """Test the placeholder reCAPTCHA solver behavior."""
-        from captcha_solvers import ReCaptchaChallengerSolver
+        from flaresolverr.captcha_solvers import ReCaptchaChallengerSolver
 
         solver = ReCaptchaChallengerSolver()
         driver = mock_webdriver_with_recaptcha
@@ -307,7 +307,7 @@ class TestSolverManagerIntegration:
 
     def test_manager_detects_installed_solvers(self, check_solver_libraries):
         """Test that SolverManager correctly detects installed solvers."""
-        from captcha_solvers import SolverManager
+        from flaresolverr.captcha_solvers import SolverManager
 
         manager = SolverManager()
         available = manager.list_available_solvers()
@@ -324,7 +324,7 @@ class TestSolverManagerIntegration:
 
     def test_manager_routes_to_hcaptcha_solver(self, mock_webdriver_with_hcaptcha, check_solver_libraries):
         """Test SolverManager routes hCaptcha challenges correctly."""
-        from captcha_solvers import SolverManager
+        from flaresolverr.captcha_solvers import SolverManager
 
         manager = SolverManager()
         driver = mock_webdriver_with_hcaptcha
@@ -336,7 +336,7 @@ class TestSolverManagerIntegration:
 
     def test_manager_routes_to_recaptcha_solver(self, mock_webdriver_with_recaptcha, check_solver_libraries):
         """Test SolverManager routes reCAPTCHA challenges correctly."""
-        from captcha_solvers import SolverManager
+        from flaresolverr.captcha_solvers import SolverManager
 
         manager = SolverManager()
         driver = mock_webdriver_with_recaptcha
@@ -351,7 +351,7 @@ class TestEnvironmentSetup:
 
     def test_captcha_solver_env_variable(self, monkeypatch):
         """Test CAPTCHA_SOLVER environment variable is read correctly."""
-        from captcha_solvers import get_config_captcha_solver
+        from flaresolverr.captcha_solvers import get_config_captcha_solver
 
         # Test default
         monkeypatch.delenv("CAPTCHA_SOLVER", raising=False)

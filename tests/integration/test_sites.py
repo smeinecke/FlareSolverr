@@ -7,7 +7,7 @@ pytest.importorskip("webtest")
 from webtest import TestApp
 
 from flaresolverr.dtos import V1ResponseBase, STATUS_OK
-import flaresolverr
+from flaresolverr.flaresolverr import app
 from flaresolverr import utils
 
 pytestmark = pytest.mark.integration
@@ -46,7 +46,7 @@ class TestFlareSolverr(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.app = TestApp(flaresolverr.app)
+        cls.app = TestApp(app)
         # wait until the server is ready
         cls.app.get("/")
 
