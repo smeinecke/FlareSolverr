@@ -168,6 +168,7 @@ class _RequestManager:
         proxy: ProxyConfig | None = None,
         wait_in_seconds: int | None = None,
         disable_media: bool = False,
+        tabs_till_verify: int | None = None,
         actions: list[dict] | None = None,
         captcha_solver: str | None = None,
     ) -> V1Response:
@@ -209,6 +210,7 @@ class _RequestManager:
             proxy=proxy,
             wait_in_seconds=wait_in_seconds,
             disable_media=disable_media,
+            tabs_till_verify=tabs_till_verify,
             actions=actions,
             captcha_solver=captcha_solver,
         )

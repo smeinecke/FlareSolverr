@@ -30,8 +30,8 @@ class Cookie:
 
     name: str
     value: str
-    domain: str
-    path: str
+    domain: str = ""
+    path: str = "/"
     expires: float | None = None  # noqa
     size: int | None = None
     httpOnly: bool = False  # noqa
@@ -70,13 +70,13 @@ class Header:
 
 @dataclass
 class Action:
-    """Browser action to perform during a request."""
+    """A single browser action in an action chain."""
 
     type: Literal["fill", "click", "wait_for", "wait"]
     selector: str | None = None
     value: str | None = None
     seconds: float | None = None
-    humanLike: bool = False
+    humanLike: bool = False  # noqa
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to API-compatible dictionary."""

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from flaresolverr.client.models import Action
+
 
 @dataclass
 class ActionQueue:
@@ -25,7 +27,7 @@ class ActionQueue:
         >>> response = client.request.get("https://example.com/login", actions=actions)
     """
 
-    _actions: list[dict] = field(default_factory=list, repr=False)
+    _actions: list[Action] = field(default_factory=list, repr=False)
 
     def wait(self, seconds: float) -> ActionQueue:  # noqa
         """Sleep for the given number of seconds.
@@ -38,7 +40,7 @@ class ActionQueue:
         Returns:
             Self for method chaining.
         """
-        self._actions.append({"type": "wait", "seconds": seconds})
+        self._actions.append(Action(type="wait", seconds=seconds))
         return self
 
     def fill(self, selector: str, value: str) -> ActionQueue:  # noqa
@@ -55,7 +57,7 @@ class ActionQueue:
         Returns:
             Self for method chaining.
         """
-        self._actions.append({"type": "fill", "selector": selector, "value": value})
+        self._actions.append(Action(type="fill", selector=selector, value=value))
         return self
 
     def click(self, selector: str, human_like: bool = False) -> ActionQueue:  # noqa
@@ -71,10 +73,7 @@ class ActionQueue:
         Returns:
             Self for method chaining.
         """
-        action: dict = {"type": "click", "selector": selector}
-        if human_like:
-            action["humanLike"] = True
-        self._actions.append(action)
+        self._actions.append(Action(type="click", selector=selector, humanLike=human_like))
         return self
 
     def wait_for(self, selector: str) -> ActionQueue:  # noqa
@@ -89,16 +88,16 @@ class ActionQueue:
         Returns:
             Self for method chaining.
         """
-        self._actions.append({"type": "wait_for", "selector": selector})
+        self._actions.append(Action(type="wait_for", selector=selector))
         return self
 
     def build(self) -> list[dict]:  # noqa
-        """Build and return the list of actions.
+        """Build and return the list of actions as API-compatible dictionaries.
 
         Returns:
             List of action dictionaries ready to pass to request methods.
         """
-        return self._actions.copy()
+        return [a.to_dict() for a in self._actions]
 
     def clear(self) -> ActionQueue:
         """Clear all actions from the queue.
