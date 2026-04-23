@@ -63,6 +63,7 @@ def get_flaresolverr_version() -> str:
     # Prefer installed package metadata (works in Docker and after pip install).
     try:
         from importlib.metadata import version
+
         FLARESOLVERR_VERSION = version("flaresolverr")
         return FLARESOLVERR_VERSION
     except Exception:
@@ -71,8 +72,8 @@ def get_flaresolverr_version() -> str:
     # Fall back to pyproject.toml for in-tree development runs.
     here = os.path.dirname(os.path.abspath(__file__))
     candidates = [
-        os.path.join(here, os.pardir, "pyproject.toml"),           # src/pyproject.toml
-        os.path.join(here, os.pardir, os.pardir, "pyproject.toml"), # repo root
+        os.path.join(here, os.pardir, "pyproject.toml"),  # src/pyproject.toml
+        os.path.join(here, os.pardir, os.pardir, "pyproject.toml"),  # repo root
     ]
     for pyproject_path in candidates:
         if os.path.isfile(pyproject_path):
