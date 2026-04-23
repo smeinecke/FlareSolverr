@@ -16,10 +16,19 @@ from selenium.webdriver.support.expected_conditions import presence_of_element_l
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.wait import WebDriverWait
 
-import utils
-from captcha_solvers import SOLVER_MANAGER, get_available_solvers, get_config_captcha_solver
-from dtos import STATUS_ERROR, STATUS_OK, ChallengeResolutionResultT, ChallengeResolutionT, HealthResponse, IndexResponse, V1RequestBase, V1ResponseBase
-from sessions import SessionsStorage
+from flaresolverr import utils
+from flaresolverr.captcha_solvers import SOLVER_MANAGER, get_available_solvers, get_config_captcha_solver
+from flaresolverr.dtos import (
+    STATUS_ERROR,
+    STATUS_OK,
+    ChallengeResolutionResultT,
+    ChallengeResolutionT,
+    HealthResponse,
+    IndexResponse,
+    V1RequestBase,
+    V1ResponseBase,
+)
+from flaresolverr.sessions import SessionsStorage
 
 ACCESS_DENIED_TITLES = [
     # Cloudflare

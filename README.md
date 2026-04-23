@@ -428,6 +428,32 @@ The `CAPTCHA_SOLVER` environment variable selects the active solver (default: `"
 
 For details on the solver API, see [CAPTCHA_SOLVERS.md](./CAPTCHA_SOLVERS.md).
 
+## Python Client Library
+
+FlareSolverr includes a Python client library for easy integration. It is installed automatically with the package.
+
+```python
+from flaresolverr.client import FlareSolverrClient, ActionQueue
+
+client = FlareSolverrClient("http://localhost:8191")
+
+# Simple GET request
+response = client.request.get("https://example.com")
+print(response.solution.response)
+
+# With browser actions (form filling, clicking, etc.)
+actions = (
+    ActionQueue()
+    .fill("//input[@id='email']", "user@example.com")
+    .fill("//input[@id='password']", "secret")
+    .click("//button[@type='submit']")
+    .build()
+)
+response = client.request.get("https://example.com/login", actions=actions)
+```
+
+For detailed documentation, see [src/flaresolverr/client/README.md](./src/flaresolverr/client/README.md).
+
 ## Related projects
 
 - C# implementation => https://github.com/FlareSolverr/FlareSolverrSharp
