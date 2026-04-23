@@ -78,16 +78,18 @@ Files:
 
 Security model:
 
-- FlareSolverr is single-homed on `flaresolverr_restricted`.
-- `dnsdist` is dual-homed: it listens on `flaresolverr_restricted` and uses `flaresolverr_dns_uplink` for upstream public resolvers.
-- FlareSolverr uses only the `dnsdist` listener as DNS.
+- FlareSolverr is dual-homed: primary interface on `flaresolverr_restricted`, secondary interface on `flaresolverr_dns_uplink` for DNS access.
+- `dnsdist` is single-homed on `flaresolverr_dns_uplink` with upstream public resolvers.
+- FlareSolverr uses the `dnsdist` listener on the uplink network as DNS.
 - FlareSolverr's default route is removed after start, and only the private CIDRs in `ALLOWED_PRIVATE_CIDRS` are added back.
 
 Defaults used by the example:
 
 - restricted network: `10.89.60.0/24`
 - restricted gateway: `10.89.60.1`
-- dnsdist IP on restricted network: `10.89.60.53`
+- uplink network: `10.89.61.0/24`
+- uplink gateway: `10.89.61.1`
+- dnsdist IP on uplink network: `10.89.61.2`
 - dnsdist image: `docker.io/powerdns/dnsdist-19:latest`
 - dnsdist resolver source: `examples/podman/restricted/dnsdist/dnsdist.conf`
 
@@ -141,7 +143,7 @@ sudo podman exec flaresolverr cat /etc/resolv.conf
 
 Expected result:
 
-- `/etc/resolv.conf` points at `10.89.60.53`
+- `/etc/resolv.conf` points at `10.89.61.2`
 
 Check allowed vs blocked destinations:
 
@@ -176,17 +178,28 @@ Example nftables fragment:
 #!/usr/sbin/nft -f
 
 define fs_net = 10.89.60.0/24
-define dns_sidecar = 10.89.60.53
+define dns_uplink_net = 10.89.61.0/24
+define dns_sidecar = 10.89.61.2
 define proxy_hosts = { 192.168.50.10, 192.168.50.11 }
 
 table inet flaresolverr {
   chain forward {
     type filter hook forward priority filter; policy accept;
 
+    # FlareSolverr on restricted network -> DNS sidecar on uplink network
     ip saddr $fs_net udp dport 53 ip daddr $dns_sidecar accept
     ip saddr $fs_net tcp dport 53 ip daddr $dns_sidecar accept
+    # FlareSolverr -> proxy hosts
     ip saddr $fs_net ip daddr $proxy_hosts accept
+    # Block all other egress from restricted network
     ip saddr $fs_net counter reject with icmpx type admin-prohibited
+
+    # DNS sidecar on uplink network -> public resolvers only
+    ip saddr $dns_uplink_net ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } udp dport 53 counter reject with icmpx type admin-prohibited
+    ip saddr $dns_uplink_net ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } tcp dport 53 counter reject with icmpx type admin-prohibited
+    ip saddr $dns_uplink_net udp dport 53 accept
+    ip saddr $dns_uplink_net tcp dport 53 accept
+    ip saddr $dns_uplink_net counter reject with icmpx type admin-prohibited
   }
 }
 ```

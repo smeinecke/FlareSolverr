@@ -8,7 +8,7 @@ Wants=network-online.target
 EnvironmentFile=-/etc/flaresolverr/podman-restricted.env
 ExecStartPre=/usr/bin/mkdir -p ${CONFIG_DIR}
 ExecStartPre=-/usr/bin/podman rm -f flaresolverr
-ExecStartPre=/usr/bin/podman create --name flaresolverr --network ${RESTRICTED_NETWORK} --dns ${DNSDIST_IP} -p 127.0.0.1:8191:8191 -v ${CONFIG_DIR}:/config:Z -e LOG_LEVEL=${LOG_LEVEL} -e LOG_FILE=${LOG_FILE} -e TZ=${TZ} ${IMAGE}
+ExecStartPre=/usr/bin/bash -lc '/usr/bin/podman create --name flaresolverr --network ${RESTRICTED_NETWORK} --dns ${DNSDIST_IP} -p 127.0.0.1:8191:8191 -v ${CONFIG_DIR}:/config:Z -e LOG_LEVEL=${LOG_LEVEL} -e LOG_FILE=${LOG_FILE} -e TZ=${TZ} ${IMAGE} && /usr/bin/podman network connect "${DNS_UPLINK_NETWORK}" flaresolverr'
 ExecStart=/usr/bin/podman start -a flaresolverr
 ExecStartPost=/usr/bin/bash -lc 'PID=$(/usr/bin/podman inspect -f "{{.State.Pid}}" flaresolverr); /usr/bin/nsenter -t "$PID" -n /usr/sbin/ip route del default || true; for cidr in ${ALLOWED_PRIVATE_CIDRS}; do /usr/bin/nsenter -t "$PID" -n /usr/sbin/ip route replace "$cidr" via "${RESTRICTED_GATEWAY}"; done'
 ExecStop=/usr/bin/podman stop -t 10 flaresolverr
