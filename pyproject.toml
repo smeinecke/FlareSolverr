@@ -27,7 +27,7 @@ dependencies = [
     "func-timeout==4.3.5",
     "packaging==26.1",
     "pefile==2024.8.26; platform_system == 'Windows'",
-    "prometheus-client==0.24.1",
+    "prometheus-client==0.25.0",
     "requests==2.33.0",
     "selenium==4.43.0",
     "tomli>=1.1.0; python_version < '3.11'",
