@@ -5,11 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "flaresolverr"
 version = "3.5.2"
-description = "Proxy server to bypass Cloudflare protection"
+description = "Proxy server to bypass Cloudflare and DDoS-GUARD protection"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "FlareSolverr", email = "flaresolverr@gmail.com"}
+    {name = "FlareSolverr", email = "flaresolverr@gmail.com"},
+    {name = "Stefan Meinecke", email = "meinecke@greensec.de"},
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -63,12 +64,12 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/FlareSolverr/FlareSolverr"
-Repository = "https://github.com/FlareSolverr/FlareSolverr"
-Issues = "https://github.com/FlareSolverr/FlareSolverr/issues"
+Homepage = "https://github.com/smeinecke/FlareSolverr"
+Repository = "https://github.com/smeinecke/FlareSolverr"
+Issues = "https://github.com/smeinecke/FlareSolverr/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["src/flaresolverr"]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -78,7 +79,7 @@ include = [
 ]
 
 [tool.ruff]
-exclude = ["docs", "tests", "src/undetected_chromedriver"]
+exclude = ["docs", "tests", "src/flaresolverr/undetected_chromedriver"]
 line-length = 160
 
 [tool.bandit]
