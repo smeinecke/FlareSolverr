@@ -62,6 +62,24 @@ def test_v1_request_base_captcha_solver_not_present_in_empty_request() -> None:
     assert req.captchaSolver is None
 
 
+def test_v1_request_base_stealth_accepts_bool() -> None:
+    req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "stealth": True})
+
+    assert req.stealth is True
+
+
+def test_v1_request_base_stealth_mode_accepts_string() -> None:
+    req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "stealthMode": "csp-safe"})
+
+    assert req.stealthMode == "csp-safe"
+
+
+def test_v1_request_base_user_agent_accepts_string() -> None:
+    req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "userAgent": "Mozilla/5.0 Test UA"})
+
+    assert req.userAgent == "Mozilla/5.0 Test UA"
+
+
 def test_challenge_resolution_wraps_nested_result() -> None:
     resolution = ChallengeResolutionT(
         {

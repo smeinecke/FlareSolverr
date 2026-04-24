@@ -33,7 +33,14 @@ class _SessionManager:
     def __init__(self, client: FlareSolverrClient):
         self._client = client
 
-    def create(self, session_id: str | None = None, proxy: ProxyConfig | None = None) -> V1Response:
+    def create(
+        self,
+        session_id: str | None = None,
+        proxy: ProxyConfig | None = None,
+        stealth: bool | None = None,
+        stealth_mode: str | None = None,
+        user_agent: str | None = None,
+    ) -> V1Response:
         """Create a new browser session.
 
         Sessions retain cookies and persist browser state until destroyed.
@@ -43,6 +50,9 @@ class _SessionManager:
         Args:
             session_id: Optional custom session ID. If not provided, a random UUID is assigned.
             proxy: Optional proxy configuration for this session.
+            stealth: Optional boolean stealth toggle (legacy shorthand).
+            stealth_mode: Optional stealth mode enum (off|standard|csp-safe).
+            user_agent: Optional custom browser user agent for the session.
 
         Returns:
             V1Response containing the session ID on success.
@@ -55,6 +65,12 @@ class _SessionManager:
             payload["session"] = session_id
         if proxy is not None:
             payload["proxy"] = proxy.to_dict()
+        if stealth is not None:
+            payload["stealth"] = stealth
+        if stealth_mode is not None:
+            payload["stealthMode"] = stealth_mode
+        if user_agent is not None:
+            payload["userAgent"] = user_agent
 
         return self._client._post_v1(payload)
 
@@ -109,6 +125,9 @@ class _RequestManager:
         tabs_till_verify: int | None = None,
         actions: list[dict] | None = None,
         captcha_solver: str | None = None,
+        stealth: bool | None = None,
+        stealth_mode: str | None = None,
+        user_agent: str | None = None,
     ) -> V1Response:
         """Send a GET request through FlareSolverr.
 
@@ -127,6 +146,9 @@ class _RequestManager:
             tabs_till_verify: Number of Tab presses needed for turnstile captcha.
             actions: Optional list of browser actions to perform after page load.
             captcha_solver: Optional captcha solver name (default: "default").
+            stealth: Optional per-request stealth mode override.
+            stealth_mode: Optional stealth mode enum override (off|standard|csp-safe).
+            user_agent: Optional custom browser user agent override.
 
         Returns:
             V1Response containing the solution.
@@ -150,6 +172,9 @@ class _RequestManager:
             tabs_till_verify=tabs_till_verify,
             actions=actions,
             captcha_solver=captcha_solver,
+            stealth=stealth,
+            stealth_mode=stealth_mode,
+            user_agent=user_agent,
         )
         return self._client._post_v1(payload)
 
@@ -171,6 +196,9 @@ class _RequestManager:
         tabs_till_verify: int | None = None,
         actions: list[dict] | None = None,
         captcha_solver: str | None = None,
+        stealth: bool | None = None,
+        stealth_mode: str | None = None,
+        user_agent: str | None = None,
     ) -> V1Response:
         """Send a POST request through FlareSolverr.
 
@@ -189,6 +217,9 @@ class _RequestManager:
             disable_media: If True, block images/CSS/fonts to speed up loading.
             actions: Optional list of browser actions to perform after page load.
             captcha_solver: Optional captcha solver name (default: "default").
+            stealth: Optional per-request stealth mode override.
+            stealth_mode: Optional stealth mode enum override (off|standard|csp-safe).
+            user_agent: Optional custom browser user agent override.
 
         Returns:
             V1Response containing the solution.
@@ -213,6 +244,9 @@ class _RequestManager:
             tabs_till_verify=tabs_till_verify,
             actions=actions,
             captcha_solver=captcha_solver,
+            stealth=stealth,
+            stealth_mode=stealth_mode,
+            user_agent=user_agent,
         )
         return self._client._post_v1(payload)
 
@@ -235,6 +269,9 @@ class _RequestManager:
         tabs_till_verify: int | None = None,
         actions: list[dict] | None = None,
         captcha_solver: str | None = None,
+        stealth: bool | None = None,
+        stealth_mode: str | None = None,
+        user_agent: str | None = None,
     ) -> dict[str, Any]:
         """Build the API request payload."""
         payload: dict[str, Any] = {
@@ -269,6 +306,12 @@ class _RequestManager:
             payload["actions"] = actions
         if captcha_solver is not None:
             payload["captchaSolver"] = captcha_solver
+        if stealth is not None:
+            payload["stealth"] = stealth
+        if stealth_mode is not None:
+            payload["stealthMode"] = stealth_mode
+        if user_agent is not None:
+            payload["userAgent"] = user_agent
 
         return payload
 

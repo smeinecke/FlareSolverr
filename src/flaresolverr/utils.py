@@ -25,6 +25,11 @@ XVFB_DISPLAY = None
 PATCHED_DRIVER_PATH: str | None = None
 _STEALTH_SCRIPT: str | None = None
 
+STEALTH_MODE_OFF = "off"
+STEALTH_MODE_STANDARD = "standard"
+STEALTH_MODE_CSP_SAFE = "csp-safe"
+VALID_STEALTH_MODES = {STEALTH_MODE_OFF, STEALTH_MODE_STANDARD, STEALTH_MODE_CSP_SAFE}
+
 
 def _load_stealth_script() -> str:
     global _STEALTH_SCRIPT
@@ -47,12 +52,48 @@ def get_config_disable_media() -> bool:
     return os.environ.get("DISABLE_MEDIA", "false").lower() == "true"
 
 
-def get_config_stealth_mode() -> bool:
-    return os.environ.get("STEALTH_MODE", "true").lower() == "true"
+def get_config_disable_quic() -> bool:
+    return os.environ.get("DISABLE_QUIC", "true").lower() == "true"
 
 
-def _apply_stealth_patches(driver: WebDriver) -> None:
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": _load_stealth_script()})
+def get_config_minimal_fingerprint() -> bool:
+    return os.environ.get("MINIMAL_FINGERPRINT", "true").lower() == "true"
+
+
+def normalize_stealth_mode(value: str | bool | None) -> str:
+    """Normalize boolean/legacy values to a stealth mode enum value."""
+    if value is None:
+        return STEALTH_MODE_OFF
+    if isinstance(value, bool):
+        return STEALTH_MODE_STANDARD if value else STEALTH_MODE_OFF
+    raw = str(value).strip().lower()
+    if raw in {"true", "1", "yes", "on"}:
+        return STEALTH_MODE_STANDARD
+    if raw in {"false", "0", "no", "off"}:
+        return STEALTH_MODE_OFF
+    if raw in VALID_STEALTH_MODES:
+        return raw
+    raise ValueError(f"Invalid stealth mode: {value!r}. Valid values: {sorted(VALID_STEALTH_MODES)}")
+
+
+def get_config_stealth_mode() -> str:
+    return normalize_stealth_mode(os.environ.get("STEALTH_MODE", STEALTH_MODE_OFF))
+
+
+def _apply_stealth_patches(driver: WebDriver, stealth_mode: str) -> None:
+    # Keep spoofing knobs explicit and conservative. WebGL spoofing is off by default
+    # because blob-worker CSP bypasses can create worker/main mismatches.
+    patch_blob_bypass = stealth_mode == STEALTH_MODE_CSP_SAFE
+    prelude = (
+        "window.__FS_STEALTH_PATCH_WEBGL = false;\n"
+        f"window.__FS_STEALTH_BLOB_BYPASS = {'true' if patch_blob_bypass else 'false'};\n"
+    )
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": prelude + _load_stealth_script()})
+
+
+def apply_user_agent_override(driver: WebDriver, user_agent: str) -> None:
+    """Apply a custom user agent string at the CDP level."""
+    driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": user_agent})
 
 
 def get_flaresolverr_version() -> str:
@@ -165,7 +206,7 @@ def create_proxy_extension(proxy: dict[str, Any]) -> str:
     return proxy_extension_dir
 
 
-def get_webdriver(proxy: dict[str, Any] | None = None) -> WebDriver:
+def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None) -> WebDriver:
     global PATCHED_DRIVER_PATH, USER_AGENT
     logging.debug("Launching web browser...")
 
@@ -179,21 +220,34 @@ def get_webdriver(proxy: dict[str, Any] | None = None) -> WebDriver:
     options.add_argument("--disable-dev-shm-usage")
     # this option removes the zygote sandbox (it seems that the resolution is a bit faster)
     options.add_argument("--no-zygote")
+    minimal_fingerprint = get_config_minimal_fingerprint()
+    # Stabilize Cloudflare challenge networking on some environments where QUIC/HTTP3
+    # produces intermittent flow failures (ERR_QUIC_PROTOCOL_ERROR, ERR_ADDRESS_UNREACHABLE).
+    if get_config_disable_quic():
+        options.add_argument("--disable-quic")
+        options.add_argument("--disable-http3")
+    if not minimal_fingerprint:
+        # Chrome 147+ CSP/Worker fixes for Cloudflare Turnstile compatibility
+        options.add_argument("--disable-features=StrictOriginIsolation")
+        options.add_argument("--disable-features=IsolateOrigins")
+        options.add_argument("--disable-site-isolation-trials")
+    # Aggressive CSP bypass for sites with strict CSP blocking Cloudflare challenge
+    # Note: This reduces security but may be necessary for some sites
+    if os.environ.get("DISABLE_WEB_SECURITY", "false").lower() == "true":
+        options.add_argument("--disable-web-security")
+        options.add_argument("--disable-features=BlockInsecurePrivateNetworkRequests")
     # attempt to fix Docker ARM32 build
     IS_ARMARCH = platform.machine().startswith(("arm", "aarch"))
     if IS_ARMARCH:
         options.add_argument("--disable-gpu-sandbox")
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
-    options.add_argument("--disable-blink-features=AutomationControlled")
+    if not minimal_fingerprint:
+        options.add_argument("--disable-blink-features=AutomationControlled")
 
     language = os.environ.get("LANG", None)
     if language is not None:
         options.add_argument("--accept-lang=%s" % language)
-
-    # Fix for Chrome 117 | https://github.com/FlareSolverr/FlareSolverr/issues/910
-    if USER_AGENT is not None:
-        options.add_argument("--user-agent=%s" % USER_AGENT)
 
     proxy_extension_dir = None
     if proxy and all(key in proxy for key in ["url", "username", "password"]):
@@ -242,14 +296,15 @@ def get_webdriver(proxy: dict[str, Any] | None = None) -> WebDriver:
             headless=get_config_headless(),
         )
     except Exception as e:
-        logging.error("Error starting Chrome: %s" % e)
+        logging.error("Error starting Chrome: %s", e)
         # No point in continuing if we cannot retrieve the driver
         raise e
 
-    if get_config_stealth_mode():
+    effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
+    if effective_stealth_mode != STEALTH_MODE_OFF:
         try:
-            _apply_stealth_patches(driver)
-            logging.info("Applied experimental stealth patches (STEALTH_MODE=true).")
+            _apply_stealth_patches(driver, effective_stealth_mode)
+            logging.info("Applied experimental stealth patches (mode=%s).", effective_stealth_mode)
         except Exception as e:
             logging.warning("Failed applying stealth patches: %s", e)
 
@@ -365,6 +420,16 @@ def extract_version_nt_folder() -> str:
 
 def get_user_agent(driver=None) -> str:
     global USER_AGENT
+    if driver is not None:
+        try:
+            user_agent_value = driver.execute_script("return navigator.userAgent")
+            if not isinstance(user_agent_value, str):
+                raise Exception("Error getting browser User-Agent. The returned value is not a string.")
+            # Keep parity with previous behavior and remove HEADLESS token if present.
+            return re.sub("HEADLESS", "", user_agent_value, flags=re.IGNORECASE)
+        except Exception as e:
+            raise Exception("Error getting browser User-Agent. " + str(e))
+
     if USER_AGENT is not None:
         return USER_AGENT
 

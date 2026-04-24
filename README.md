@@ -5,7 +5,6 @@
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/smeinecke/FlareSolverr)](https://github.com/smeinecke/FlareSolverr/pulls)
 [![GitHub Repo stars](https://img.shields.io/github/stars/smeinecke/FlareSolverr)](https://github.com/smeinecke/FlareSolverr)
 
-
 > **Note:** This is a fork of the original [FlareSolverr/FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) repository with additional features and fixes.
 
 FlareSolverr is a proxy server to bypass Cloudflare and DDoS-GUARD protection.
@@ -35,7 +34,7 @@ already included within the image.
 Docker images are available in:
 
 - GitHub Container Registry => `ghcr.io/smeinecke/flaresolverr:latest`
-- GitHub Packages => https://github.com/smeinecke/FlareSolverr/pkgs/container/flaresolverr
+- GitHub Packages => <https://github.com/smeinecke/FlareSolverr/pkgs/container/flaresolverr>
 
 Supported architectures are:
 
@@ -170,6 +169,9 @@ This also speeds up the requests since it won't have to launch a new browser ins
 | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | session   | Optional. The session ID that you want to be assigned to the instance. If isn't set a random UUID will be assigned.                                                                                                                                                                                               |
 | proxy     | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. You must include the proxy schema in the URL: `http://`, `socks4://` or `socks5://`. Authorization (username/password) is supported. Eg: `"proxy": {"url": "http://127.0.0.1:8888", "username": "testuser", "password": "testpass"}` |
+| stealth   | Optional, default uses `STEALTH_MODE`. Enables/disables stealth patches for this session. If a session already exists, this value must match the session's existing stealth mode. |
+| stealthMode | Optional enum override: `"off"`, `"standard"`, `"csp-safe"`. Preferred over `stealth` for explicit behavior. |
+| userAgent | Optional. Custom browser user agent for the session. If a session already exists, this must match the existing configured value. |
 
 #### + `sessions.list`
 
@@ -212,6 +214,9 @@ session. When you no longer need to use a session you should make sure to close 
 | tabs_till_verify    | Optional, default none. Number of times the `Tab` button is needed to be pressed to end up on the turnstile captcha, in order to verify it. After verifying the captcha, the result will be stored in the solution under `turnstile_token`.                                                                                                  |
 | actions             | Optional, default none. List of browser actions to perform after the page loads and any challenge is resolved, but before capturing the response. See [Browser Actions](#browser-actions) below.                                                                                                                                             |
 | captchaSolver       | Optional, default uses the global `CAPTCHA_SOLVER` environment variable (fallback: `"default"`). Overrides the solver used for this specific request. Currently only `"default"` is supported. Custom solvers can be registered via the `SolverManager` API. An unknown solver name returns an error immediately. |
+| stealth             | Optional, default uses `STEALTH_MODE`. Enables/disables stealth patches for this request. With `session`, this must match the session's configured stealth mode. |
+| stealthMode         | Optional enum override: `"off"`, `"standard"`, `"csp-safe"`. Preferred over `stealth` for explicit behavior. |
+| userAgent           | Optional. Custom browser user agent override. For `session` requests, this can only be set on session initialization and must stay consistent afterwards. |
 
 > **Warning**
 > If you want to use Cloudflare clearance cookie in your scripts, make sure you use the FlareSolverr User-Agent too. If they don't match you will see the challenge.
@@ -358,6 +363,7 @@ flowchart TD
 ```
 
 The **default solver** handles Cloudflare challenges through browser automation:
+
 - Detects challenges by checking page titles ("Just a moment...") and CSS selectors
 - Waits for challenge elements to disappear from the DOM
 - Automatically clicks the verify checkbox when presented
@@ -378,7 +384,10 @@ The **default solver** handles Cloudflare challenges through browser automation:
 | LANG               | none                   | Language used in the web browser. Example: `LANG=en_GB`.                                                                                 |
 | HEADLESS           | true                   | Only for debugging. To run the web browser in headless mode or visible.                                                                  |
 | DISABLE_MEDIA      | false                  | To disable loading images, CSS, and other media in the web browser to save network bandwidth.                                            |
-| STEALTH_MODE       | **true**               | Adds extra anti-fingerprinting JavaScript patches (CDP/automation weak-signal mitigations). Set to `false` to disable if it causes issues with some sites. |
+| DISABLE_QUIC       | true                   | Disables QUIC/HTTP3 in Chrome (`--disable-quic --disable-http3`) to avoid challenge transport instability on some networks/environments. |
+| MINIMAL_FINGERPRINT | true                  | If `true`, avoids extra anti-detection Chrome flags (`--disable-blink-features=AutomationControlled` and site-isolation-disabling flags) to keep browser behavior closer to stock Chrome. |
+| STEALTH_MODE       | off                    | Global stealth mode. Supported values: `off`, `standard`, `csp-safe` (also accepts legacy `true/false`). `standard` does **not** enable blob-worker bypass by default. |
+| UC_HEADLESS_AUTO_UA_OVERRIDE | false      | Controls undetected_chromedriver automatic headless UA override. Default `false` means no automatic UA replacement. |
 | PORT               | 8191                   | Listening port. You don't need to change this if you are running on Docker.                                                              |
 | HOST               | 0.0.0.0                | Listening interface. You don't need to change this if you are running on Docker.                                                         |
 | PROMETHEUS_ENABLED | false                  | Enable Prometheus exporter. See the Prometheus section below.                                                                            |
@@ -456,5 +465,4 @@ For detailed documentation, see [src/flaresolverr/client/README.md](./src/flares
 
 ## Related projects
 
-- C# implementation => https://github.com/FlareSolverr/FlareSolverrSharp
-
+- C# implementation => <https://github.com/FlareSolverr/FlareSolverrSharp>
