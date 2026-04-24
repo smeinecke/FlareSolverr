@@ -34,7 +34,6 @@ from weakref import finalize
 
 import selenium.webdriver.chrome.service
 import selenium.webdriver.chrome.webdriver
-from selenium.webdriver.common.by import By
 import selenium.webdriver.chromium.service
 import selenium.webdriver.remote.command
 import selenium.webdriver.remote.webdriver
@@ -521,11 +520,14 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                     },
                 )
 
-                logger.info("patch user-agent string")
-                self.execute_cdp_cmd(
-                    "Network.setUserAgentOverride",
-                    {"userAgent": self.execute_script("return navigator.userAgent").replace("Headless", "")},
-                )
+                if os.environ.get("UC_HEADLESS_AUTO_UA_OVERRIDE", "false").lower() == "true":
+                    logger.info("patch user-agent string")
+                    self.execute_cdp_cmd(
+                        "Network.setUserAgentOverride",
+                        {"userAgent": self.execute_script("return navigator.userAgent").replace("Headless", "")},
+                    )
+                else:
+                    logger.info("skipping headless user-agent override (UC_HEADLESS_AUTO_UA_OVERRIDE=false)")
                 self.execute_cdp_cmd(
                     "Page.addScriptToEvaluateOnNewDocument",
                     {

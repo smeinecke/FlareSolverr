@@ -303,6 +303,22 @@ class TestRequestManagerPayload:
         p = self._build_get_payload(captcha_solver="2captcha")
         assert p["captchaSolver"] == "2captcha"
 
+    def test_stealth(self):
+        p = self._build_get_payload(stealth=True)
+        assert p["stealth"] is True
+
+    def test_stealth_mode(self):
+        p = self._build_get_payload(stealth_mode="csp-safe")
+        assert p["stealthMode"] == "csp-safe"
+
+    def test_user_agent(self):
+        p = self._build_get_payload(user_agent="Mozilla/5.0 Test UA")
+        assert p["userAgent"] == "Mozilla/5.0 Test UA"
+
+    def test_stealth_none_omitted(self):
+        p = self._build_get_payload()
+        assert "stealth" not in p
+
     def test_post_method_has_tabs_till_verify(self):
         """post() exposes tabs_till_verify just like get()."""
         import inspect
@@ -408,6 +424,42 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp):
             r = client.sessions.create("abc123")
         assert r.session == "abc123"
+
+    def test_session_create_with_stealth(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"status": "ok", "message": "Session created.", "session": "abc123"}
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            client.sessions.create("abc123", stealth=True)
+        payload = mock_post.call_args[1]["json"]
+        assert payload["cmd"] == "sessions.create"
+        assert payload["session"] == "abc123"
+        assert payload["stealth"] is True
+
+    def test_session_create_with_stealth_mode(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"status": "ok", "message": "Session created.", "session": "abc123"}
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            client.sessions.create("abc123", stealth_mode="csp-safe")
+        payload = mock_post.call_args[1]["json"]
+        assert payload["cmd"] == "sessions.create"
+        assert payload["session"] == "abc123"
+        assert payload["stealthMode"] == "csp-safe"
+
+    def test_session_create_with_user_agent(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"status": "ok", "message": "Session created.", "session": "abc123"}
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            client.sessions.create("abc123", user_agent="Mozilla/5.0 Test UA")
+        payload = mock_post.call_args[1]["json"]
+        assert payload["cmd"] == "sessions.create"
+        assert payload["session"] == "abc123"
+        assert payload["userAgent"] == "Mozilla/5.0 Test UA"
 
     def test_session_destroy(self):
         client = FlareSolverrClient("http://localhost:8191")

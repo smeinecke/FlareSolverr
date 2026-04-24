@@ -125,7 +125,7 @@ class TestFlareSolverr(unittest.TestCase):
         res = self._request(
             "POST",
             "/v1",
-            {"cmd": "request.get", "url": self.are_you_a_bot_url, "waitInSeconds": 3},
+            {"cmd": "request.get", "url": self.are_you_a_bot_url, "waitInSeconds": 3, "stealth": True},
         )
         self.assertEqual(res.status_code, 200)
 
@@ -152,6 +152,7 @@ class TestFlareSolverr(unittest.TestCase):
             {
                 "cmd": "request.get",
                 "url": self.are_you_a_bot_interactions_url,
+                "stealth": True,
                 "actions": [
                     {"type": "wait",     "seconds": 2},
                     {"type": "fill",     "selector": "//input[@id='email']",                                         "value": "test@example.com"},

@@ -181,8 +181,6 @@ def _controller_v1_handler(req: V1RequestBase) -> V1ResponseBase:
     # do some validations
     if req.cmd is None:
         raise Exception("Request parameter 'cmd' is mandatory.")
-    if req.userAgent is not None:
-        logging.warning("Request parameter 'userAgent' was removed in FlareSolverr v2.")
 
     # set default values
     if req.maxTimeout is None or int(req.maxTimeout) < 1:
@@ -252,8 +250,9 @@ def _cmd_request_post(req: V1RequestBase) -> V1ResponseBase:
 
 def _cmd_sessions_create(req: V1RequestBase) -> V1ResponseBase:
     logging.debug("Creating new session...")
+    req_stealth_mode = _resolve_request_stealth_mode(req)
 
-    session, fresh = SESSIONS_STORAGE.create(session_id=req.session, proxy=req.proxy)
+    session, fresh = SESSIONS_STORAGE.create(session_id=req.session, proxy=req.proxy, stealth_mode=req_stealth_mode, user_agent=req.userAgent)
     session_id = session.session_id
 
     if not fresh:
@@ -285,11 +284,12 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
     timeout = int(max_timeout) / 1000
     driver = None
     session = None
+    req_stealth_mode = _resolve_request_stealth_mode(req)
     try:
         if req.session:
             session_id = req.session
             ttl = timedelta(minutes=req.session_ttl_minutes) if req.session_ttl_minutes else None
-            session, fresh = SESSIONS_STORAGE.get(session_id, ttl)
+            session, fresh = SESSIONS_STORAGE.get(session_id, ttl, stealth_mode=req_stealth_mode, user_agent=req.userAgent)
 
             if fresh:
                 logging.debug(f"new session created to perform the request (session_id={session_id})")
@@ -302,9 +302,13 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             session.lock.acquire()
             logging.debug(f"session lock acquired (session_id={session_id})")
         else:
-            driver = utils.get_webdriver(req.proxy)
+            driver = utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode)
+            if req.userAgent is not None:
+                utils.apply_user_agent_override(driver, req.userAgent)
             logging.debug("New instance of webdriver has been created to perform the request")
         challenge_result = func_timeout(timeout, _evil_logic, (req, driver, method))
+        if session is not None:
+            session.request_count += 1
         return cast(ChallengeResolutionT, challenge_result)
     except FunctionTimedOut:
         raise Exception(f"Error solving the challenge. Timeout after {timeout} seconds.")
@@ -320,6 +324,14 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
                 driver.close()
             driver.quit()
             logging.debug("A used instance of webdriver has been destroyed")
+
+
+def _resolve_request_stealth_mode(req: V1RequestBase) -> str | None:
+    if req.stealthMode is not None:
+        return utils.normalize_stealth_mode(req.stealthMode)
+    if req.stealth is not None:
+        return utils.normalize_stealth_mode(req.stealth)
+    return None
 
 
 def click_verify(driver: WebDriver, num_tabs: int = 1) -> None:
@@ -351,6 +363,31 @@ def click_verify(driver: WebDriver, num_tabs: int = 1) -> None:
         logging.debug("The Cloudflare 'Verify you are human' button not found on the page.")
 
     time.sleep(_random_delay(1.5, 2.5))
+
+
+def _should_attempt_verify_click(driver: WebDriver) -> bool:
+    """Only click when challenge UI appears interactive and likely needs user action."""
+    try:
+        # Explicit interactive button variant.
+        if driver.find_elements(By.XPATH, "//input[@type='button' and @value='Verify you are human']"):
+            return True
+
+        src = driver.page_source
+        # Automatic verification states: extra clicks can reset/restart the loop.
+        if "Verifying you are human. This may take a few seconds." in src:
+            return False
+        if "Verification successful. Waiting for" in src:
+            return False
+
+        # Fallback markers for embedded turnstile/challenge widgets.
+        markers = driver.find_elements(
+            By.CSS_SELECTOR,
+            "#turnstile-wrapper, iframe[src*='turnstile'], iframe[src*='challenges.cloudflare.com']",
+        )
+        return len(markers) > 0
+    except Exception:
+        # Conservative fallback: do not inject synthetic input when uncertain.
+        return False
 
 
 def _random_delay(min_sec: float, max_sec: float) -> float:
@@ -603,6 +640,8 @@ def _challenge_found(driver: WebDriver, page_title: str) -> bool:
 
 def _wait_for_challenge(driver: WebDriver, html_element) -> None:
     attempt = 0
+    last_verify_click_ts = 0.0
+    click_cooldown_seconds = 10.0
     while True:
         try:
             attempt += 1
@@ -615,7 +654,16 @@ def _wait_for_challenge(driver: WebDriver, html_element) -> None:
             break
         except TimeoutException:
             logging.debug("Timeout waiting for selector")
-            click_verify(driver)
+            now = time.time()
+            if _should_attempt_verify_click(driver):
+                if now - last_verify_click_ts >= click_cooldown_seconds:
+                    click_verify(driver)
+                    last_verify_click_ts = now
+                else:
+                    remaining = click_cooldown_seconds - (now - last_verify_click_ts)
+                    logging.debug("Skipping verify click due to cooldown (%.1fs remaining)", remaining)
+            else:
+                logging.debug("Skipping verify click: challenge appears to be in automatic verification mode")
             # update the html (cloudflare reloads the page every 5 s)
             html_element = driver.find_element(By.TAG_NAME, "html")
 

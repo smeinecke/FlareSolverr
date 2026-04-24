@@ -38,7 +38,9 @@ class V1RequestBase(object):
     session: str | None = None
     session_ttl_minutes: int | None = None
     headers: list[Any] | None = None  # custom headers to send with requests
-    userAgent: str | None = None  # deprecated v2.0.0, not used
+    userAgent: str | None = None  # Optional per-request/session user agent override
+    stealth: bool | None = None  # Optional per-request/session stealth mode override
+    stealthMode: str | None = None  # Optional stealth mode enum override: off|standard|csp-safe
 
     # V1Request
     url: str | None = None

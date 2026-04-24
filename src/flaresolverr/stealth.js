@@ -6,6 +6,8 @@
  * also run inside Web Worker contexts (which have a separate JS engine instance).
  */
 (() => {
+  const PATCH_WEBGL = globalThis.__FS_STEALTH_PATCH_WEBGL === true;
+  const BLOB_BYPASS = globalThis.__FS_STEALTH_BLOB_BYPASS === true;
 
   // ── console guard ────────────────────────────────────────────────────────────
   // CDP remote-debugging causes console.log(new Error()) to emit structured
@@ -96,8 +98,10 @@
       return _orig.call(this, p);
     };
   };
-  try { if (typeof WebGLRenderingContext  !== 'undefined') _patchGL(WebGLRenderingContext.prototype);  } catch (_) {}
-  try { if (typeof WebGL2RenderingContext !== 'undefined') _patchGL(WebGL2RenderingContext.prototype); } catch (_) {}
+  if (PATCH_WEBGL) {
+    try { if (typeof WebGLRenderingContext  !== 'undefined') _patchGL(WebGLRenderingContext.prototype);  } catch (_) {}
+    try { if (typeof WebGL2RenderingContext !== 'undefined') _patchGL(WebGL2RenderingContext.prototype); } catch (_) {}
+  }
 
   // ── screen / outer dimensions ─────────────────────────────────────────────────
   // With Xvfb the virtual display can be smaller than the Chrome window, producing
@@ -122,6 +126,10 @@
   // We wrap window.Worker to prepend a minimal prelude to every worker script.
   // The prelude re-applies the subset of patches that fingerprinters check inside
   // workers: console guard, webdriver flag, and WebGL renderer strings.
+  //
+  // FIXED: Skip wrapping for blob: URLs which cause CSP violations on sites with
+  // strict Content-Security-Policy (e.g., Cloudflare Turnstile challenges).
+  // The blob: URL we create to inject the prelude violates 'script-src' directives.
   try {
     const _NW = window.Worker;
     if (_NW) {
@@ -135,17 +143,14 @@
         'try{Object.defineProperty(console,"log",{value:s,writable:false,configurable:false});}catch(_){console.log=s;}}catch(_){}',
         // webdriver
         'try{Object.defineProperty(Navigator.prototype,"webdriver",{get:()=>undefined,configurable:true});}catch(_){}',
-        // WebGL
-        'try{const p=r=>{const o=r.getParameter;r.getParameter=function(x){',
-        'if(x===37445)return"Intel Inc.";if(x===37446)return"Intel(R) Iris(TM) Graphics 6100";',
-        'return o.call(this,x);};};',
-        'if(typeof WebGLRenderingContext!=="undefined")p(WebGLRenderingContext.prototype);',
-        'if(typeof WebGL2RenderingContext!=="undefined")p(WebGL2RenderingContext.prototype);',
-        '}catch(_){}',
         '})();',
       ].join('');
 
       const _WW = function(url, opts) {
+        // Optional CSP-safe mode: skip blob URLs to avoid strict-CSP worker violations.
+        if (BLOB_BYPASS && String(url).startsWith('blob:')) {
+          return new _NW(url, opts);
+        }
         try {
           const src  = WORKER_PRELUDE + '\nimportScripts(' + JSON.stringify(String(url)) + ');';
           const blob = new Blob([src], { type: 'application/javascript' });
