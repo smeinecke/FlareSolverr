@@ -93,6 +93,11 @@ def apply_user_agent_override(driver: WebDriver, user_agent: str) -> None:
     driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": user_agent})
 
 
+def sanitize_user_agent(user_agent: str) -> str:
+    """Normalize default headless UA tokens to regular Chrome tokens."""
+    return user_agent.replace("HeadlessChrome/", "Chrome/")
+
+
 def get_flaresolverr_version() -> str:
     global FLARESOLVERR_VERSION
     if FLARESOLVERR_VERSION is not None:
@@ -296,6 +301,18 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
         logging.error("Error starting Chrome: %s", e)
         # No point in continuing if we cannot retrieve the driver
         raise e
+
+    # Chrome headless can expose a bot-signalling token in navigator.userAgent.
+    # Normalize this once at startup so request headers and JS UA stay aligned.
+    try:
+        default_ua = driver.execute_script("return navigator.userAgent")
+        if isinstance(default_ua, str):
+            normalized_ua = sanitize_user_agent(default_ua)
+            if normalized_ua != default_ua:
+                apply_user_agent_override(driver, normalized_ua)
+                logging.info("Normalized default user-agent by removing HeadlessChrome token.")
+    except Exception as e:
+        logging.warning("Failed normalizing default user-agent: %s", e)
 
     effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
     if effective_stealth_mode != STEALTH_MODE_OFF:

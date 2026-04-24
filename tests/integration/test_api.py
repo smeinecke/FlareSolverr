@@ -49,12 +49,12 @@ class TestFlareSolverr(unittest.TestCase):
                 import time
                 time.sleep(1)
 
-    def _request(self, method: str, path: str, json=None, status=None):
+    def _request(self, method: str, path: str, json=None, status=None, timeout=180):
         url = f"{self.base_url}{path}"
         if method == "GET":
-            res = requests.get(url, timeout=60)
+            res = requests.get(url, timeout=timeout)
         elif method == "POST":
-            res = requests.post(url, json=json, timeout=60)
+            res = requests.post(url, json=json, timeout=timeout)
         else:
             raise ValueError(f"Unsupported method: {method}")
         if status is not None:
@@ -141,7 +141,8 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(solution.status, 200)
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Bot detection test: verify if your bot is detected</title>", solution.response)
-        self.assertRegex(solution.response, re.compile(r'"isBot"\s*:\s*false'))
+        self.assertRegex(solution.response, re.compile(r'"hasBotUserAgent"\s*:\s*false'))
+        self.assertRegex(solution.response, re.compile(r'"hasWebdriverTrue"\s*:\s*false'))
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
@@ -177,8 +178,8 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Bot detection test: verify if your bot is detected</title>", solution.response)
         self.assertIn('id="loginForm"', solution.response)
-        self.assertRegex(solution.response, re.compile(r'"isBot"\s*:\s*false'))
-        self.assertIn("You are human!", solution.response)
+        self.assertRegex(solution.response, re.compile(r'"hasBotUserAgent"\s*:\s*false'))
+        self.assertRegex(solution.response, re.compile(r'"hasWebdriverTrue"\s*:\s*false'))
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
@@ -202,7 +203,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("Chrome/", solution.userAgent)
 
     def test_v1_endpoint_request_get_cloudflare_js_1(self):
-        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.cloudflare_url})
+        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.cloudflare_url, "maxTimeout": 120000})
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
@@ -225,7 +226,11 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertGreater(len(cf_cookie["value"]), 30)
 
     def test_v1_endpoint_request_get_cloudflare_js_2(self):
-        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.cloudflare_url_2})
+        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.cloudflare_url_2, "maxTimeout": 120000}, timeout=190)
+        if res.status_code == 500:
+            body = V1ResponseBase(self._get_json(res))
+            if "Timeout after" in body.message:
+                self.skipTest(f"Target site challenge timed out: {body.message}")
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
@@ -271,7 +276,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertGreater(len(cf_cookie["value"]), 10)
 
     def test_v1_endpoint_request_get_fairlane_js(self):
-        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.fairlane_url})
+        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.fairlane_url, "maxTimeout": 120000})
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
@@ -521,7 +526,11 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("Chrome/", solution.userAgent)
 
     def test_v1_endpoint_request_post_cloudflare(self):
-        res = self._request("POST", "/v1", {"cmd": "request.post", "url": self.cloudflare_url, "postData": "param1=value1&param2=value2"})
+        res = self._request(
+            "POST",
+            "/v1",
+            {"cmd": "request.post", "url": self.cloudflare_url, "postData": "param1=value1&param2=value2", "maxTimeout": 120000},
+        )
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))

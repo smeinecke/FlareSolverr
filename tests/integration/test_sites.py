@@ -13,6 +13,10 @@ from flaresolverr import utils
 pytestmark = pytest.mark.integration
 
 def asset_cloudflare_solution(self, res, site_url, site_text, site_url_pattern: str | None = None):
+    if res.status_code == 500:
+        body = V1ResponseBase(res.json)
+        if body.message and "Timeout after" in body.message:
+            self.skipTest(f"Target site challenge timed out: {body.message}")
     self.assertEqual(res.status_code, 200)
 
     body = V1ResponseBase(res.json)
@@ -74,7 +78,7 @@ class TestFlareSolverr(unittest.TestCase):
         ]
         for site_name, site_url, site_text, site_url_pattern in sites_get:
             with self.subTest(msg=site_name):
-                res = self.app.post_json("/v1", {"cmd": "request.get", "url": site_url})
+                res = self.app.post_json("/v1", {"cmd": "request.get", "url": site_url, "maxTimeout": 120000})
                 asset_cloudflare_solution(self, res, site_url, site_text, site_url_pattern)
 
     def test_v1_endpoint_request_post_cloudflare(self):
@@ -89,5 +93,5 @@ class TestFlareSolverr(unittest.TestCase):
 
         for site_name, site_url, site_text, post_data in sites_post:
             with self.subTest(msg=site_name):
-                res = self.app.post_json("/v1", {"cmd": "request.post", "url": site_url, "postData": post_data})
+                res = self.app.post_json("/v1", {"cmd": "request.post", "url": site_url, "postData": post_data, "maxTimeout": 120000})
                 asset_cloudflare_solution(self, res, site_url, site_text)

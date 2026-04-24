@@ -461,6 +461,17 @@ class TestFlareSolverrClientHTTP:
         assert payload["session"] == "abc123"
         assert payload["userAgent"] == "Mozilla/5.0 Test UA"
 
+    def test_session_create_stealth(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"status": "ok", "message": "Session created.", "session": "s1"}
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            client.sessions.create("s1", stealth=True, stealth_mode="csp-safe")
+        payload = mock_post.call_args[1]["json"]
+        assert payload["stealth"] is True
+        assert payload["stealthMode"] == "csp-safe"
+
     def test_session_destroy(self):
         client = FlareSolverrClient("http://localhost:8191")
         mock_resp = MagicMock()
