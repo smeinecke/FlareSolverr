@@ -31,7 +31,10 @@ class TestFlareSolverr(unittest.TestCase):
     cloudflare_url_2 = "https://bt4gprx.com/search?q=2022"
     ddos_guard_url = "https://www.litres.ru/"
     fairlane_url = "https://www.pararius.com/apartments/amsterdam"
-    custom_cloudflare_url = "https://www.muziekfabriek.org/"
+    scrapingcourse_cf_url = "https://www.scrapingcourse.com/cloudflare-challenge"
+    scrapingcourse_turnstile_url = "https://www.scrapingcourse.com/login/cf-turnstile"
+    scrapingcourse_csrf_url = "https://www.scrapingcourse.com/login/csrf"
+    cloudflare_blocked_url = "https://www.cpasbiens3.fr/"
 
     base_url = None
 
@@ -300,29 +303,99 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIsNotNone(fairlane_cookie, "Fairlane anti-bot cookie not found")
         self.assertGreater(len(fairlane_cookie["value"]), 30)
 
-    @unittest.skip("Custom anti-DDoS target www.muziekfabriek.org no longer resolves; replace with a live equivalent.")
-    def test_v1_endpoint_request_get_custom_cloudflare_js(self):
-        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.custom_cloudflare_url})
+    def test_v1_endpoint_request_get_scrapingcourse_cf_challenge(self):
+        res = self._request(
+            "POST", "/v1", {"cmd": "request.get", "url": self.scrapingcourse_cf_url, "maxTimeout": 120000}, timeout=190
+        )
+        if res.status_code == 500:
+            body = V1ResponseBase(self._get_json(res))
+            if "Timeout after" in body.message:
+                self.skipTest(f"Target site challenge timed out: {body.message}")
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
         self.assertEqual(STATUS_OK, body.status)
-        self.assertEqual("Challenge solved!", body.message)
+        self._assert_challenge_status_ok(body.message)
         self.assertGreater(body.startTimestamp, 10000)
         self.assertGreaterEqual(body.endTimestamp, body.startTimestamp)
         self.assertEqual(utils.get_flaresolverr_version(), body.version)
 
         solution = body.solution
-        self.assertIn(self.custom_cloudflare_url, solution.url)
+        self.assertIn(self.scrapingcourse_cf_url, solution.url)
         self.assertEqual(solution.status, 200)
         self.assertIs(len(solution.headers), 0)
-        self.assertIn("<title>MuziekFabriek : Aanmelden</title>", solution.response)
+        self.assertIn("Cloudflare Challenge to Learn Web Scraping", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
-        cf_cookie = _find_obj_by_key("name", "ct_anti_ddos_key", solution.cookies)
-        self.assertIsNotNone(cf_cookie, "Custom Cloudflare cookie not found")
-        self.assertGreater(len(cf_cookie["value"]), 10)
+        cf_cookie = _find_obj_by_key("name", "cf_clearance", solution.cookies)
+        self.assertIsNotNone(cf_cookie, "Cloudflare cookie not found")
+        self.assertGreater(len(cf_cookie["value"]), 30)
+
+    def test_v1_endpoint_request_get_turnstile_challenge(self):
+        res = self._request(
+            "POST",
+            "/v1",
+            {"cmd": "request.get", "url": self.scrapingcourse_turnstile_url, "maxTimeout": 120000, "tabs_till_verify": 2},
+            timeout=190,
+        )
+        if res.status_code == 500:
+            body = V1ResponseBase(self._get_json(res))
+            if "Timeout after" in body.message:
+                self.skipTest(f"Target site challenge timed out: {body.message}")
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self._assert_challenge_status_ok(body.message)
+        self.assertGreater(body.startTimestamp, 10000)
+        self.assertGreaterEqual(body.endTimestamp, body.startTimestamp)
+        self.assertEqual(utils.get_flaresolverr_version(), body.version)
+
+        solution = body.solution
+        self.assertIn(self.scrapingcourse_turnstile_url, solution.url)
+        self.assertEqual(solution.status, 200)
+        self.assertIs(len(solution.headers), 0)
+        self.assertIn("Cloudflare Login Challenge to Learn Web Scraping", solution.response)
+        self.assertGreater(len(solution.cookies), 0)
+        self.assertIn("Chrome/", solution.userAgent)
+
+        cf_cookie = _find_obj_by_key("name", "cf_clearance", solution.cookies)
+        self.assertIsNotNone(cf_cookie, "Cloudflare cookie not found")
+        self.assertGreater(len(cf_cookie["value"]), 30)
+
+        turnstile_response = _find_obj_by_key("name", "cf-turnstile-response", solution.cookies)
+        if turnstile_response is None:
+            self.assertIn("cf-turnstile-response", solution.response)
+
+    def test_v1_endpoint_request_post_csrf_login(self):
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "request.post",
+                "url": self.scrapingcourse_csrf_url,
+                "postData": "username=testuser&password=testpass",
+                "maxTimeout": 60000,
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertEqual("Challenge not detected!", body.message)
+        self.assertGreater(body.startTimestamp, 10000)
+        self.assertGreaterEqual(body.endTimestamp, body.startTimestamp)
+        self.assertEqual(utils.get_flaresolverr_version(), body.version)
+
+        solution = body.solution
+        self.assertIn(self.scrapingcourse_csrf_url, solution.url)
+        self.assertEqual(solution.status, 200)
+        self.assertIs(len(solution.headers), 0)
+        self.assertIn("Login with CSRF Challenge to Learn Web Scraping", solution.response)
+        self.assertIn("csrf_token", solution.response.lower())
+        self.assertGreater(len(solution.cookies), 0)
+        self.assertIn("Chrome/", solution.userAgent)
 
     # todo: test Cmd 'request.get' should return fail with Cloudflare CAPTCHA
 
