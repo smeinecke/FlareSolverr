@@ -84,10 +84,7 @@ def _apply_stealth_patches(driver: WebDriver, stealth_mode: str) -> None:
     # Keep spoofing knobs explicit and conservative. WebGL spoofing is off by default
     # because blob-worker CSP bypasses can create worker/main mismatches.
     patch_blob_bypass = stealth_mode == STEALTH_MODE_CSP_SAFE
-    prelude = (
-        "window.__FS_STEALTH_PATCH_WEBGL = false;\n"
-        f"window.__FS_STEALTH_BLOB_BYPASS = {'true' if patch_blob_bypass else 'false'};\n"
-    )
+    prelude = f"window.__FS_STEALTH_PATCH_WEBGL = false;\nwindow.__FS_STEALTH_BLOB_BYPASS = {'true' if patch_blob_bypass else 'false'};\n"
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": prelude + _load_stealth_script()})
 
 
