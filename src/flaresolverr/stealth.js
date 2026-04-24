@@ -45,6 +45,63 @@
     Object.defineProperty(Navigator.prototype, 'language',  { get: () => lang,  configurable: true });
   } catch (_) {}
 
+  // ── navigator.userAgent / appVersion ─────────────────────────────────────────
+  // Headless Chrome exposes the "HeadlessChrome" token, which many bot detectors
+  // flag directly. Keep this patch local to JS fingerprinting context.
+  try {
+    const ua = navigator.userAgent;
+    if (typeof ua === 'string' && ua.includes('HeadlessChrome')) {
+      const patchedUA = ua.replace(/HeadlessChrome\//g, 'Chrome/');
+      Object.defineProperty(Navigator.prototype, 'userAgent', { get: () => patchedUA, configurable: true });
+    }
+    const av = navigator.appVersion;
+    if (typeof av === 'string' && av.includes('HeadlessChrome')) {
+      const patchedAV = av.replace(/HeadlessChrome\//g, 'Chrome/');
+      Object.defineProperty(Navigator.prototype, 'appVersion', { get: () => patchedAV, configurable: true });
+    }
+  } catch (_) {}
+
+  // ── navigator.userAgentData.brands ───────────────────────────────────────────
+  // Newer detections inspect UA-CH brand entries for "HeadlessChrome".
+  try {
+    const uad = navigator.userAgentData;
+    if (uad && Array.isArray(uad.brands)) {
+      const patchedBrands = uad.brands.map(b => ({
+        ...b,
+        brand: String(b?.brand || '').replace(/HeadlessChrome/g, 'Google Chrome'),
+      }));
+      const patchedUAData = {
+        brands: patchedBrands,
+        mobile: uad.mobile,
+        platform: uad.platform,
+        getHighEntropyValues: typeof uad.getHighEntropyValues === 'function'
+          ? uad.getHighEntropyValues.bind(uad)
+          : undefined,
+      };
+      Object.defineProperty(Navigator.prototype, 'userAgentData', { get: () => patchedUAData, configurable: true });
+    }
+  } catch (_) {}
+
+  // ── media devices ─────────────────────────────────────────────────────────────
+  // Headless/container runs often return zero devices, which gets scored as a
+  // weak automation signal on some pages. Provide a stable fallback only when
+  // enumerateDevices returns empty.
+  try {
+    if (navigator.mediaDevices?.enumerateDevices) {
+      const _enum = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
+      navigator.mediaDevices.enumerateDevices = () =>
+        _enum()
+          .then(d => (Array.isArray(d) && d.length > 0 ? d : [
+            { deviceId: 'default-mic', kind: 'audioinput', label: 'Default Microphone', groupId: 'default' },
+            { deviceId: 'default-spk', kind: 'audiooutput', label: 'Default Speaker', groupId: 'default' },
+          ]))
+          .catch(() => ([
+            { deviceId: 'default-mic', kind: 'audioinput', label: 'Default Microphone', groupId: 'default' },
+            { deviceId: 'default-spk', kind: 'audiooutput', label: 'Default Speaker', groupId: 'default' },
+          ]));
+    }
+  } catch (_) {}
+
   // ── navigator.plugins / mimeTypes ────────────────────────────────────────────
   // An empty plugin list is a classic headless indicator. Populate with the
   // built-in PDF viewer that every real Chrome install ships with.
@@ -143,6 +200,10 @@
         'try{Object.defineProperty(console,"log",{value:s,writable:false,configurable:false});}catch(_){console.log=s;}}catch(_){}',
         // webdriver
         'try{Object.defineProperty(Navigator.prototype,"webdriver",{get:()=>undefined,configurable:true});}catch(_){}',
+        // userAgent/appVersion
+        'try{const ua=navigator.userAgent;if(typeof ua==="string"&&ua.includes("HeadlessChrome")){const p=ua.replace(/HeadlessChrome\\//g,"Chrome/");Object.defineProperty(Navigator.prototype,"userAgent",{get:()=>p,configurable:true});}const av=navigator.appVersion;if(typeof av==="string"&&av.includes("HeadlessChrome")){const q=av.replace(/HeadlessChrome\\//g,"Chrome/");Object.defineProperty(Navigator.prototype,"appVersion",{get:()=>q,configurable:true});}}catch(_){}',
+        // mediaDevices.enumerateDevices fallback
+        'try{if(navigator.mediaDevices&&navigator.mediaDevices.enumerateDevices){const e=navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);navigator.mediaDevices.enumerateDevices=()=>e().then(d=>Array.isArray(d)&&d.length>0?d:[{deviceId:"default-mic",kind:"audioinput",label:"Default Microphone",groupId:"default"},{deviceId:"default-spk",kind:"audiooutput",label:"Default Speaker",groupId:"default"}]).catch(()=>[{deviceId:"default-mic",kind:"audioinput",label:"Default Microphone",groupId:"default"},{deviceId:"default-spk",kind:"audiooutput",label:"Default Speaker",groupId:"default"}]);}}catch(_){ }',
         '})();',
       ].join('');
 

@@ -1,5 +1,6 @@
 import logging
 import platform
+import re
 import sys
 import time
 from datetime import timedelta
@@ -116,6 +117,7 @@ BLOCK_MEDIA_URL_PATTERNS = [
 
 SHORT_TIMEOUT = 1
 SESSIONS_STORAGE = SessionsStorage()
+_NET_ERROR_CODE_RE = re.compile(r"\bERR_[A-Z0-9_]+\b")
 
 
 def test_browser_installation() -> None:
@@ -625,6 +627,32 @@ def _raise_if_access_denied(driver: WebDriver, page_title: str) -> None:
             raise Exception("Cloudflare has blocked this request. Probably your IP is banned for this site, check in your web browser.")
 
 
+def _raise_if_navigation_error(driver: WebDriver) -> None:
+    """Raise a Selenium-like network error for Chromium net error pages.
+
+    Chrome 147 can render `chrome-error://chromewebdata/` pages instead of
+    raising WebDriver exceptions on navigation failures. Integration tests and
+    API compatibility expect the legacy net::ERR_* error path.
+    """
+    current_url = (driver.current_url or "").lower()
+    page_title = (driver.title or "").strip()
+    page_source = driver.page_source or ""
+
+    has_browser_error_markers = (
+        current_url.startswith("chrome-error://")
+        or 'id="main-frame-error"' in page_source
+        or 'class="neterror"' in page_source
+        or page_title in {"This site can’t be reached", "This page can’t be reached"}
+    )
+    if not has_browser_error_markers:
+        return
+
+    match = _NET_ERROR_CODE_RE.search(page_source)
+    if match is not None:
+        raise Exception(f"Message: unknown error: net::{match.group(0)}")
+    raise Exception("Message: unknown error: net::ERR_FAILED")
+
+
 def _challenge_found(driver: WebDriver, page_title: str) -> bool:
     for title in CHALLENGE_TITLES:
         if title.lower() == page_title.lower():
@@ -763,6 +791,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     html_element = driver.find_element(By.TAG_NAME, "html")
     page_title = driver.title
 
+    _raise_if_navigation_error(driver)
     _raise_if_access_denied(driver, page_title)
     challenge_found = _challenge_found(driver, page_title)
     if challenge_found:
