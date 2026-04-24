@@ -217,6 +217,9 @@ challenge that the browser solves, and cookies are set during the wait period.
             def get_screenshot_as_base64(self):
                 return "screenshot"
 
+            def execute_script(self, script):
+                return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0"
+
         mock_driver = ChallengeWebDriver()
 
         # Simulate wait that solves challenge
