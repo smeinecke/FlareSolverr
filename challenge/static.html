@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Static Fingerprinting | Bot Detection Challenge</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Static Fingerprinting Test</h1>
+            <p>Browser property detection without user interaction</p>
+            <div class="nav-links">
+                <a href="index.html">Home</a>
+                <a href="interactions.html">Interactions Test</a>
+            </div>
+        </header>
+
+        <div class="card">
+            <div id="overall-status" style="text-align: center; margin-bottom: 1rem;">
+                <span class="status-badge pending">Analyzing...</span>
+            </div>
+
+            <div class="test-mode">
+                <input type="checkbox" id="simulate-bot" onchange="toggleBotMode()">
+                <label for="simulate-bot">Simulate bot signatures (for testing detector accuracy)</label>
+            </div>
+
+            <div class="test-mode">
+                <button onclick="showJSONOutput()" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Show JSON Output</button>
+                <button onclick="copyJSON()" style="padding: 0.25rem 0.75rem; font-size: 0.75rem; margin-left: 0.5rem;">Copy JSON</button>
+            </div>
+
+            <h2>Detection Results</h2>
+            <div id="static-results">
+                <div class="loading">
+                    <span class="spinner"></span>
+                    Running detection tests...
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>About These Tests</h2>
+            <div class="info-section">
+                <p>The static fingerprinting tests analyze browser properties that are immediately available without requiring user interaction:</p>
+                <ul>
+                    <li><strong>navigator.webdriver:</strong> Direct automation indicator</li>
+                    <li><strong>WebGL Analysis:</strong> Renderer and vendor checks for software rendering</li>
+                    <li><strong>Chrome Object:</strong> Validates window.chrome consistency</li>
+                    <li><strong>CDP Markers:</strong> Detects Chrome DevTools Protocol automation</li>
+                    <li><strong>Worker Context:</strong> Compares values between main and worker contexts</li>
+                    <li><strong>Screen Resolution:</strong> Checks for headless Chrome defaults</li>
+                </ul>
+                <p style="margin-top: 0.5rem;">These tests run automatically when the page loads.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/shared.js"></script>
+    <script src="js/static-detector.js"></script>
+    <script>
+        function toggleBotMode() {
+            const checkbox = document.getElementById('simulate-bot');
+            if (checkbox.checked) {
+                window.StaticDetector.simulateBot();
+            } else {
+                // Reload to clear simulated state
+                location.reload();
+            }
+        }
+
+        function showJSONOutput() {
+            const results = window.lastStaticResults;
+            if (!results) {
+                alert('Results not ready yet. Please wait a moment.');
+                return;
+            }
+
+            // Create modal or display area for JSON
+            let jsonDiv = document.getElementById('json-output');
+            if (!jsonDiv) {
+                jsonDiv = document.createElement('div');
+                jsonDiv.id = 'json-output';
+                jsonDiv.className = 'card';
+                jsonDiv.style.marginTop = '1rem';
+                document.querySelector('.container').appendChild(jsonDiv);
+            }
+
+            const cleanResults = prepareJSONOutput(results);
+            jsonDiv.innerHTML = `
+                <h3>JSON Output (for FlareSolverr integration)</h3>
+                <pre style="background: var(--bg-tertiary); padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.75rem; max-height: 400px; overflow-y: auto;"><code>${JSON.stringify(cleanResults, null, 2)}</code></pre>
+            `;
+            jsonDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function copyJSON() {
+            const results = window.lastStaticResults;
+            if (!results) {
+                alert('Results not ready yet.');
+                return;
+            }
+            const cleanResults = prepareJSONOutput(results);
+            navigator.clipboard.writeText(JSON.stringify(cleanResults, null, 2)).then(() => {
+                alert('JSON copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+            });
+        }
+
+        function prepareJSONOutput(results) {
+            // Create a clean, flat structure for easy parsing
+            const output = {
+                timestamp: new Date().toISOString(),
+                userAgent: navigator.userAgent,
+                url: window.location.href,
+                tests: {},
+                summary: {
+                    totalTests: 0,
+                    passed: 0,
+                    failed: 0,
+                    botDetected: false,
+                    indicatorCount: 0
+                }
+            };
+
+            const testNames = [
+                'hasBotUserAgent', 'hasWebdriverTrue', 'hasWebdriverInFrameTrue',
+                'isPlaywright', 'hasInconsistentChromeObject', 'isPhantom',
+                'isNightmare', 'isSequentum', 'isSeleniumChromeDefault',
+                'isHeadlessChrome', 'isWebGLInconsistent', 'isAutomatedWithCDP',
+                'isAutomatedWithCDPInWebWorker', 'hasInconsistentClientHints',
+                'hasInconsistentGPUFeatures', 'isIframeOverridden',
+                'hasInconsistentWorkerValues', 'hasHighHardwareConcurrency',
+                'hasHeadlessChromeDefaultScreenResolution', 'hasSuspiciousWeakSignals',
+                'isAutomatedViaStackTrace', 'hasCanvasFingerprintIssue', 'hasAudioFingerprintIssue'
+            ];
+
+            let indicatorCount = 0;
+
+            for (const name of testNames) {
+                const value = results[name];
+                const isFailed = value !== false && value !== null && value !== undefined;
+
+                output.tests[name] = {
+                    passed: !isFailed,
+                    value: value,
+                    description: isFailed && value && value.description ? value.description : null
+                };
+
+                output.summary.totalTests++;
+                if (isFailed) {
+                    output.summary.failed++;
+                    indicatorCount++;
+                } else {
+                    output.summary.passed++;
+                }
+            }
+
+            output.summary.indicatorCount = indicatorCount;
+            output.summary.botDetected = indicatorCount >= 2;
+
+            return output;
+        }
+    </script>
+</body>
+</html>

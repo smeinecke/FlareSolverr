@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interaction-Based Detection | Bot Detection Challenge</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Interaction-Based Detection</h1>
+            <p>Mouse, keyboard, and timing analysis</p>
+            <div class="nav-links">
+                <a href="index.html">Home</a>
+                <a href="static.html">Static Test</a>
+            </div>
+        </header>
+
+        <div class="card">
+            <div id="overall-status" style="text-align: center; margin-bottom: 1rem;">
+                <span class="status-badge pending">Waiting for form submission...</span>
+            </div>
+
+            <div class="test-mode">
+                <input type="checkbox" id="simulate-bot" onchange="toggleBotMode()">
+                <label for="simulate-bot">Simulate bot behavior (instant form fill)</label>
+            </div>
+
+            <h2>Login Form</h2>
+            <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
+                Enter any email and password, then click Login. The system will analyze your mouse movements, typing speed, and submission timing.
+            </p>
+
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" placeholder="Enter any email" required autocomplete="off">
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="Enter any password" required autocomplete="off">
+                </div>
+
+                <button type="submit">Login</button>
+            </form>
+        </div>
+
+        <div class="card" id="results-card" style="display: none;">
+            <h2>Analysis Results</h2>
+            <div id="interaction-results"></div>
+            <div style="margin-top: 1rem;">
+                <button onclick="showJSONOutput()" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Show JSON Output</button>
+                <button onclick="copyJSON()" style="padding: 0.25rem 0.75rem; font-size: 0.75rem; margin-left: 0.5rem;">Copy JSON</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>About These Tests</h2>
+            <div class="info-section">
+                <p>The interaction-based tests analyze user behavior during form completion:</p>
+                <ul>
+                    <li><strong>Mouse Tracking:</strong> Path analysis, straight-line detection, movement patterns</li>
+                    <li><strong>CDP Mouse Leak:</strong> Detects Chrome DevTools Protocol by analyzing screenX/Y vs clientX/Y discrepancies</li>
+                    <li><strong>Typing Speed:</strong> Characters per second analysis (>15 CPS is suspicious)</li>
+                    <li><strong>Form Timing:</strong> Completion time analysis with focus event tracking</li>
+                    <li><strong>Paste Detection:</strong> Identifies paste-only input without keystrokes</li>
+                </ul>
+                <p style="margin-top: 0.5rem;">Tracking begins when the page loads and continues until form submission.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/shared.js"></script>
+    <script src="js/interactions-detector.js"></script>
+    <script>
+        // Show results card when form is submitted
+        document.getElementById('login-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            document.getElementById('results-card').style.display = 'block';
+
+            // Scroll to results
+            setTimeout(() => {
+                document.getElementById('results-card').scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+        });
+
+        function toggleBotMode() {
+            const checkbox = document.getElementById('simulate-bot');
+            if (checkbox.checked) {
+                window.InteractionDetector.simulateBot();
+                document.getElementById('results-card').style.display = 'block';
+                setTimeout(() => {
+                    document.getElementById('results-card').scrollIntoView({ behavior: 'smooth' });
+                }, 200);
+            } else {
+                // Reset and re-analyze
+                window.InteractionDetector.reset();
+                window.InteractionDetector.analyze();
+            }
+        }
+
+        function showJSONOutput() {
+            const results = window.lastInteractionResults;
+            if (!results) {
+                alert('Please submit the form first to generate results.');
+                return;
+            }
+
+            let jsonDiv = document.getElementById('json-output');
+            if (!jsonDiv) {
+                jsonDiv = document.createElement('div');
+                jsonDiv.id = 'json-output';
+                jsonDiv.className = 'card';
+                jsonDiv.style.marginTop = '1rem';
+                document.querySelector('.container').appendChild(jsonDiv);
+            }
+
+            const cleanResults = prepareJSONOutput(results);
+            jsonDiv.innerHTML = `
+                <h3>JSON Output (for FlareSolverr integration)</h3>
+                <pre style="background: var(--bg-tertiary); padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.75rem; max-height: 400px; overflow-y: auto;"><code>${JSON.stringify(cleanResults, null, 2)}</code></pre>
+            `;
+            jsonDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function copyJSON() {
+            const results = window.lastInteractionResults;
+            if (!results) {
+                alert('Please submit the form first.');
+                return;
+            }
+            const cleanResults = prepareJSONOutput(results);
+            navigator.clipboard.writeText(JSON.stringify(cleanResults, null, 2)).then(() => {
+                alert('JSON copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+            });
+        }
+
+        function prepareJSONOutput(results) {
+            const output = {
+                timestamp: new Date().toISOString(),
+                userAgent: navigator.userAgent,
+                url: window.location.href,
+                trackingStats: window.InteractionDetector ? window.InteractionDetector.getTrackingData() : null,
+                tests: {},
+                summary: {
+                    totalTests: 0,
+                    passed: 0,
+                    failed: 0,
+                    botDetected: false,
+                    indicatorCount: 0
+                }
+            };
+
+            // Include both static and interaction tests
+            const allTests = [
+                // Interaction tests
+                'suspiciousClientSideBehavior', 'superHumanSpeed', 'hasCDPMouseLeak',
+                // Static tests
+                'hasBotUserAgent', 'hasWebdriverTrue', 'hasWebdriverInFrameTrue',
+                'isPlaywright', 'isSeleniumChromeDefault',
+                'isHeadlessChrome', 'isAutomatedWithCDP'
+            ];
+
+            let indicatorCount = 0;
+
+            for (const name of allTests) {
+                const value = results[name];
+                const isFailed = value !== false && value !== null && value !== undefined;
+
+                output.tests[name] = {
+                    passed: !isFailed,
+                    value: value,
+                    description: isFailed && value && value.description ? value.description : null
+                };
+
+                output.summary.totalTests++;
+                if (isFailed) {
+                    output.summary.failed++;
+                    indicatorCount++;
+                } else {
+                    output.summary.passed++;
+                }
+            }
+
+            output.summary.indicatorCount = indicatorCount;
+            output.summary.botDetected = indicatorCount >= 2;
+
+            return output;
+        }
+    </script>
+</body>
+</html>

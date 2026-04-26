@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Detection Challenge | FlareSolverr</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Bot Detection Challenge</h1>
+            <p>Local testing environment for bot detection without external timeouts</p>
+            <p style="font-size: 0.8rem; color: var(--text-secondary);">
+                Based on <a href="https://deviceandbrowserinfo.com/are_you_a_bot" target="_blank" style="color: var(--accent-primary);">deviceandbrowserinfo.com</a>
+            </p>
+        </header>
+
+        <div class="landing-cards">
+            <a href="static.html" class="landing-card">
+                <h3>Static Fingerprinting</h3>
+                <p>Tests that run immediately on page load. Checks browser properties, WebGL, WebDriver detection, CDP markers, and more.</p>
+            </a>
+
+            <a href="interactions.html" class="landing-card">
+                <h3>Interaction-Based Detection</h3>
+                <p>Complete the login form to trigger analysis. Detects mouse movement patterns, typing speed, CDP mouse leaks, and suspicious behavior.</p>
+            </a>
+        </div>
+
+        <div class="card" style="margin-top: 2rem;">
+            <h2>About This Tool</h2>
+            <div class="info-section">
+                <p>This challenge recreates the detection mechanisms found on deviceandbrowserinfo.com for local testing purposes. It's designed to help test FlareSolverr and other browser automation tools without triggering rate limits or external service timeouts.</p>
+                <p style="margin-top: 0.5rem;">The detection tests include:</p>
+                <ul>
+                    <li><strong>Static Tests:</strong> navigator.webdriver, headless Chrome detection, WebGL analysis, CDP markers, iframe checks</li>
+                    <li><strong>Interaction Tests:</strong> Mouse tracking with CDP leak detection, keystroke timing, form completion speed analysis</li>
+                </ul>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>
