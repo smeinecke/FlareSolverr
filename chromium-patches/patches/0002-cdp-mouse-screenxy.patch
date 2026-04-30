@@ -1,0 +1,18 @@
+From: FlareSolverr Stealth Migration
+Subject: [PATCH 2/6] Add window bounds offset to CDP mouse screenX/screenY
+
+CDP mouse events use raw coordinates as screenX/screenY, ignoring
+the browser window's position on the virtual display. This creates
+an impossible screen < viewport combination that fingerprinters flag.
+Add the window container bounds offset so screen coordinates are correct.
+
+--- a/content/browser/devtools/protocol/input_handler.cc
++++ b/content/browser/devtools/protocol/input_handler.cc
+@@ -200,6 +200,8 @@ Response InputHandler::DispatchMouseEvent(
+       web_contents_->GetPrimaryMainFrame()->GetView();
+   gfx::PointF screen_point(x, y);
++  gfx::Rect window_bounds = web_contents_->GetContainerBounds();
++  screen_point.Offset(window_bounds.x(), window_bounds.y());
+   if (web_view) {
+     screen_point = web_view->TransformRootPointToScreenCoordF(screen_point);
+   }

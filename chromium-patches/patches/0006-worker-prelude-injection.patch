@@ -1,0 +1,64 @@
+From: FlareSolverr Stealth Migration
+Subject: [PATCH 6/6] Inject preload script into Workers at C++ level
+
+Workers run in an isolated JS engine instance; the main-thread
+stealth patches do not reach them. The current JS solution wraps
+window.Worker with a detectable proxy that rewrites worker scripts
+via sync XHR + Blob — this is flagged by Cloudflare.
+
+This patch injects the same --preload-script content into every
+DedicatedWorkerGlobalScope at initialization time, before any user
+worker scripts execute. This means:
+- Worker.toString() returns the native string
+- Worker.prototype.constructor is untouched
+- No sync-XHR timing artifacts
+- The same patches (webdriver→undefined, WebGL spoof, etc.) apply
+  identically in main thread and Worker contexts
+
+The hook point is DedicatedWorkerGlobalScope::Initialize(), which
+is called in the renderer process before any user script runs.
+
+--- a/third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc
++++ b/third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc
+@@ -15,6 +15,8 @@
+ #include "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.h"
+
++#include "base/command_line.h"
++#include "base/files/file_util.h"
+ #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
+
+@@ -100,6 +102,35 @@ void DedicatedWorkerGlobalScope::Initialize(
+     const String& user_agent,
+     const absl::optional<UserAgentMetadata>& ua_metadata,
+     bool parent_cross_origin_isolated_capability,
+     bool parent_is_isolated_context) {
+   WorkerGlobalScope::Initialize(user_agent, ua_metadata,
+                                 parent_cross_origin_isolated_capability,
+                                 parent_is_isolated_context);
++
++  // --preload-script: evaluate the same preload content that runs in every
++  // document context before any user worker scripts execute.
++  // Uses a static to read the file at most once per renderer process.
++  static std::string preload_content;
++  static bool preload_loaded = false;
++  if (!preload_loaded) {
++    preload_loaded = true;
++    base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++    if (cmd->HasSwitch("preload-script")) {
++      base::FilePath path = cmd->GetSwitchValuePath("preload-script");
++      if (!base::ReadFileToString(path, &preload_content)) {
++        preload_content.clear();
++      }
++    }
++  }
++  if (!preload_content.empty()) {
++    ClassicScript* script = ClassicScript::Create(
++        String::FromUTF8(preload_content),
++        KURL("about:preload-script"),
++        KURL(),
++        ScriptFetchOptions(),
++        ScriptSourceLocationType::kInternal,
++        SanitizeScriptErrors::kDoNotSanitize);
++    script->RunScriptOnScriptState(GetScriptController()->GetScriptState());
++  }
+ }

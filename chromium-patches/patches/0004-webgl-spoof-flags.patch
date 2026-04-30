@@ -1,0 +1,40 @@
+From: FlareSolverr Stealth Migration
+Subject: [PATCH 4/6] Add --webgl-unmasked-vendor and --webgl-unmasked-renderer flags
+
+Docker containers without GPU passthrough use SwiftShader software
+renderer, which is an unambiguous automation signal. This patch adds
+two command-line switches that override the UNMASKED_VENDOR_WEBGL
+and UNMASKED_RENDERER_WEBGL values returned by WebGLRenderingContext::getParameter.
+
+This eliminates the need for a JS getParameter override that is
+detectable via prototype descriptor inspection.
+
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -15,6 +15,7 @@
+ #include "base/atomic_sequence_num.h"
++#include "base/command_line.h"
+ #include "base/memory/scoped_refptr.h"
+ #include "base/numerics/checked_math.h"
+@@ -3500,6 +3501,18 @@ ScriptValue WebGLRenderingContextBase::getParameter(
+       return WebGLAny(script_state, 0);
+     case GL_UNMASKED_VENDOR_WEBGL:
++      if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++              "webgl-unmasked-vendor")) {
++        return WebGLAny(
++            script_state,
++            base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++                "webgl-unmasked-vendor"));
++      }
+       return WebGLAny(script_state, String("WebKit"));
+     case GL_UNMASKED_RENDERER_WEBGL:
++      if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++              "webgl-unmasked-renderer")) {
++        return WebGLAny(
++            script_state,
++            base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++                "webgl-unmasked-renderer"));
++      }
+       return WebGLAny(script_state, String("WebKit"));
+     case GL_MAX_SAMPLES:
+       if (ExtensionEnabled(kWebGLMultisampleName))

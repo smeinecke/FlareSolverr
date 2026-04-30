@@ -24,6 +24,8 @@ USER_AGENT: str | None = None
 XVFB_DISPLAY = None
 PATCHED_DRIVER_PATH: str | None = None
 _STEALTH_SCRIPT: str | None = None
+_STEALTH_FALLBACK_SCRIPT: str | None = None
+_CUSTOM_CHROMIUM: bool | None = None
 
 STEALTH_MODE_OFF = "off"
 STEALTH_MODE_STANDARD = "standard"
@@ -31,13 +33,36 @@ STEALTH_MODE_CSP_SAFE = "csp-safe"
 VALID_STEALTH_MODES = {STEALTH_MODE_OFF, STEALTH_MODE_STANDARD, STEALTH_MODE_CSP_SAFE}
 
 
-def _load_stealth_script() -> str:
-    global _STEALTH_SCRIPT
+def _load_stealth_script(fallback: bool = False) -> str:
+    global _STEALTH_SCRIPT, _STEALTH_FALLBACK_SCRIPT
+    if fallback:
+        if _STEALTH_FALLBACK_SCRIPT is None:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stealth_fallback.js")
+            with open(path) as f:
+                _STEALTH_FALLBACK_SCRIPT = f.read()
+        return _STEALTH_FALLBACK_SCRIPT
     if _STEALTH_SCRIPT is None:
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stealth.js")
         with open(path) as f:
             _STEALTH_SCRIPT = f.read()
     return _STEALTH_SCRIPT
+
+
+def _is_custom_chromium() -> bool:
+    global _CUSTOM_CHROMIUM
+    if _CUSTOM_CHROMIUM is not None:
+        return _CUSTOM_CHROMIUM
+
+    machine = platform.machine().lower()
+    if machine not in ("x86_64", "amd64", "aarch64", "arm64"):
+        _CUSTOM_CHROMIUM = False
+        return False
+
+    # The chromium-patches Dockerfile writes this sentinel to /opt/chromium/
+    # and the main Dockerfile copies it alongside the binary to /usr/bin/.
+    # Checking for it avoids spawning a Chrome subprocess and is reliable.
+    _CUSTOM_CHROMIUM = os.path.exists("/opt/chromium/.stealth-patched")
+    return _CUSTOM_CHROMIUM
 
 
 def get_config_log_html() -> bool:
@@ -92,7 +117,7 @@ def _apply_stealth_patches(driver: WebDriver, stealth_mode: str) -> None:
         f"window.__FS_STEALTH_PATCH_WEBGL = {'true' if patch_webgl else 'false'};\n"
         f"window.__FS_STEALTH_BLOB_BYPASS = {'true' if patch_blob_bypass else 'false'};\n"
     )
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": prelude + _load_stealth_script()})
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": prelude + _load_stealth_script(fallback=True)})
 
 
 def apply_user_agent_override(driver: WebDriver, user_agent: str) -> None:
@@ -344,6 +369,15 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             driver_exe_path = PATCHED_DRIVER_PATH
 
     # detect chrome path
+    effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
+
+    if effective_stealth_mode != STEALTH_MODE_OFF and _is_custom_chromium():
+        options.add_argument("--enable-trusted-synthetic-events")
+        options.add_argument("--preload-script=/app/src/flaresolverr/stealth.js")
+        options.add_argument("--webgl-unmasked-vendor=Intel Inc.")
+        options.add_argument("--webgl-unmasked-renderer=Intel(R) Iris(TM) Graphics 6100")
+        logging.debug("Applied custom Chromium stealth flags.")
+
     browser_executable_path = get_chrome_exe_path()
 
     # downloads and patches the chromedriver
@@ -362,30 +396,34 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
         # No point in continuing if we cannot retrieve the driver
         raise e
 
-    effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
+    # For custom Chromium: Patch 7 removes the HeadlessChrome UA token at C++ level,
+    # so the UA is already clean and navigator.userAgentData is natively consistent.
+    # No CDP override needed.
+    #
+    # For fallback Chromium (386/armv7): Debian's Chromium still emits HeadlessChrome,
+    # so we normalize via CDP and pass full userAgentMetadata so userAgentData stays
+    # consistent with the corrected UA string.
+    if not _is_custom_chromium():
+        try:
+            default_ua = driver.execute_script("return navigator.userAgent")
+            if isinstance(default_ua, str):
+                normalized_ua = sanitize_user_agent(default_ua)
+                ua_changed = normalized_ua != default_ua
+                if ua_changed or effective_stealth_mode != STEALTH_MODE_OFF:
+                    apply_user_agent_override(driver, normalized_ua)
+                    if ua_changed:
+                        logging.info("Normalized default user-agent by removing HeadlessChrome token.")
+        except Exception as e:
+            logging.warning("Failed normalizing default user-agent: %s", e)
 
-    # Normalize the default user-agent and sync navigator.userAgentData via CDP.
-    # We always call apply_user_agent_override in stealth mode (not just when HeadlessChrome
-    # is present) so that userAgentData.platform and brand metadata are consistent with the
-    # UA string even when undetected-chromedriver already removed HeadlessChrome at binary level.
-    try:
-        default_ua = driver.execute_script("return navigator.userAgent")
-        if isinstance(default_ua, str):
-            normalized_ua = sanitize_user_agent(default_ua)
-            ua_changed = normalized_ua != default_ua
-            if ua_changed or effective_stealth_mode != STEALTH_MODE_OFF:
-                apply_user_agent_override(driver, normalized_ua)
-                if ua_changed:
-                    logging.info("Normalized default user-agent by removing HeadlessChrome token.")
-    except Exception as e:
-        logging.warning("Failed normalizing default user-agent: %s", e)
-
-    if effective_stealth_mode != STEALTH_MODE_OFF:
+    if effective_stealth_mode != STEALTH_MODE_OFF and not _is_custom_chromium():
         try:
             _apply_stealth_patches(driver, effective_stealth_mode)
-            logging.info("Applied experimental stealth patches (mode=%s).", effective_stealth_mode)
+            logging.info("Applied CDP stealth patches (fallback mode=%s).", effective_stealth_mode)
         except Exception as e:
             logging.warning("Failed applying stealth patches: %s", e)
+    elif effective_stealth_mode != STEALTH_MODE_OFF and _is_custom_chromium():
+        logging.info("Custom Chromium stealth flags active (mode=%s).", effective_stealth_mode)
 
     # save the patched driver to avoid re-downloads
     if driver_exe_path is None:
