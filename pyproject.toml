@@ -26,7 +26,7 @@ dependencies = [
     "bottle==0.13.4",
     "certifi==2026.4.22",
     "func-timeout==4.3.5",
-    "packaging==26.1",
+    "packaging==26.2",
     "pefile==2024.8.26; platform_system == 'Windows'",
     "prometheus-client==0.25.0",
     "requests==2.33.0",
