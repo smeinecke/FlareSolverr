@@ -59,11 +59,7 @@ WORKDIR /chromium/src
 COPY patches/ /chromium/patches/
 COPY gn-args.txt /chromium/gn-args.txt
 
-RUN export PATH="/depot_tools:$PATH" && \
-    for p in /chromium/patches/*.patch; do \
-        echo "Applying $(basename $p)..."; \
-        git apply "$p" || { echo "Failed to apply $(basename $p)"; exit 1; }; \
-    done
+RUN python3 /chromium/patches/apply.py
 
 RUN export PATH="/depot_tools:$PATH" && \
     gn gen out/Release --args="$(cat /chromium/gn-args.txt)"

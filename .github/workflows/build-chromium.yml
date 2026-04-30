@@ -65,46 +65,24 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CHROMIUM_VERSION }}-amd64
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64
-          # BuildKit GHA cache for Docker layer reuse (covers source-sync and build layers)
-          cache-from: type=gha,scope=chromium-amd64
-          cache-to: type=gha,mode=max,scope=chromium-amd64
+          # Registry-backed BuildKit cache: no 10 GB GHA limit, so the large
+          # Chromium source layer (~8 GB) actually persists between runs.
+          # mode=max stores all intermediate stages (source, patched-build, runtime)
+          # independently, so patch changes reuse the cached source layer.
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-cache:amd64
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-cache:amd64,mode=max
 
-  build-arm64:
-    needs: resolve-version
-    runs-on: ubuntu-24.04-arm
-    env:
-      CHROMIUM_VERSION: ${{ needs.resolve-version.outputs.chromium_version }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push arm64
-        uses: docker/build-push-action@v5
-        with:
-          context: ./chromium-patches
-          file: ./chromium-patches/Dockerfile
-          target: runtime
-          platforms: linux/arm64
-          push: true
-          build-args: |
-            CHROMIUM_VERSION=${{ env.CHROMIUM_VERSION }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CHROMIUM_VERSION }}-arm64
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64
-          cache-from: type=gha,scope=chromium-arm64
-          cache-to: type=gha,mode=max,scope=chromium-arm64
+  # NOTE: arm64 builds are disabled because Chromium's CIPD (depot_tools) does not
+  # provide the `gperf` package for linux-arm64, causing `fetch` to fail.
+  # Re-enable when Google publishes the missing package or when cross-compilation
+  # support is added.
+  # build-arm64:
+  #   needs: resolve-version
+  #   runs-on: ubuntu-24.04-arm
+  #   ...
 
   manifest:
-    needs: [resolve-version, build-amd64, build-arm64]
+    needs: [resolve-version, build-amd64]
     runs-on: ubuntu-latest
     env:
       CHROMIUM_VERSION: ${{ needs.resolve-version.outputs.chromium_version }}
@@ -119,21 +97,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create and push multi-arch manifest
+      - name: Tag amd64 as latest
         run: |
-          # Combine the per-arch tagged images into a single multi-arch manifest.
-          # The per-arch tags (e.g. :134.0.6998.35-amd64) were pushed by the
-          # build jobs above (push: true, no push-by-digest) so they exist here.
+          # Copy the amd64-specific tag to the versioned and latest tags.
+          # Multi-arch support disabled (see build-arm64 note above).
 
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CHROMIUM_VERSION }} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CHROMIUM_VERSION }}-amd64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CHROMIUM_VERSION }}-arm64
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CHROMIUM_VERSION }}-amd64
 
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64
 
       - name: Verify manifest
         run: |
