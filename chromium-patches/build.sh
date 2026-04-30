@@ -49,7 +49,7 @@ if [[ ! -d "$CHROMIUM_ROOT/src" ]]; then
     git fetch origin "refs/tags/$CHROMIUM_VERSION:refs/tags/$CHROMIUM_VERSION" --no-tags --depth=1 || true
     git checkout "$CHROMIUM_VERSION" || git checkout "tags/$CHROMIUM_VERSION"
     # -D prunes stale dependencies; --no-history keeps the tree minimal.
-    gclient sync --with_branch_refs --with_tags --no-history -D
+    gclient sync --with_tags --no-history -D
     echo "Running hooks..."
     gclient runhooks
 else
