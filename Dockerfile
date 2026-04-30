@@ -1,3 +1,6 @@
+# Global ARG for the custom Chromium image; must be before all FROM to be usable in FROM.
+ARG CHROMIUM_STEALTH_IMAGE=ghcr.io/smeinecke/chromium-stealth:latest
+
 FROM python:3.13-slim-trixie AS dummy-packages
 
 # Keep the current workaround until all target arches are validated without it.
@@ -45,8 +48,8 @@ RUN uv sync --frozen --no-dev \
 # ---------------------------------------------------------------------------
 # Custom Chromium stage (amd64 / arm64 only — built separately).
 # Must be defined BEFORE the final stage so COPY --from=custom-chrome works.
+# The ARG was declared globally at the top of this file.
 # ---------------------------------------------------------------------------
-ARG CHROMIUM_STEALTH_IMAGE=ghcr.io/smeinecke/chromium-stealth:latest
 FROM ${CHROMIUM_STEALTH_IMAGE} AS custom-chrome
 
 # Copy patched binaries out to a staging dir. If the stealth image doesn't
