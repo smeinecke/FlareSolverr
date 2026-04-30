@@ -296,83 +296,43 @@ def create_proxy_extension(proxy: dict[str, Any]) -> str:
     return proxy_extension_dir
 
 
-def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None) -> WebDriver:
-    global PATCHED_DRIVER_PATH, USER_AGENT
-    logging.debug("Launching web browser...")
-
-    # undetected_chromedriver
+def _build_chrome_options(effective_stealth_mode: str) -> uc.ChromeOptions:
+    """Build and configure ChromeOptions based on settings."""
     options = uc.ChromeOptions()
     options.add_argument("--no-sandbox")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-search-engine-choice-screen")
-    # todo: this param shows a warning in chrome head-full
     options.add_argument("--disable-setuid-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    # this option removes the zygote sandbox (it seems that the resolution is a bit faster)
     options.add_argument("--no-zygote")
+
     minimal_fingerprint = get_config_minimal_fingerprint()
-    # Stabilize Cloudflare challenge networking on some environments where QUIC/HTTP3
-    # produces intermittent flow failures (ERR_QUIC_PROTOCOL_ERROR, ERR_ADDRESS_UNREACHABLE).
+
     if get_config_disable_quic():
         options.add_argument("--disable-quic")
         options.add_argument("--disable-http3")
+
     if not minimal_fingerprint:
-        # Chrome 147+ CSP/Worker fixes for Cloudflare Turnstile compatibility
         options.add_argument("--disable-features=StrictOriginIsolation")
         options.add_argument("--disable-features=IsolateOrigins")
         options.add_argument("--disable-site-isolation-trials")
-    # Aggressive CSP bypass for sites with strict CSP blocking Cloudflare challenge
-    # Note: This reduces security but may be necessary for some sites
+
     if os.environ.get("DISABLE_WEB_SECURITY", "false").lower() == "true":
         options.add_argument("--disable-web-security")
         options.add_argument("--disable-features=BlockInsecurePrivateNetworkRequests")
-    # attempt to fix Docker ARM32 build
-    IS_ARMARCH = platform.machine().startswith(("arm", "aarch"))
-    if IS_ARMARCH:
+
+    if platform.machine().startswith(("arm", "aarch")):
         options.add_argument("--disable-gpu-sandbox")
+
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
+
     if not minimal_fingerprint:
         options.add_argument("--disable-blink-features=AutomationControlled")
 
     language = os.environ.get("LANG", None)
     if language is not None:
         options.add_argument("--accept-lang=%s" % language)
-
-    proxy_extension_dir = None
-    if proxy and all(key in proxy for key in ["url", "username", "password"]):
-        proxy_extension_dir = create_proxy_extension(proxy)
-        options.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
-        options.add_argument("--load-extension=%s" % os.path.abspath(proxy_extension_dir))
-    elif proxy and "url" in proxy:
-        proxy_url = proxy["url"]
-        logging.debug("Using webdriver proxy: %s", proxy_url)
-        options.add_argument("--proxy-server=%s" % proxy_url)
-
-    # note: headless mode is detected (headless = True)
-    # we launch the browser in head-full mode with the window hidden
-    windows_headless = False
-    if get_config_headless():
-        if os.name == "nt":
-            windows_headless = True
-        else:
-            start_xvfb_display()
-    # For normal headless mode:
-    # options.add_argument('--headless')
-
-    # if we are inside the Docker container, we avoid downloading the driver
-    driver_exe_path = None
-    version_main = None
-    if os.path.exists("/app/chromedriver"):
-        # running inside Docker
-        driver_exe_path = "/app/chromedriver"
-    else:
-        version_main = get_chrome_major_version()
-        if PATCHED_DRIVER_PATH is not None:
-            driver_exe_path = PATCHED_DRIVER_PATH
-
-    # detect chrome path
-    effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
 
     if effective_stealth_mode != STEALTH_MODE_OFF and _is_custom_chromium():
         options.add_argument("--enable-trusted-synthetic-events")
@@ -381,10 +341,120 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
         options.add_argument("--webgl-unmasked-renderer=Intel(R) Iris(TM) Graphics 6100")
         logging.debug("Applied custom Chromium stealth flags.")
 
+    return options
+
+
+def _handle_proxy_setup(options: uc.ChromeOptions, proxy: dict[str, Any] | None) -> str | None:
+    """Configure proxy settings and return extension directory if created."""
+    if proxy is None:
+        return None
+
+    if all(key in proxy for key in ["url", "username", "password"]):
+        proxy_extension_dir = create_proxy_extension(proxy)
+        options.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
+        options.add_argument("--load-extension=%s" % os.path.abspath(proxy_extension_dir))
+        return proxy_extension_dir
+
+    if "url" in proxy:
+        proxy_url = proxy["url"]
+        logging.debug("Using webdriver proxy: %s", proxy_url)
+        options.add_argument("--proxy-server=%s" % proxy_url)
+
+    return None
+
+
+def _resolve_driver_paths() -> tuple[str | None, str | None]:
+    """Return (driver_exe_path, version_main) tuple."""
+    global PATCHED_DRIVER_PATH
+
+    if os.path.exists("/app/chromedriver"):
+        return "/app/chromedriver", None
+
+    version_main = get_chrome_major_version()
+    driver_exe_path = PATCHED_DRIVER_PATH if PATCHED_DRIVER_PATH is not None else None
+    return driver_exe_path, version_main
+
+
+def _configure_headless() -> bool:
+    """Configure headless mode and return windows_headless flag."""
+    if not get_config_headless():
+        return False
+
+    if os.name == "nt":
+        return True
+
+    start_xvfb_display()
+    return False
+
+
+def _maybe_normalize_user_agent(driver: WebDriver, effective_stealth_mode: str) -> None:
+    """Normalize user agent for fallback Chromium builds."""
+    if _is_custom_chromium():
+        return
+
+    try:
+        default_ua = driver.execute_script("return navigator.userAgent")
+        if not isinstance(default_ua, str):
+            return
+
+        normalized_ua = sanitize_user_agent(default_ua)
+        ua_changed = normalized_ua != default_ua
+
+        if ua_changed or effective_stealth_mode != STEALTH_MODE_OFF:
+            apply_user_agent_override(driver, normalized_ua)
+            if ua_changed:
+                logging.info("Normalized default user-agent by removing HeadlessChrome token.")
+    except Exception as e:
+        logging.warning("Failed normalizing default user-agent: %s", e)
+
+
+def _maybe_apply_stealth(driver: WebDriver, effective_stealth_mode: str) -> None:
+    """Apply stealth patches based on mode and Chromium type."""
+    if effective_stealth_mode == STEALTH_MODE_OFF:
+        return
+
+    if _is_custom_chromium():
+        logging.info("Custom Chromium stealth flags active (mode=%s).", effective_stealth_mode)
+        return
+
+    try:
+        _apply_stealth_patches(driver, effective_stealth_mode)
+        logging.info("Applied CDP stealth patches (fallback mode=%s).", effective_stealth_mode)
+    except Exception as e:
+        logging.warning("Failed applying stealth patches: %s", e)
+
+
+def _save_patched_driver(driver: WebDriver, driver_exe_path: str | None) -> None:
+    """Save patched driver path to avoid re-downloads."""
+    global PATCHED_DRIVER_PATH
+
+    if driver_exe_path is not None:
+        return
+
+    patcher = getattr(driver, "patcher", None)
+    if patcher is None:
+        return
+
+    PATCHED_DRIVER_PATH = os.path.join(patcher.data_path, patcher.exe_name)
+    assert PATCHED_DRIVER_PATH is not None
+
+    if PATCHED_DRIVER_PATH != patcher.executable_path:
+        shutil.copy(patcher.executable_path, PATCHED_DRIVER_PATH)
+
+
+def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None) -> WebDriver:
+    global PATCHED_DRIVER_PATH
+
+    logging.debug("Launching web browser...")
+
+    effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
+
+    options = _build_chrome_options(effective_stealth_mode)
+    proxy_extension_dir = _handle_proxy_setup(options, proxy)
+    windows_headless = _configure_headless()
+    driver_exe_path, version_main = _resolve_driver_paths()
     browser_executable_path = get_chrome_exe_path()
 
-    # downloads and patches the chromedriver
-    # if we don't set driver_executable_path it downloads, patches, and deletes the driver each time
     try:
         driver = uc.Chrome(
             options=options,
@@ -396,48 +466,12 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
         )
     except Exception as e:
         logging.error("Error starting Chrome: %s", e)
-        # No point in continuing if we cannot retrieve the driver
         raise e
 
-    # For custom Chromium: Patch 7 removes the HeadlessChrome UA token at C++ level,
-    # so the UA is already clean and navigator.userAgentData is natively consistent.
-    # No CDP override needed.
-    #
-    # For fallback Chromium (386/armv7): Debian's Chromium still emits HeadlessChrome,
-    # so we normalize via CDP and pass full userAgentMetadata so userAgentData stays
-    # consistent with the corrected UA string.
-    if not _is_custom_chromium():
-        try:
-            default_ua = driver.execute_script("return navigator.userAgent")
-            if isinstance(default_ua, str):
-                normalized_ua = sanitize_user_agent(default_ua)
-                ua_changed = normalized_ua != default_ua
-                if ua_changed or effective_stealth_mode != STEALTH_MODE_OFF:
-                    apply_user_agent_override(driver, normalized_ua)
-                    if ua_changed:
-                        logging.info("Normalized default user-agent by removing HeadlessChrome token.")
-        except Exception as e:
-            logging.warning("Failed normalizing default user-agent: %s", e)
+    _maybe_normalize_user_agent(driver, effective_stealth_mode)
+    _maybe_apply_stealth(driver, effective_stealth_mode)
+    _save_patched_driver(driver, driver_exe_path)
 
-    if effective_stealth_mode != STEALTH_MODE_OFF and not _is_custom_chromium():
-        try:
-            _apply_stealth_patches(driver, effective_stealth_mode)
-            logging.info("Applied CDP stealth patches (fallback mode=%s).", effective_stealth_mode)
-        except Exception as e:
-            logging.warning("Failed applying stealth patches: %s", e)
-    elif effective_stealth_mode != STEALTH_MODE_OFF and _is_custom_chromium():
-        logging.info("Custom Chromium stealth flags active (mode=%s).", effective_stealth_mode)
-
-    # save the patched driver to avoid re-downloads
-    if driver_exe_path is None:
-        patcher = getattr(driver, "patcher", None)
-        if patcher is not None:
-            PATCHED_DRIVER_PATH = os.path.join(patcher.data_path, patcher.exe_name)
-            assert PATCHED_DRIVER_PATH is not None
-            if PATCHED_DRIVER_PATH != patcher.executable_path:
-                shutil.copy(patcher.executable_path, PATCHED_DRIVER_PATH)
-
-    # clean up proxy extension directory
     if proxy_extension_dir is not None:
         shutil.rmtree(proxy_extension_dir)
 
