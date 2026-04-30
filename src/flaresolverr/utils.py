@@ -128,19 +128,19 @@ def apply_user_agent_override(driver: WebDriver, user_agent: str) -> None:
     """
     # Parse UA to extract platform and Chrome version
     # e.g., "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
-    platform_match = re.search(r'\(([^)]+)\)', user_agent)
+    platform_match = re.search(r"\(([^)]+)\)", user_agent)
     platform_str = platform_match.group(1) if platform_match else "Windows NT 10.0; Win64; x64"
 
     # Determine platform and architecture from UA
-    if 'Linux' in platform_str:
+    if "Linux" in platform_str:
         platform = "Linux"
         platform_version = ""
         architecture = "x64" if "x86_64" in platform_str or "x64" in platform_str else "x86"
-    elif 'Mac' in platform_str or 'Darwin' in platform_str:
+    elif "Mac" in platform_str or "Darwin" in platform_str:
         platform = "macOS"
         platform_version = "14.0.0"  # Generic macOS version
         architecture = "arm" if "arm" in user_agent.lower() else "x64"
-    elif 'Win' in platform_str:
+    elif "Win" in platform_str:
         platform = "Windows"
         platform_version = "10.0.0"
         architecture = "x64" if "Win64" in platform_str or "x64" in platform_str else "x86"
@@ -150,32 +150,35 @@ def apply_user_agent_override(driver: WebDriver, user_agent: str) -> None:
         architecture = "x64"
 
     # Extract Chrome version
-    chrome_match = re.search(r'Chrome/(\d+)\.', user_agent)
+    chrome_match = re.search(r"Chrome/(\d+)\.", user_agent)
     chrome_version = chrome_match.group(1) if chrome_match else "130"
 
     # Build brands array (Chrome's GREASEd brand format)
     brands = [
         {"brand": "Chromium", "version": chrome_version},
         {"brand": "Google Chrome", "version": chrome_version},
-        {"brand": "Not.A/Brand", "version": "24"}
+        {"brand": "Not.A/Brand", "version": "24"},
     ]
 
-    driver.execute_cdp_cmd("Emulation.setUserAgentOverride", {
-        "userAgent": user_agent,
-        "userAgentMetadata": {
-            "platform": platform,
-            "platformVersion": platform_version,
-            "architecture": architecture,
-            "model": "",
-            "mobile": False,
-            "brands": brands,
-            "fullVersionList": [
-                {"brand": "Chromium", "version": f"{chrome_version}.0.0.0"},
-                {"brand": "Google Chrome", "version": f"{chrome_version}.0.0.0"},
-                {"brand": "Not.A/Brand", "version": "24.0.0.0"}
-            ]
-        }
-    })
+    driver.execute_cdp_cmd(
+        "Emulation.setUserAgentOverride",
+        {
+            "userAgent": user_agent,
+            "userAgentMetadata": {
+                "platform": platform,
+                "platformVersion": platform_version,
+                "architecture": architecture,
+                "model": "",
+                "mobile": False,
+                "brands": brands,
+                "fullVersionList": [
+                    {"brand": "Chromium", "version": f"{chrome_version}.0.0.0"},
+                    {"brand": "Google Chrome", "version": f"{chrome_version}.0.0.0"},
+                    {"brand": "Not.A/Brand", "version": "24.0.0.0"},
+                ],
+            },
+        },
+    )
 
 
 def sanitize_user_agent(user_agent: str) -> str:
