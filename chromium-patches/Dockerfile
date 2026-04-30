@@ -40,11 +40,13 @@ RUN if [ -z "$CHROMIUM_VERSION" ]; then \
     fi && \
     git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /depot_tools && \
     export PATH="/depot_tools:$PATH" && \
-    fetch --nohooks chromium && \
+    # --no-history avoids downloading the full 60+ GB git history; we only need the tree at one revision.
+    fetch --nohooks --no-history chromium && \
     cd src && \
-    git fetch origin "refs/tags/$CHROMIUM_VERSION:refs/tags/$CHROMIUM_VERSION" || true && \
+    git fetch origin "refs/tags/$CHROMIUM_VERSION:refs/tags/$CHROMIUM_VERSION" --no-tags --depth=1 || true && \
     git checkout "$CHROMIUM_VERSION" || git checkout "tags/$CHROMIUM_VERSION" && \
-    gclient sync --with_branch_refs --with_tags && \
+    # -D removes any stale dependencies to keep the tree minimal.
+    gclient sync --with_branch_refs --with_tags --no-history -D && \
     gclient runhooks
 
 # ---------------------------------------------------------------------------
