@@ -29,7 +29,7 @@ jobs:
           else
             echo "Fetching latest stable Chromium version..."
             # Use tuple sort to correctly order patch versions (e.g. .9 < .100)
-            VERSION=$(curl -s 'https://chromiumdash.appspot.com/fetch_releases?channel=Stable' | python3 -c "import sys,json; data=json.load(sys.stdin); releases=[r for r in data if r.get('version')]; print('134.0.6998.0') if not releases else print(sorted(releases,key=lambda r:tuple(map(int,r['version'].split('.'))),reverse=True)[0]['version'])")
+            VERSION=$(curl -s 'https://chromiumdash.appspot.com/fetch_releases?channel=Stable' | python3 -c "import sys,json; data=json.load(sys.stdin); releases=[r for r in data if r.get('version')]; print('148.0.7778.0') if not releases else print(sorted(releases,key=lambda r:tuple(map(int,r['version'].split('.'))),reverse=True)[0]['version'])")
             echo "chromium_version=$VERSION" >> $GITHUB_OUTPUT
             echo "Resolved version: $VERSION"
           fi

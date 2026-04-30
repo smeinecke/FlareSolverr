@@ -19,7 +19,7 @@ import sys, json
 data = json.load(sys.stdin)
 releases = [r for r in data if r.get('version')]
 if not releases:
-    print('134.0.6998.0')  # fallback
+    print('148.0.7778.0')  # fallback
 else:
     # Use tuple comparison to correctly order patch versions (e.g. 9 < 100)
     latest = sorted(releases, key=lambda r: tuple(map(int, r['version'].split('.'))), reverse=True)[0]
