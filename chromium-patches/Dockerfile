@@ -35,7 +35,7 @@ FROM build-env AS source
 WORKDIR /chromium
 
 ARG CHROMIUM_VERSION
-RUN if [[ -z "$CHROMIUM_VERSION" ]]; then \
+RUN if [ -z "$CHROMIUM_VERSION" ]; then \
         echo "CHROMIUM_VERSION build arg is required" && exit 1; \
     fi && \
     git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /depot_tools && \
