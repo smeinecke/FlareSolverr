@@ -46,7 +46,7 @@ RUN if [ -z "$CHROMIUM_VERSION" ]; then \
     git fetch origin "refs/tags/$CHROMIUM_VERSION:refs/tags/$CHROMIUM_VERSION" --no-tags --depth=1 || true && \
     git checkout "$CHROMIUM_VERSION" || git checkout "tags/$CHROMIUM_VERSION" && \
     # -D removes any stale dependencies to keep the tree minimal.
-    gclient sync --with_branch_refs --with_tags --no-history -D && \
+    gclient sync --with_tags --no-history -D && \
     gclient runhooks
 
 # ---------------------------------------------------------------------------
