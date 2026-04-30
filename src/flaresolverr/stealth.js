@@ -22,11 +22,13 @@
 
   // ── navigator.webdriver → undefined ──────────────────────────────────────────
   // ChromeDriver sets this to `true`. undetected-chromedriver patches the binary,
-  // but we override both the prototype and the instance for belt-and-suspenders.
+  // but the property may still survive as an own property on the navigator instance.
+  // We delete the own property so the prototype accessor takes over — a non-native
+  // getter defined directly on the instance is detectable via
+  // Object.getOwnPropertyDescriptor(navigator, 'webdriver').
   try {
-    const _undef = { get: () => undefined, configurable: true };
-    Object.defineProperty(Navigator.prototype, 'webdriver', _undef);
-    Object.defineProperty(navigator, 'webdriver', _undef);
+    Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => undefined, configurable: true });
+    try { delete navigator.webdriver; } catch (_) {}
   } catch (_) {}
 
   // ── window.chrome ─────────────────────────────────────────────────────────────
@@ -61,8 +63,11 @@
     }
   } catch (_) {}
 
-  // ── navigator.userAgentData.brands ───────────────────────────────────────────
-  // Newer detections inspect UA-CH brand entries for "HeadlessChrome".
+  // ── navigator.userAgentData.brands + platform ────────────────────────────────
+  // Newer detections inspect UA-CH brand entries for "HeadlessChrome" and compare
+  // userAgentData.platform against the navigator.userAgent string. We derive the
+  // platform from the (already-patched) userAgent string so both are always
+  // consistent, regardless of whether Emulation.setUserAgentOverride was called.
   try {
     const uad = navigator.userAgentData;
     if (uad && Array.isArray(uad.brands)) {
@@ -70,10 +75,19 @@
         ...b,
         brand: String(b?.brand || '').replace(/HeadlessChrome/g, 'Google Chrome'),
       }));
+      // Derive platform from the current (patched) userAgent rather than uad.platform
+      // to guarantee consistency between userAgentData.platform and the UA string.
+      const _ua = navigator.userAgent;
+      let _platform = uad.platform;
+      if (/Windows/.test(_ua))               _platform = 'Windows';
+      else if (/Macintosh|Mac OS X/.test(_ua)) _platform = 'macOS';
+      else if (/Linux/.test(_ua))             _platform = 'Linux';
+      else if (/Android/.test(_ua))           _platform = 'Android';
+      else if (/iPhone|iPad|iPod/.test(_ua))  _platform = 'iOS';
       const patchedUAData = {
         brands: patchedBrands,
         mobile: uad.mobile,
-        platform: uad.platform,
+        platform: _platform,
         getHighEntropyValues: typeof uad.getHighEntropyValues === 'function'
           ? uad.getHighEntropyValues.bind(uad)
           : undefined,
@@ -182,17 +196,19 @@
   // Workers run in an isolated JS context; the patches above don't reach them.
   // We wrap window.Worker to prepend a minimal prelude to every worker script.
   // The prelude re-applies the subset of patches that fingerprinters check inside
-  // workers: console guard, webdriver flag, and WebGL renderer strings.
+  // workers: console guard, webdriver flag, userAgent, and WebGL renderer strings.
   //
-  // FIXED: Skip wrapping for blob: URLs which cause CSP violations on sites with
-  // strict Content-Security-Policy (e.g., Cloudflare Turnstile challenges).
-  // The blob: URL we create to inject the prelude violates 'script-src' directives.
+  // WebGL is included in the prelude only when PATCH_WEBGL is true (standard mode)
+  // so that main-thread and worker WebGL values always match.
+  //
+  // CSP note: in csp-safe mode (BLOB_BYPASS=true) blob: worker injection is skipped
+  // entirely; WebGL patching is also disabled for that mode so values stay consistent.
   try {
     const _NW = window.Worker;
     if (_NW) {
-      // Keep this prelude self-contained and minified — it becomes a string literal
-      // inside a Blob and cannot reference the outer scope.
-      const WORKER_PRELUDE = [
+      // Build the prelude dynamically so WebGL patching matches the main-thread setting.
+      // Everything here must be self-contained — it runs inside a Blob with no outer scope.
+      const _preludeParts = [
         '(()=>{',
         // console guard
         'try{const l=console.log.bind(console);',
@@ -203,17 +219,40 @@
         // userAgent/appVersion
         'try{const ua=navigator.userAgent;if(typeof ua==="string"&&ua.includes("HeadlessChrome")){const p=ua.replace(/HeadlessChrome\\//g,"Chrome/");Object.defineProperty(Navigator.prototype,"userAgent",{get:()=>p,configurable:true});}const av=navigator.appVersion;if(typeof av==="string"&&av.includes("HeadlessChrome")){const q=av.replace(/HeadlessChrome\\//g,"Chrome/");Object.defineProperty(Navigator.prototype,"appVersion",{get:()=>q,configurable:true});}}catch(_){}',
         // mediaDevices.enumerateDevices fallback
-        'try{if(navigator.mediaDevices&&navigator.mediaDevices.enumerateDevices){const e=navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);navigator.mediaDevices.enumerateDevices=()=>e().then(d=>Array.isArray(d)&&d.length>0?d:[{deviceId:"default-mic",kind:"audioinput",label:"Default Microphone",groupId:"default"},{deviceId:"default-spk",kind:"audiooutput",label:"Default Speaker",groupId:"default"}]).catch(()=>[{deviceId:"default-mic",kind:"audioinput",label:"Default Microphone",groupId:"default"},{deviceId:"default-spk",kind:"audiooutput",label:"Default Speaker",groupId:"default"}]);}}catch(_){ }',
-        '})();',
-      ].join('');
+        'try{if(navigator.mediaDevices&&navigator.mediaDevices.enumerateDevices){const e=navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);navigator.mediaDevices.enumerateDevices=()=>e().then(d=>Array.isArray(d)&&d.length>0?d:[{deviceId:"default-mic",kind:"audioinput",label:"Default Microphone",groupId:"default"},{deviceId:"default-spk",kind:"audiooutput",label:"Default Speaker",groupId:"default"}]).catch(()=>[{deviceId:"default-mic",kind:"audioinput",label:"Default Microphone",groupId:"default"},{deviceId:"default-spk",kind:"audiooutput",label:"Default Speaker",groupId:"default"}]);}}catch(_){}',
+      ];
+      if (PATCH_WEBGL) {
+        // Mirror the same vendor/renderer spoof applied in the main thread.
+        _preludeParts.push(
+          'try{const GL_V="' + GL_VENDOR + '",GL_R="' + GL_RENDERER + '";' +
+          'const _pGL=p=>{const _o=p.getParameter;p.getParameter=function(x){if(x===37445)return GL_V;if(x===37446)return GL_R;return _o.call(this,x);};};' +
+          'if(typeof WebGLRenderingContext!=="undefined")_pGL(WebGLRenderingContext.prototype);' +
+          'if(typeof WebGL2RenderingContext!=="undefined")_pGL(WebGL2RenderingContext.prototype);' +
+          '}catch(_){}'
+        );
+      }
+      _preludeParts.push('})();');
+      const WORKER_PRELUDE = _preludeParts.join('');
 
       const _WW = function(url, opts) {
+        const urlStr = String(url);
         // Optional CSP-safe mode: skip blob URLs to avoid strict-CSP worker violations.
-        if (BLOB_BYPASS && String(url).startsWith('blob:')) {
-          return new _NW(url, opts);
+        if (BLOB_BYPASS && urlStr.startsWith('blob:')) {
+          return new _NW(urlStr, opts);
         }
         try {
-          const src  = WORKER_PRELUDE + '\nimportScripts(' + JSON.stringify(String(url)) + ');';
+          let src;
+          if (urlStr.startsWith('blob:')) {
+            // Read the blob content synchronously NOW, before the caller revokes the URL.
+            // Callers commonly do `new Worker(blobUrl); URL.revokeObjectURL(blobUrl)` in the
+            // same tick, which would make a later importScripts(blobUrl) call fail.
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', urlStr, false /* synchronous */);
+            xhr.send();
+            src = WORKER_PRELUDE + '\n' + xhr.responseText;
+          } else {
+            src = WORKER_PRELUDE + '\nimportScripts(' + JSON.stringify(urlStr) + ');';
+          }
           const blob = new Blob([src], { type: 'application/javascript' });
           return new _NW(URL.createObjectURL(blob), opts);
         } catch (_) { return new _NW(url, opts); }

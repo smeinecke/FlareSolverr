@@ -81,16 +81,76 @@ def get_config_stealth_mode() -> str:
 
 
 def _apply_stealth_patches(driver: WebDriver, stealth_mode: str) -> None:
-    # Keep spoofing knobs explicit and conservative. WebGL spoofing is off by default
-    # because blob-worker CSP bypasses can create worker/main mismatches.
+    # standard mode: enable WebGL spoofing — the worker wrapper also patches workers
+    # so main/worker WebGL values stay consistent.
+    # csp-safe mode: disable WebGL spoofing — blob: worker injection is skipped
+    # (BLOB_BYPASS=true), so the worker would see real renderer values and a
+    # main-thread spoof would create a detectable inconsistency.
+    patch_webgl = stealth_mode == STEALTH_MODE_STANDARD
     patch_blob_bypass = stealth_mode == STEALTH_MODE_CSP_SAFE
-    prelude = f"window.__FS_STEALTH_PATCH_WEBGL = false;\nwindow.__FS_STEALTH_BLOB_BYPASS = {'true' if patch_blob_bypass else 'false'};\n"
+    prelude = (
+        f"window.__FS_STEALTH_PATCH_WEBGL = {'true' if patch_webgl else 'false'};\n"
+        f"window.__FS_STEALTH_BLOB_BYPASS = {'true' if patch_blob_bypass else 'false'};\n"
+    )
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": prelude + _load_stealth_script()})
 
 
 def apply_user_agent_override(driver: WebDriver, user_agent: str) -> None:
-    """Apply a custom user agent string at the CDP level."""
-    driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": user_agent})
+    """Apply a custom user agent string at the CDP level with full metadata.
+
+    Uses Emulation.setUserAgentOverride with userAgentMetadata to ensure
+    navigator.userAgentData is consistent with navigator.userAgent.
+    """
+    # Parse UA to extract platform and Chrome version
+    # e.g., "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+    platform_match = re.search(r'\(([^)]+)\)', user_agent)
+    platform_str = platform_match.group(1) if platform_match else "Windows NT 10.0; Win64; x64"
+
+    # Determine platform and architecture from UA
+    if 'Linux' in platform_str:
+        platform = "Linux"
+        platform_version = ""
+        architecture = "x64" if "x86_64" in platform_str or "x64" in platform_str else "x86"
+    elif 'Mac' in platform_str or 'Darwin' in platform_str:
+        platform = "macOS"
+        platform_version = "14.0.0"  # Generic macOS version
+        architecture = "arm" if "arm" in user_agent.lower() else "x64"
+    elif 'Win' in platform_str:
+        platform = "Windows"
+        platform_version = "10.0.0"
+        architecture = "x64" if "Win64" in platform_str or "x64" in platform_str else "x86"
+    else:
+        platform = "Windows"
+        platform_version = "10.0.0"
+        architecture = "x64"
+
+    # Extract Chrome version
+    chrome_match = re.search(r'Chrome/(\d+)\.', user_agent)
+    chrome_version = chrome_match.group(1) if chrome_match else "130"
+
+    # Build brands array (Chrome's GREASEd brand format)
+    brands = [
+        {"brand": "Chromium", "version": chrome_version},
+        {"brand": "Google Chrome", "version": chrome_version},
+        {"brand": "Not.A/Brand", "version": "24"}
+    ]
+
+    driver.execute_cdp_cmd("Emulation.setUserAgentOverride", {
+        "userAgent": user_agent,
+        "userAgentMetadata": {
+            "platform": platform,
+            "platformVersion": platform_version,
+            "architecture": architecture,
+            "model": "",
+            "mobile": False,
+            "brands": brands,
+            "fullVersionList": [
+                {"brand": "Chromium", "version": f"{chrome_version}.0.0.0"},
+                {"brand": "Google Chrome", "version": f"{chrome_version}.0.0.0"},
+                {"brand": "Not.A/Brand", "version": "24.0.0.0"}
+            ]
+        }
+    })
 
 
 def sanitize_user_agent(user_agent: str) -> str:
@@ -302,19 +362,24 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
         # No point in continuing if we cannot retrieve the driver
         raise e
 
-    # Chrome headless can expose a bot-signalling token in navigator.userAgent.
-    # Normalize this once at startup so request headers and JS UA stay aligned.
+    effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
+
+    # Normalize the default user-agent and sync navigator.userAgentData via CDP.
+    # We always call apply_user_agent_override in stealth mode (not just when HeadlessChrome
+    # is present) so that userAgentData.platform and brand metadata are consistent with the
+    # UA string even when undetected-chromedriver already removed HeadlessChrome at binary level.
     try:
         default_ua = driver.execute_script("return navigator.userAgent")
         if isinstance(default_ua, str):
             normalized_ua = sanitize_user_agent(default_ua)
-            if normalized_ua != default_ua:
+            ua_changed = normalized_ua != default_ua
+            if ua_changed or effective_stealth_mode != STEALTH_MODE_OFF:
                 apply_user_agent_override(driver, normalized_ua)
-                logging.info("Normalized default user-agent by removing HeadlessChrome token.")
+                if ua_changed:
+                    logging.info("Normalized default user-agent by removing HeadlessChrome token.")
     except Exception as e:
         logging.warning("Failed normalizing default user-agent: %s", e)
 
-    effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
     if effective_stealth_mode != STEALTH_MODE_OFF:
         try:
             _apply_stealth_patches(driver, effective_stealth_mode)
