@@ -1,0 +1,38 @@
+From: FlareSolverr Stealth Migration
+Subject: [PATCH 7/7] Remove HeadlessChrome UA token when running headless
+
+When Chrome runs with --headless, it inserts "HeadlessChrome" into
+the product string, replacing "Chrome". This is the most direct
+bot-detection signal and forces FlareSolverr to issue an
+Emulation.setUserAgentOverride CDP call after launch to clean it up.
+
+That CDP call has two problems:
+  1. There is a race window between browser start and the CDP call
+     during which any JS that runs can see the HeadlessChrome token.
+  2. The full userAgentMetadata (platform, architecture, brands) must
+     be reconstructed in Python from a UA string parse, which is
+     fragile.
+
+This patch suppresses the HeadlessChrome product override so the
+browser natively presents the same UA string as regular Chrome.
+navigator.userAgentData is also natively consistent because its
+brands and platform are derived from the same build configuration,
+not from the headless mode flag.
+
+--- a/chrome/browser/headless/headless_mode_util.cc
++++ b/chrome/browser/headless/headless_mode_util.cc
+@@ -40,9 +40,10 @@ void SetUpHeadlessMode() {
+   DCHECK(IsHeadlessMode());
+
+   // Set up the page visibility state for background tabs.
+   blink::SetDomainRelaxationForbiddenForURLScheme(true, "file");
+-
+-  // Override the user agent product to identify headless sessions.
+-  content::SetBrowserClientUserAgentProduct("HeadlessChrome");
++
++  // Intentionally omitted: SetBrowserClientUserAgentProduct("HeadlessChrome").
++  // Presenting as regular Chrome avoids the most direct bot-detection signal.
++  // FlareSolverr's --preload-script handles any remaining JS-level UA patches.
+
+   SetUpHeadlessBrowserOriginTrials();
+ }

@@ -42,6 +42,24 @@ COPY src ./src
 RUN uv sync --frozen --no-dev \
     && rm -rf /root/.cache /tmp/*
 
+# ---------------------------------------------------------------------------
+# Custom Chromium stage (amd64 / arm64 only — built separately).
+# Must be defined BEFORE the final stage so COPY --from=custom-chrome works.
+# ---------------------------------------------------------------------------
+ARG CHROMIUM_STEALTH_IMAGE=ghcr.io/smeinecke/chromium-stealth:latest
+FROM ${CHROMIUM_STEALTH_IMAGE} AS custom-chrome
+
+# Copy patched binaries out to a staging dir. If the stealth image doesn't
+# have /opt/chromium/chrome (e.g. a placeholder image), the dir stays empty
+# and the final stage falls back to the Debian chromium package.
+RUN mkdir -p /opt/chromium-dist && \
+    if [ -f /opt/chromium/chrome ]; then \
+        cp -r /opt/chromium/* /opt/chromium-dist/; \
+    fi
+
+# ---------------------------------------------------------------------------
+# Final runtime image
+# ---------------------------------------------------------------------------
 FROM python:3.13-slim-trixie
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -70,6 +88,20 @@ RUN dpkg -i /libgl1-mesa-dri.deb /adwaita-icon-theme.deb \
     && mkdir -p /config "/app/.config/chromium/Crash Reports/pending" \
     && cp /usr/bin/chromedriver /app/chromedriver \
     && chown -R flaresolverr:flaresolverr /config /app
+
+# Conditionally install custom Chromium binaries at build time.
+# For amd64/arm64 the custom-chrome stage contains /opt/chromium-dist with
+# patched binaries; for 386/armv7 the directory is empty and Debian's
+# chromium remains in place.
+COPY --from=custom-chrome /opt/chromium-dist/ /opt/chromium-dist/
+RUN mkdir -p /opt/chromium && \
+    if [ -f /opt/chromium-dist/chrome ]; then \
+        cp /opt/chromium-dist/chrome /usr/bin/chromium && \
+        cp /opt/chromium-dist/chromedriver /usr/bin/chromedriver && \
+        cp /opt/chromium-dist/chromedriver /app/chromedriver && \
+        cp /opt/chromium-dist/.stealth-patched /opt/chromium/.stealth-patched && \
+        rm -rf /opt/chromium-dist; \
+    fi
 
 VOLUME /config
 
