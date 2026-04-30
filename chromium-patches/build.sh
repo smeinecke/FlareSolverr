@@ -58,14 +58,7 @@ fi
 
 # --- apply patches ---
 echo "Applying FlareSolverr patches..."
-for patch in "$SCRIPT_DIR"/patches/*.patch; do
-    if [[ -f "$patch" ]]; then
-        echo "Applying $(basename "$patch") ..."
-        git apply "$patch" || {
-            echo "Failed to apply $(basename "$patch")"; exit 1;
-        }
-    fi
-done
+python3 "$SCRIPT_DIR/patches/apply.py"
 
 # --- gn gen ---
 echo "Generating build files..."
