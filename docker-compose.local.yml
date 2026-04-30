@@ -1,8 +1,9 @@
 ---
 services:
   flaresolverr:
-    # GitHub Container Registry ghcr.io/smeinecke/flaresolverr:latest
-    image: ghcr.io/smeinecke/flaresolverr:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: flaresolverr
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}

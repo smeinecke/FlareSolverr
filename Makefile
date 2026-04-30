@@ -69,6 +69,12 @@ test-integration-proxy:
 	fi; \
 	exit $$status
 
+test-up:
+	docker compose -f docker-compose.local.yml up --always-recreate-deps -d
+
+test-down:
+	docker compose -f docker-compose.local.yml down --remove-orphans --rmi local
+
 vulture:
 	vulture src/ --exclude src/flaresolverr/undetected_chromedriver --ignore-names "error_plugin,logger_plugin,setup,prometheus_plugin,SessionsStorage,session_ids"
 
