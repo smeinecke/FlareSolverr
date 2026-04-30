@@ -154,37 +154,70 @@ patch(
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Patch 2: navigator.webdriver → undefined (IDL boolean? + C++ std::nullopt)
+# Chrome 112+: moved to core/frame/navigator_automation_information.idl +
+#              navigator.cc (was in modules/navigatorcontrolled/ before).
 # ──────────────────────────────────────────────────────────────────────────────
 print("Patch 2: navigator.webdriver → undefined")
 
+# Chrome 112+: navigator_automation_information.idl in core/frame/
 patch(
-    "third_party/blink/renderer/modules/navigatorcontrolled/navigator_controlled.idl",
-    "readonly attribute boolean webdriver;",
-    "readonly attribute boolean? webdriver;",
+    "third_party/blink/renderer/core/frame/navigator_automation_information.idl",
+    "    readonly attribute boolean webdriver;",
+    "    readonly attribute boolean? webdriver;",
     "nullable boolean in IDL",
+    fallbacks=[
+        # Older Chrome: modules/navigatorcontrolled/
+        "readonly attribute boolean webdriver;",
+    ],
 )
 
 add_include(
-    "third_party/blink/renderer/modules/navigatorcontrolled/navigator_controlled.h",
+    "third_party/blink/renderer/core/frame/navigator.h",
     "#include <optional>",
     after_patterns=[
-        '#include "third_party/blink/renderer/core/frame/navigator.h"',
         '#include "third_party/blink/renderer/platform/supplementable.h"',
+        '#include "third_party/blink/renderer/platform/wtf/forward.h"',
+        '#include "third_party/blink/renderer/core/execution_context/navigator_base.h"',
     ],
 )
 
 patch(
-    "third_party/blink/renderer/modules/navigatorcontrolled/navigator_controlled.h",
+    "third_party/blink/renderer/core/frame/navigator.h",
     "  bool webdriver() const;",
     "  std::optional<bool> webdriver() const;",
     "update header declaration",
+    fallbacks=[
+        # Older Chrome used navigatorcontrolled module
+        "third_party/blink/renderer/modules/navigatorcontrolled/navigator_controlled.h",
+    ],
+)
+
+add_include(
+    "third_party/blink/renderer/core/frame/navigator.cc",
+    "#include <optional>",
+    after_patterns=[
+        '#include "third_party/blink/renderer/core/frame/navigator.h"',
+    ],
 )
 
 patch(
-    "third_party/blink/renderer/modules/navigatorcontrolled/navigator_controlled.cc",
-    "bool NavigatorControlled::webdriver() const {\n  return true;\n}",
-    "std::optional<bool> NavigatorControlled::webdriver() const {\n  return std::nullopt;\n}",
+    "third_party/blink/renderer/core/frame/navigator.cc",
+    "bool Navigator::webdriver() const {\n"
+    "  if (RuntimeEnabledFeatures::AutomationControlledEnabled())\n"
+    "    return true;\n"
+    "\n"
+    "  bool automation_enabled = false;\n"
+    "  probe::ApplyAutomationOverride(GetExecutionContext(), automation_enabled);\n"
+    "  return automation_enabled;\n"
+    "}",
+    "std::optional<bool> Navigator::webdriver() const {\n"
+    "  return std::nullopt;\n"
+    "}",
     "return nullopt",
+    fallbacks=[
+        # Older Chrome: navigatorcontrolled module
+        "bool NavigatorControlled::webdriver() const {\n  return true;\n}",
+    ],
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -267,34 +300,26 @@ patch(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Patch 4: --preload-script flag (document_start injection per WebContents)
+# Patch 4: --preload-script flag (document_start injection via V8)
+# Chrome 112+: AddScriptToEvaluateOnNewDocument was removed from WebContents.
+# Hook into RenderFrameImpl::DidCreateScriptContext — runs for every new JS
+# context before any page scripts, using raw V8 (no Blink deps needed).
 # ──────────────────────────────────────────────────────────────────────────────
 print("Patch 4: --preload-script flag")
 
 add_include(
-    "content/browser/web_contents/web_contents_impl.cc",
-    '#include "base/command_line.h"',
-    after_patterns=[
-        '#include "base/check.h"',
-        '#include "base/check_op.h"',
-        '#include "base/auto_reset.h"',
-        '#include "base/bind.h"',
-    ],
-)
-
-add_include(
-    "content/browser/web_contents/web_contents_impl.cc",
+    "content/renderer/render_frame_impl.cc",
     '#include "base/files/file_util.h"',
     after_patterns=[
         '#include "base/command_line.h"',
-        '#include "base/feature_list.h"',
+        '#include "base/check_deref.h"',
+        '#include "base/byte_count.h"',
     ],
 )
 
 _PRELOAD_INJECTION = (
-    "  // --preload-script: register a JS file to run at document_start in every\n"
-    "  // new document context for this WebContents, without a CDP round-trip.\n"
-    "  {\n"
+    "  // --preload-script: evaluate JS file at document_start in every new context.\n"
+    "  if (world_id == ISOLATED_WORLD_ID_GLOBAL) {\n"
     "    static std::string preload_script_content;\n"
     "    static bool preload_script_loaded = false;\n"
     "    if (!preload_script_loaded) {\n"
@@ -302,32 +327,35 @@ _PRELOAD_INJECTION = (
     "      base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();\n"
     '      if (cmd->HasSwitch("preload-script")) {\n'
     "        base::ReadFileToString(\n"
-    '            cmd->GetSwitchValuePath("preload-script"), &preload_script_content);\n'
+    '            cmd->GetSwitchValuePath("preload-script"),\n'
+    "            &preload_script_content);\n"
     "      }\n"
     "    }\n"
     "    if (!preload_script_content.empty()) {\n"
-    "      AddScriptToEvaluateOnNewDocument(preload_script_content, std::nullopt);\n"
+    "      v8::Isolate* isolate = context->GetIsolate();\n"
+    "      v8::Local<v8::String> source =\n"
+    "          v8::String::NewFromUtf8(isolate, preload_script_content.c_str(),\n"
+    "                                  v8::NewStringType::kNormal)\n"
+    "              .ToLocalChecked();\n"
+    "      v8::Local<v8::Script> script;\n"
+    "      if (v8::Script::Compile(context, source).ToLocal(&script)) {\n"
+    "        v8::Local<v8::Value> result;\n"
+    "        script->Run(context).ToLocal(&result);\n"
+    "      }\n"
     "    }\n"
     "  }\n"
 )
 
 patch(
-    "content/browser/web_contents/web_contents_impl.cc",
-    "void WebContentsImpl::Init(const WebContents::CreateParams& params,\n"
-    "                           blink::FramePolicy primary_main_frame_policy) {",
-    (
-        "void WebContentsImpl::Init(const WebContents::CreateParams& params,\n"
-        "                           blink::FramePolicy primary_main_frame_policy) {\n"
-        + _PRELOAD_INJECTION
-    ),
-    "register preload script per WebContents",
-    fallbacks=[
-        # Older Chrome uses frame_policy parameter name
-        "void WebContentsImpl::Init(const WebContents::CreateParams& params,\n"
-        "                           blink::FramePolicy frame_policy) {",
-        # Oldest signature without FramePolicy
-        "void WebContentsImpl::Init(const WebContents::CreateParams& params) {",
-    ],
+    "content/renderer/render_frame_impl.cc",
+    "  for (auto& observer : observers_)\n"
+    "    observer.DidCreateScriptContext(context, world_id);\n"
+    "}",
+    _PRELOAD_INJECTION
+    + "  for (auto& observer : observers_)\n"
+    "    observer.DidCreateScriptContext(context, world_id);\n"
+    "}",
+    "inject preload script at context creation",
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
