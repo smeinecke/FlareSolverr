@@ -40,7 +40,15 @@ jobs:
           restore-keys: |
             depot-tools-${{ runner.os }}-
 
+      - name: Check for cached Chromium source
+        id: cache-source
+        uses: actions/cache@v4
+        with:
+          path: /tmp/chromium-source.tar.zst
+          key: chromium-source-${{ steps.resolve.outputs.chromium_version }}
+
       - name: Fetch Chromium source
+        if: steps.cache-source.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update && sudo apt-get install -y zstd
           mkdir -p /tmp/chromium
@@ -67,6 +75,7 @@ jobs:
           find . -type f -name "*.bin" -exec chmod +x {} \; 2>/dev/null || true
 
       - name: Compress source for upload
+        if: steps.cache-source.outputs.cache-hit != 'true'
         run: |
           cd /tmp
           ZSTD_CLEVEL=9 tar --zstd -cf chromium-source.tar.zst chromium
