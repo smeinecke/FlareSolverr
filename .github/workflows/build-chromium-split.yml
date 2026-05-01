@@ -99,11 +99,11 @@ jobs:
           - name: chrome-binary
             targets: chrome
           - name: resources
-            targets: chrome_resources
+            targets: chrome:resources
           - name: pak-files
             targets: v8_snapshot
           - name: icu-data
-            targets: chrome_resources
+            targets: chrome:resources
     steps:
       - uses: actions/checkout@v4
 
@@ -144,7 +144,7 @@ jobs:
               cp out/Release/chrome /tmp/output/
               ;;
             resources)
-              ninja -C out/Release -j2 chrome_resources
+              ninja -C out/Release -j2 chrome:resources
               mkdir -p /tmp/output
               cp -r out/Release/locales /tmp/output/ 2>/dev/null || true
               cp -r out/Release/resources /tmp/output/ 2>/dev/null || true
@@ -155,7 +155,7 @@ jobs:
               cp out/Release/*.pak /tmp/output/ 2>/dev/null || true
               ;;
             icu-data)
-              ninja -C out/Release -j2 chrome_resources
+              ninja -C out/Release -j2 chrome:resources
               mkdir -p /tmp/output
               cp out/Release/icudtl.dat /tmp/output/ 2>/dev/null || true
               ;;
