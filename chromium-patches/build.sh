@@ -35,6 +35,10 @@ if [[ ! -d /depot_tools ]]; then
 fi
 export PATH="/depot_tools:$PATH"
 
+# Configure git to retry on rate limits (429 errors)
+git config --global http.lowSpeedLimit 0
+git config --global http.lowSpeedTime 999999
+
 # --- fetch Chromium source ---
 # For local development mount a persistent volume to avoid re-downloading:
 #   docker run -v /your/host/chromium-cache:/chromium ...
@@ -44,12 +48,18 @@ if [[ ! -d "$CHROMIUM_ROOT/src" ]]; then
     cd "$CHROMIUM_ROOT"
     echo "Fetching Chromium source at $CHROMIUM_VERSION (no-history; ~8 GB instead of 60+ GB)..."
     # --no-history: shallow clone; only the working tree at HEAD is kept.
-    fetch --nohooks --no-history chromium
+    # Retry fetch up to 5 times with 60s backoff on rate limits
+    for i in {1..5}; do
+        fetch --nohooks --no-history chromium && break || sleep 60
+    done
     cd src
     git fetch origin "refs/tags/$CHROMIUM_VERSION:refs/tags/$CHROMIUM_VERSION" --no-tags --depth=1 || true
     git checkout "$CHROMIUM_VERSION" || git checkout "tags/$CHROMIUM_VERSION"
     # -D prunes stale dependencies; --no-history keeps the tree minimal.
-    gclient sync --with_tags --no-history -D
+    # Retry gclient sync up to 5 times with 60s backoff on rate limits
+    for i in {1..5}; do
+        gclient sync --with_tags --no-history -D && break || sleep 60
+    done
     echo "Running hooks..."
     gclient runhooks
 else

@@ -38,15 +38,24 @@ ARG CHROMIUM_VERSION
 RUN if [ -z "$CHROMIUM_VERSION" ]; then \
         echo "CHROMIUM_VERSION build arg is required" && exit 1; \
     fi && \
+    # Configure git to retry on rate limits (429 errors)
+    git config --global http.lowSpeedLimit 0 && \
+    git config --global http.lowSpeedTime 999999 && \
     git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /depot_tools && \
     export PATH="/depot_tools:$PATH" && \
     # --no-history avoids downloading the full 60+ GB git history; we only need the tree at one revision.
-    fetch --nohooks --no-history chromium && \
+    # Retry fetch up to 5 times with 60s backoff on rate limits
+    for i in 1 2 3 4 5; do \
+        fetch --nohooks --no-history chromium && break || sleep 60; \
+    done && \
     cd src && \
     git fetch origin "refs/tags/$CHROMIUM_VERSION:refs/tags/$CHROMIUM_VERSION" --no-tags --depth=1 || true && \
     git checkout "$CHROMIUM_VERSION" || git checkout "tags/$CHROMIUM_VERSION" && \
     # -D removes any stale dependencies to keep the tree minimal.
-    gclient sync --with_tags --no-history -D && \
+    # Retry gclient sync up to 5 times with 60s backoff on rate limits
+    for i in 1 2 3 4 5; do \
+        gclient sync --with_tags --no-history -D && break || sleep 60; \
+    done && \
     gclient runhooks
 
 # ---------------------------------------------------------------------------
