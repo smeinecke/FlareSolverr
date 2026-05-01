@@ -62,6 +62,9 @@ if [[ ! -d "$CHROMIUM_ROOT/src" ]]; then
     done
     echo "Running hooks..."
     gclient runhooks
+    # Fix execute permissions on third-party binaries that may lack them
+    find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
+    find . -type f -name "*.bin" -exec chmod +x {} \; 2>/dev/null || true
 else
     cd "$CHROMIUM_ROOT/src"
 fi
