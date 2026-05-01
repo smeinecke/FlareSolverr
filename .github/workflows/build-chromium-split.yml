@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 90
     outputs:
       chromium_version: ${{ steps.resolve.outputs.chromium_version }}
-      cache_key: ${{ steps.cache.outputs.cache_key }}
+      cache_key: ${{ steps.resolve.outputs.cache_key }}
     steps:
       - uses: actions/checkout@v4
 
