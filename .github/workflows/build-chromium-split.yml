@@ -32,8 +32,35 @@ jobs:
             echo "chromium_version=$VERSION" >> $GITHUB_OUTPUT
           fi
 
-      # Note: Source caching disabled for free runners due to disk space limitations
-      # The --no-history flag makes fetch fast (~8GB instead of 60+GB)
+      - name: Fetch Chromium source
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd
+          mkdir -p /tmp/chromium
+          cd /tmp/chromium
+          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          export PATH="/tmp/chromium/depot_tools:$PATH"
+          # Retry fetch up to 5 times with 60s backoff on rate limits
+          for i in {1..5}; do
+            fetch --nohooks --no-history chromium && break || sleep 60
+          done
+          cd src
+          git fetch origin "refs/tags/${{ steps.resolve.outputs.chromium_version }}:refs/tags/${{ steps.resolve.outputs.chromium_version }}" --no-tags --depth=1 || true
+          git checkout "${{ steps.resolve.outputs.chromium_version }}" || git checkout "tags/${{ steps.resolve.outputs.chromium_version }}"
+          # Retry gclient sync up to 5 times with 60s backoff on rate limits
+          for i in {1..5}; do
+            gclient sync --with_tags --no-history -D && break || sleep 60
+          done
+          gclient runhooks
+          # Fix execute permissions on third-party binaries
+          find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
+          find . -type f -name "*.bin" -exec chmod +x {} \; 2>/dev/null || true
+
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromium-source
+          path: /tmp/chromium
+          retention-days: 1
 
   # Stage 2: Build Chrome components in parallel using matrix strategy
   build-chrome-components:
@@ -54,28 +81,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch Chromium source
-        run: |
-          sudo apt-get update && sudo apt-get install -y zstd
-          mkdir -p /tmp/chromium
-          cd /tmp/chromium
-          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
-          export PATH="/tmp/chromium/depot_tools:$PATH"
-          # Retry fetch up to 5 times with 60s backoff on rate limits
-          for i in {1..5}; do
-            fetch --nohooks --no-history chromium && break || sleep 60
-          done
-          cd src
-          git fetch origin "refs/tags/${{ needs.fetch-source.outputs.chromium_version }}:refs/tags/${{ needs.fetch-source.outputs.chromium_version }}" --no-tags --depth=1 || true
-          git checkout "${{ needs.fetch-source.outputs.chromium_version }}" || git checkout "tags/${{ needs.fetch-source.outputs.chromium_version }}"
-          # Retry gclient sync up to 5 times with 60s backoff on rate limits
-          for i in {1..5}; do
-            gclient sync --with_tags --no-history -D && break || sleep 60
-          done
-          gclient runhooks
-          # Fix execute permissions on third-party binaries
-          find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
-          find . -type f -name "*.bin" -exec chmod +x {} \; 2>/dev/null || true
+      - name: Download source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: chromium-source
+          path: /tmp/chromium
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -146,28 +156,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch Chromium source
-        run: |
-          sudo apt-get update && sudo apt-get install -y zstd
-          mkdir -p /tmp/chromium
-          cd /tmp/chromium
-          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
-          export PATH="/tmp/chromium/depot_tools:$PATH"
-          # Retry fetch up to 5 times with 60s backoff on rate limits
-          for i in {1..5}; do
-            fetch --nohooks --no-history chromium && break || sleep 60
-          done
-          cd src
-          git fetch origin "refs/tags/${{ needs.fetch-source.outputs.chromium_version }}:refs/tags/${{ needs.fetch-source.outputs.chromium_version }}" --no-tags --depth=1 || true
-          git checkout "${{ needs.fetch-source.outputs.chromium_version }}" || git checkout "tags/${{ needs.fetch-source.outputs.chromium_version }}"
-          # Retry gclient sync up to 5 times with 60s backoff on rate limits
-          for i in {1..5}; do
-            gclient sync --with_tags --no-history -D && break || sleep 60
-          done
-          gclient runhooks
-          # Fix execute permissions on third-party binaries
-          find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
-          find . -type f -name "*.bin" -exec chmod +x {} \; 2>/dev/null || true
+      - name: Download source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: chromium-source
+          path: /tmp/chromium
 
       - name: Restore ccache
         uses: actions/cache@v4
