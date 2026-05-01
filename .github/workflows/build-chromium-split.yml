@@ -103,7 +103,7 @@ jobs:
           - name: pak-files
             targets: v8_snapshot
           - name: icu-data
-            targets: icu
+            targets: chrome_resources
     steps:
       - uses: actions/checkout@v4
 
@@ -155,7 +155,7 @@ jobs:
               cp out/Release/*.pak /tmp/output/ 2>/dev/null || true
               ;;
             icu-data)
-              ninja -C out/Release -j2 icu
+              ninja -C out/Release -j2 chrome_resources
               mkdir -p /tmp/output
               cp out/Release/icudtl.dat /tmp/output/ 2>/dev/null || true
               ;;
