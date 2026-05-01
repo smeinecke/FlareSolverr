@@ -32,12 +32,23 @@ jobs:
             echo "chromium_version=$VERSION" >> $GITHUB_OUTPUT
           fi
 
+      - name: Cache depot_tools
+        uses: actions/cache@v4
+        with:
+          path: /tmp/chromium/depot_tools
+          key: depot-tools-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            depot-tools-${{ runner.os }}-
+
       - name: Fetch Chromium source
         run: |
           sudo apt-get update && sudo apt-get install -y zstd
           mkdir -p /tmp/chromium
           cd /tmp/chromium
-          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          if [ ! -d depot_tools/.git ]; then
+            rm -rf depot_tools
+            git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          fi
           export PATH="/tmp/chromium/depot_tools:$PATH"
           # Retry fetch up to 5 times with 60s backoff on rate limits
           for i in {1..5}; do
@@ -48,7 +59,7 @@ jobs:
           git checkout "${{ steps.resolve.outputs.chromium_version }}" || git checkout "tags/${{ steps.resolve.outputs.chromium_version }}"
           # Retry gclient sync up to 5 times with 60s backoff on rate limits
           for i in {1..5}; do
-            gclient sync --with_tags --no-history -D && break || sleep 60
+            gclient sync --with_tags --no-history -D -j4 && break || sleep 60
           done
           gclient runhooks
           # Fix execute permissions on third-party binaries
