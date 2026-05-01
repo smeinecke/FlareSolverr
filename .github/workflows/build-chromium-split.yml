@@ -69,7 +69,7 @@ jobs:
       - name: Compress source for upload
         run: |
           cd /tmp
-          ZSTD_CLEVEL=19 tar --zstd -cf chromium-source.tar.zst chromium
+          ZSTD_CLEVEL=9 tar --zstd -cf chromium-source.tar.zst chromium
           ls -lh chromium-source.tar.zst
 
       - name: Upload source artifact
