@@ -92,7 +92,7 @@ jobs:
           - name: resources
             targets: chrome_resources
           - name: pak-files
-            targets: gen_snapshot
+            targets: v8_snapshot
           - name: icu-data
             targets: icu
     steps:
@@ -141,7 +141,7 @@ jobs:
               cp -r out/Release/resources /tmp/output/ 2>/dev/null || true
               ;;
             pak-files)
-              ninja -C out/Release -j2 gen_snapshot
+              ninja -C out/Release -j2 v8_snapshot
               mkdir -p /tmp/output
               cp out/Release/*.pak /tmp/output/ 2>/dev/null || true
               ;;
