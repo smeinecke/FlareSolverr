@@ -66,11 +66,17 @@ jobs:
           find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
           find . -type f -name "*.bin" -exec chmod +x {} \; 2>/dev/null || true
 
+      - name: Compress source for upload
+        run: |
+          cd /tmp
+          ZSTD_CLEVEL=19 tar --zstd -cf chromium-source.tar.zst chromium
+          ls -lh chromium-source.tar.zst
+
       - name: Upload source artifact
         uses: actions/upload-artifact@v4
         with:
           name: chromium-source
-          path: /tmp/chromium
+          path: /tmp/chromium-source.tar.zst
           retention-days: 1
 
   # Stage 2: Build Chrome components in parallel using matrix strategy
@@ -96,7 +102,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: chromium-source
-          path: /tmp/chromium
+          path: /tmp
+
+      - name: Extract source
+        run: |
+          cd /tmp
+          tar --zstd -xf chromium-source.tar.zst
+          ls -la chromium/
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -110,9 +122,9 @@ jobs:
       - name: Build Chrome component
         shell: bash
         run: |
-          sudo apt-get update && sudo apt-get install -y zstd build-essential ccache lld clang ninja-build pkg-config libgl1-mesa-dev libgles2-mesa-dev libx11-dev libxkbcommon-dev libwayland-dev libnss3-dev libdbus-1-dev libdrm-dev libgbm1-dev libasound2-dev libpulse-dev libxshmfence-dev libjpeg-dev libpng-dev libwebp-dev libtiff-dev libxml2-dev libxslt1-dev libfontconfig1-dev
+          sudo apt-get update && sudo apt-get install -y zstd build-essential ccache lld clang ninja-build pkg-config libgl1-mesa-dev libgles2-mesa-dev libx11-dev libxkbcommon-dev libwayland-dev libnss3-dev libdbus-1-dev libdrm-dev libgbm-dev libasound2-dev libpulse-dev libxshmfence-dev libjpeg-dev libpng-dev libwebp-dev libtiff-dev libxml2-dev libxslt1-dev libfontconfig1-dev
           export PATH="/tmp/chromium/depot_tools:$PATH"
-          cd src
+          cd /tmp/chromium/src
           python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
           gn gen out/Release --args='is_debug=false is_component_build=false symbol_level=0 blink_symbol_level=0 is_official_build=false chrome_pgo_phase=0 ffmpeg_branding="Chrome" proprietary_codecs=true enable_nacl=false use_cups=false use_pulseaudio=false use_gtk=false use_qt=false use_ozone=true ozone_platform_headless=true'
           export CCACHE_DIR=~/.ccache
@@ -171,7 +183,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: chromium-source
-          path: /tmp/chromium
+          path: /tmp
+
+      - name: Extract source
+        run: |
+          cd /tmp
+          tar --zstd -xf chromium-source.tar.zst
+          ls -la chromium/
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -185,9 +203,9 @@ jobs:
       - name: Build Chromedriver only
         shell: bash
         run: |
-          sudo apt-get update && sudo apt-get install -y zstd build-essential ccache lld clang ninja-build pkg-config libgl1-mesa-dev libnss3-dev libdbus-1-dev libdrm-dev libgbm1-dev libxshmfence-dev libfontconfig1-dev
+          sudo apt-get update && sudo apt-get install -y zstd build-essential ccache lld clang ninja-build pkg-config libgl1-mesa-dev libnss3-dev libdbus-1-dev libdrm-dev libgbm-dev libxshmfence-dev libfontconfig1-dev
           export PATH="/tmp/chromium/depot_tools:$PATH"
-          cd src
+          cd /tmp/chromium/src
           python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
           gn gen out/Release --args='is_debug=false is_component_build=false symbol_level=0 blink_symbol_level=0 is_official_build=false chrome_pgo_phase=0 ffmpeg_branding="Chrome" proprietary_codecs=true enable_nacl=false use_cups=false use_pulseaudio=false use_gtk=false use_qt=false use_ozone=true ozone_platform_headless=true'
           export CCACHE_DIR=~/.ccache
