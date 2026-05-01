@@ -1,0 +1,24 @@
+# Dockerfile to create runtime image from pre-built binaries
+# Expects binaries to be in opt/chromium/ in the build context
+
+FROM debian:trixie-slim
+
+ARG CHROMIUM_VERSION
+LABEL org.opencontainers.image.title="Chromium Stealth Build" \
+      org.opencontainers.image.version="${CHROMIUM_VERSION}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 libnss3 libdbus-1-3 libdrm2 libxkbcommon0 libgbm1 \
+    libasound2 libfontconfig1 libfreetype6 libjpeg62-turbo libpng16-16 \
+    libwebp7 libwebpdemux2 libxml2 libxslt1.1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy pre-built binaries - context should have opt/chromium/ structure
+COPY opt/chromium/ /opt/chromium/
+
+# Sentinel file: utils.py checks for this to detect the patched build
+RUN touch /opt/chromium/.stealth-patched
+
+RUN /opt/chromium/chrome --version && /opt/chromium/chromedriver --version
+
+CMD ["/opt/chromium/chrome", "--version"]

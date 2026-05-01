@@ -56,18 +56,32 @@ FROM source AS patched-build
 
 WORKDIR /chromium/src
 
+# Build arguments for optimization
+ARG NINJA_JOBS=0
+ARG IS_COMPONENT_BUILD=false
+
 COPY patches/ /chromium/patches/
 COPY gn-args.txt /chromium/gn-args.txt
 
 RUN python3 /chromium/patches/apply.py
 
+# Generate build files with optional component build setting
 RUN export PATH="/depot_tools:$PATH" && \
-    gn gen out/Release --args="$(cat /chromium/gn-args.txt)"
+    GN_ARGS="$(cat /chromium/gn-args.txt)" && \
+    if [ "$IS_COMPONENT_BUILD" = "true" ]; then \
+      GN_ARGS="${GN_ARGS} is_component_build=true"; \
+    fi && \
+    gn gen out/Release --args="${GN_ARGS}"
 
+# Build with optimal parallelism - use all CPUs if NINJA_JOBS not specified
 RUN --mount=type=cache,target=/ccache \
     export PATH="/depot_tools:$PATH" && \
     export CCACHE_DIR=/ccache && \
-    ninja -C out/Release chrome chromedriver
+    if [ "$NINJA_JOBS" = "0" ]; then \
+      NINJA_JOBS=$(nproc); \
+    fi && \
+    echo "Building with $NINJA_JOBS parallel jobs" && \
+    ninja -C out/Release -j${NINJA_JOBS} chrome chromedriver
 
 RUN mkdir -p /opt/chromium && \
     cp out/Release/chrome /opt/chromium/chrome && \

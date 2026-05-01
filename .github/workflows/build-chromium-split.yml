@@ -1,0 +1,189 @@
+name: Build Custom Chromium (Split - Free Runners)
+
+on:
+  workflow_dispatch:
+    inputs:
+      chromium_version:
+        description: 'Chromium version to build'
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/chromium-stealth
+
+jobs:
+  # Stage 1: Fetch source - this is network-bound, works fine on free runner
+  fetch-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      chromium_version: ${{ steps.resolve.outputs.chromium_version }}
+      cache_key: ${{ steps.cache.outputs.cache_key }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: resolve
+        run: |
+          if [ -n "${{ inputs.chromium_version }}" ]; then
+            echo "chromium_version=${{ inputs.chromium_version }}" >> $GITHUB_OUTPUT
+          else
+            VERSION=$(curl -s 'https://chromiumdash.appspot.com/fetch_releases?channel=Stable' | python3 -c "import sys,json; data=json.load(sys.stdin); releases=[r for r in data if r.get('version')]; print('148.0.7778.0') if not releases else print(sorted(releases,key=lambda r:tuple(map(int,r['version'].split('.'))),reverse=True)[0]['version'])")
+            echo "chromium_version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+          echo "cache_key=chromium-src-${VERSION}-v1" >> $GITHUB_OUTPUT
+
+      - name: Check for cached source
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/chromium-src.tar.zst
+          key: chromium-src-${{ steps.resolve.outputs.chromium_version }}-v1
+          lookup-only: true
+
+      - name: Fetch Chromium source
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd
+          mkdir -p /tmp/chromium
+          cd /tmp/chromium
+          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          export PATH="/tmp/chromium/depot_tools:$PATH"
+          fetch --nohooks --no-history chromium
+          cd src
+          git fetch origin "refs/tags/${{ steps.resolve.outputs.chromium_version }}:refs/tags/${{ steps.resolve.outputs.chromium_version }}" --no-tags --depth=1 || true
+          git checkout "${{ steps.resolve.outputs.chromium_version }}" || git checkout "tags/${{ steps.resolve.outputs.chromium_version }}"
+          gclient sync --with_tags --no-history -D
+          gclient runhooks
+          # Compress and move to home for caching
+          cd /tmp/chromium
+          tar --zstd -cf ~/chromium-src.tar.zst .
+
+      - name: Save source cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/chromium-src.tar.zst
+          key: chromium-src-${{ steps.resolve.outputs.chromium_version }}-v1
+
+  # Stage 2a: Build chrome browser only (skip chromedriver to save time)
+  build-chrome:
+    needs: fetch-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 330  # 5.5 hours
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore source
+        uses: actions/cache@v4
+        with:
+          path: ~/chromium-src.tar.zst
+          key: ${{ needs.fetch-source.outputs.cache_key }}
+
+      - name: Build Chrome only
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd build-essential ccache lld clang ninja-build pkg-config libgl1-mesa-dev libgles2-mesa-dev libx11-dev libxkbcommon-dev libwayland-dev libnss3-dev libdbus-1-dev libdrm-dev libgbm1-dev libasound2-dev libpulse-dev libxshmfence-dev libjpeg-dev libpng-dev libwebp-dev libtiff-dev libxml2-dev libxslt1-dev libfontconfig1-dev
+          mkdir -p /tmp/chromium && cd /tmp/chromium
+          tar --zstd -xf ~/chromium-src.tar.zst
+          export PATH="/tmp/chromium/depot_tools:$PATH"
+          cd src
+          # Apply patches
+          python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
+          # Generate build files
+          gn gen out/Release --args='is_debug=false is_component_build=false symbol_level=0 blink_symbol_level=0 is_official_build=false chrome_pgo_phase=0 ffmpeg_branding="Chrome" proprietary_codecs=true enable_nacl=false use_cups=false use_pulseaudio=false use_gtk=false use_qt=false use_ozone=true ozone_platform_headless=true'
+          # Build ONLY chrome (not chromedriver) - saves ~30-40% time
+          export CCACHE_DIR=/tmp/ccache
+          ninja -C out/Release -j2 chrome
+          # Package binary
+          mkdir -p /tmp/output
+          cp out/Release/chrome /tmp/output/
+          cp out/Release/*.pak /tmp/output/ 2>/dev/null || true
+          cp out/Release/icudtl.dat /tmp/output/ 2>/dev/null || true
+          cp -r out/Release/locales /tmp/output/ 2>/dev/null || true
+          cp -r out/Release/resources /tmp/output/ 2>/dev/null || true
+          cd /tmp && tar czf chrome.tar.gz -C output .
+
+      - name: Upload Chrome artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-binary
+          path: /tmp/chrome.tar.gz
+          retention-days: 1
+
+  # Stage 2b: Build chromedriver separately (can run in parallel)
+  build-chromedriver:
+    needs: fetch-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore source
+        uses: actions/cache@v4
+        with:
+          path: ~/chromium-src.tar.zst
+          key: ${{ needs.fetch-source.outputs.cache_key }}
+
+      - name: Build Chromedriver only
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd build-essential ccache lld clang ninja-build pkg-config libgl1-mesa-dev libnss3-dev libdbus-1-dev libdrm-dev libgbm1-dev libxshmfence-dev libfontconfig1-dev
+          mkdir -p /tmp/chromium && cd /tmp/chromium
+          tar --zstd -xf ~/chromium-src.tar.zst
+          export PATH="/tmp/chromium/depot_tools:$PATH"
+          cd src
+          python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
+          gn gen out/Release --args='is_debug=false is_component_build=false symbol_level=0 blink_symbol_level=0 is_official_build=false chrome_pgo_phase=0 ffmpeg_branding="Chrome" proprietary_codecs=true enable_nacl=false use_cups=false use_pulseaudio=false use_gtk=false use_qt=false use_ozone=true ozone_platform_headless=true'
+          export CCACHE_DIR=/tmp/ccache
+          ninja -C out/Release -j2 chromedriver
+          mkdir -p /tmp/output
+          cp out/Release/chromedriver /tmp/output/
+          cd /tmp && tar czf chromedriver.tar.gz -C output .
+
+      - name: Upload Chromedriver artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromedriver-binary
+          path: /tmp/chromedriver.tar.gz
+          retention-days: 1
+
+  # Stage 3: Assemble final Docker image
+  assemble:
+    needs: [fetch-source, build-chrome, build-chromedriver]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/artifacts
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract binaries
+        run: |
+          mkdir -p /tmp/chromium-bin/opt/chromium
+          tar xzf /tmp/artifacts/chrome-binary/chrome.tar.gz -C /tmp/chromium-bin/opt/chromium
+          tar xzf /tmp/artifacts/chromedriver-binary/chromedriver.tar.gz -C /tmp/chromium-bin/opt/chromium
+          ls -la /tmp/chromium-bin/opt/chromium/
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: /tmp/chromium-bin
+          file: ${{ github.workspace }}/chromium-patches/Dockerfile.runtime
+          push: true
+          build-args: |
+            CHROMIUM_VERSION=${{ needs.fetch-source.outputs.chromium_version }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.fetch-source.outputs.chromium_version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest

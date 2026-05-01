@@ -1,0 +1,85 @@
+name: Build Custom Chromium (Self-Hosted Runner)
+
+on:
+  schedule:
+    - cron: '0 6 * * 0'
+  workflow_dispatch:
+    inputs:
+      chromium_version:
+        description: 'Chromium version to build (e.g., 134.0.6998.35). Leave empty for latest stable.'
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/chromium-stealth
+
+jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      chromium_version: ${{ steps.resolve.outputs.chromium_version }}
+    steps:
+      - name: Resolve Chromium version
+        id: resolve
+        run: |
+          if [ -n "${{ inputs.chromium_version }}" ]; then
+            echo "chromium_version=${{ inputs.chromium_version }}" >> $GITHUB_OUTPUT
+          else
+            VERSION=$(curl -s 'https://chromiumdash.appspot.com/fetch_releases?channel=Stable' | python3 -c "import sys,json; data=json.load(sys.stdin); releases=[r for r in data if r.get('version')]; print('148.0.7778.0') if not releases else print(sorted(releases,key=lambda r:tuple(map(int,r['version'].split('.'))),reverse=True)[0]['version'])")
+            echo "chromium_version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: resolve-version
+    # Use self-hosted runner label - you name this during registration
+    runs-on: self-hosted
+    # No timeout needed - runs as long as your hardware stays up
+    env:
+      CHROMIUM_VERSION: ${{ needs.resolve-version.outputs.chromium_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Self-hosted runners can persist the BuildKit cache on disk
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          # Use a local BuildKit instance with persistent state
+          driver-opts: |
+            image=moby/buildkit:master
+            network=host
+
+      # On a self-hosted runner with 8+ cores and local cache,
+      # this should complete in 2-3 hours even for a new Chromium version
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./chromium-patches
+          file: ./chromium-patches/Dockerfile
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            CHROMIUM_VERSION=${{ env.CHROMIUM_VERSION }}
+            # Auto-detect all CPU cores on the self-hosted machine
+            NINJA_JOBS=0
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CHROMIUM_VERSION }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64
+          # On self-hosted runners, registry cache works even better because
+          # the buildkit daemon state persists between runs
+          cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-cache:amd64
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-cache:amd64,mode=max
+
+      - name: Verify image
+        run: |
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CHROMIUM_VERSION }} --version
