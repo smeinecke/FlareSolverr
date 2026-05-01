@@ -68,8 +68,10 @@ jobs:
           push: true
           build-args: |
             CHROMIUM_VERSION=${{ env.CHROMIUM_VERSION }}
-            # Auto-detect all CPU cores on the self-hosted machine
-            NINJA_JOBS=0
+            # 127GB RAM allows ~20 parallel jobs with component build
+            # Increase to 24-28 if you want to push closer to memory limits
+            NINJA_JOBS=20
+            IS_COMPONENT_BUILD=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CHROMIUM_VERSION }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
