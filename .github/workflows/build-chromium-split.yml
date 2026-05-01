@@ -19,7 +19,6 @@ jobs:
     timeout-minutes: 90
     outputs:
       chromium_version: ${{ steps.resolve.outputs.chromium_version }}
-      cache_key: ${{ steps.resolve.outputs.cache_key }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,40 +31,9 @@ jobs:
             VERSION=$(curl -s 'https://chromiumdash.appspot.com/fetch_releases?channel=Stable' | python3 -c "import sys,json; data=json.load(sys.stdin); releases=[r for r in data if r.get('version')]; print('148.0.7778.0') if not releases else print(sorted(releases,key=lambda r:tuple(map(int,r['version'].split('.'))),reverse=True)[0]['version'])")
             echo "chromium_version=$VERSION" >> $GITHUB_OUTPUT
           fi
-          echo "cache_key=chromium-src-${VERSION}-v1" >> $GITHUB_OUTPUT
 
-      - name: Check for cached source
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: ~/chromium-src.tar.zst
-          key: chromium-src-${{ steps.resolve.outputs.chromium_version }}-v1
-          lookup-only: true
-
-      - name: Fetch Chromium source
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update && sudo apt-get install -y zstd
-          mkdir -p /tmp/chromium
-          cd /tmp/chromium
-          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
-          export PATH="/tmp/chromium/depot_tools:$PATH"
-          fetch --nohooks --no-history chromium
-          cd src
-          git fetch origin "refs/tags/${{ steps.resolve.outputs.chromium_version }}:refs/tags/${{ steps.resolve.outputs.chromium_version }}" --no-tags --depth=1 || true
-          git checkout "${{ steps.resolve.outputs.chromium_version }}" || git checkout "tags/${{ steps.resolve.outputs.chromium_version }}"
-          gclient sync --with_tags --no-history -D
-          gclient runhooks
-          # Compress and move to home for caching
-          cd /tmp/chromium
-          tar --zstd -cf ~/chromium-src.tar.zst .
-
-      - name: Save source cache
-        if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
-        with:
-          path: ~/chromium-src.tar.zst
-          key: chromium-src-${{ steps.resolve.outputs.chromium_version }}-v1
+      # Note: Source caching disabled for free runners due to disk space limitations
+      # The --no-history flag makes fetch fast (~8GB instead of 60+GB)
 
   # Stage 2: Build Chrome components in parallel using matrix strategy
   build-chrome-components:
@@ -86,11 +54,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore source
-        uses: actions/cache@v4
-        with:
-          path: ~/chromium-src.tar.zst
-          key: ${{ needs.fetch-source.outputs.cache_key }}
+      - name: Fetch Chromium source
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd
+          mkdir -p /tmp/chromium
+          cd /tmp/chromium
+          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          export PATH="/tmp/chromium/depot_tools:$PATH"
+          # Retry fetch up to 5 times with 60s backoff on rate limits
+          for i in {1..5}; do
+            fetch --nohooks --no-history chromium && break || sleep 60
+          done
+          cd src
+          git fetch origin "refs/tags/${{ needs.fetch-source.outputs.chromium_version }}:refs/tags/${{ needs.fetch-source.outputs.chromium_version }}" --no-tags --depth=1 || true
+          git checkout "${{ needs.fetch-source.outputs.chromium_version }}" || git checkout "tags/${{ needs.fetch-source.outputs.chromium_version }}"
+          # Retry gclient sync up to 5 times with 60s backoff on rate limits
+          for i in {1..5}; do
+            gclient sync --with_tags --no-history -D && break || sleep 60
+          done
+          gclient runhooks
+          # Fix execute permissions on third-party binaries
+          find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
+          find . -type f -name "*.bin" -exec chmod +x {} \; 2>/dev/null || true
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -105,8 +90,6 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update && sudo apt-get install -y zstd build-essential ccache lld clang ninja-build pkg-config libgl1-mesa-dev libgles2-mesa-dev libx11-dev libxkbcommon-dev libwayland-dev libnss3-dev libdbus-1-dev libdrm-dev libgbm1-dev libasound2-dev libpulse-dev libxshmfence-dev libjpeg-dev libpng-dev libwebp-dev libtiff-dev libxml2-dev libxslt1-dev libfontconfig1-dev
-          mkdir -p /tmp/chromium && cd /tmp/chromium
-          tar --zstd -xf ~/chromium-src.tar.zst
           export PATH="/tmp/chromium/depot_tools:$PATH"
           cd src
           python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
@@ -163,11 +146,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore source
-        uses: actions/cache@v4
-        with:
-          path: ~/chromium-src.tar.zst
-          key: ${{ needs.fetch-source.outputs.cache_key }}
+      - name: Fetch Chromium source
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd
+          mkdir -p /tmp/chromium
+          cd /tmp/chromium
+          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          export PATH="/tmp/chromium/depot_tools:$PATH"
+          # Retry fetch up to 5 times with 60s backoff on rate limits
+          for i in {1..5}; do
+            fetch --nohooks --no-history chromium && break || sleep 60
+          done
+          cd src
+          git fetch origin "refs/tags/${{ needs.fetch-source.outputs.chromium_version }}:refs/tags/${{ needs.fetch-source.outputs.chromium_version }}" --no-tags --depth=1 || true
+          git checkout "${{ needs.fetch-source.outputs.chromium_version }}" || git checkout "tags/${{ needs.fetch-source.outputs.chromium_version }}"
+          # Retry gclient sync up to 5 times with 60s backoff on rate limits
+          for i in {1..5}; do
+            gclient sync --with_tags --no-history -D && break || sleep 60
+          done
+          gclient runhooks
+          # Fix execute permissions on third-party binaries
+          find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
+          find . -type f -name "*.bin" -exec chmod +x {} \; 2>/dev/null || true
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -182,8 +182,6 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update && sudo apt-get install -y zstd build-essential ccache lld clang ninja-build pkg-config libgl1-mesa-dev libnss3-dev libdbus-1-dev libdrm-dev libgbm1-dev libxshmfence-dev libfontconfig1-dev
-          mkdir -p /tmp/chromium && cd /tmp/chromium
-          tar --zstd -xf ~/chromium-src.tar.zst
           export PATH="/tmp/chromium/depot_tools:$PATH"
           cd src
           python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
