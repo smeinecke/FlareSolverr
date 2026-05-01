@@ -56,7 +56,10 @@ RUN if [ -z "$CHROMIUM_VERSION" ]; then \
     for i in 1 2 3 4 5; do \
         gclient sync --with_tags --no-history -D && break || sleep 60; \
     done && \
-    gclient runhooks
+    gclient runhooks && \
+    # Fix execute permissions on third-party binaries that may lack them
+    find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true && \
+    find . -type f -name "*.bin" -exec chmod +x {} \; 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # Stage 3: Apply patches and build (patch changes don't invalidate source)
