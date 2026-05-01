@@ -144,6 +144,11 @@ jobs:
           path: /tmp/${{ matrix.component.name }}.tar.gz
           retention-days: 1
 
+      - name: Limit ccache size before saving
+        run: |
+          ccache -M 2G
+          ccache -c
+
       - name: Save ccache
         uses: actions/cache@v4
         with:
@@ -195,6 +200,11 @@ jobs:
           name: chromedriver-binary
           path: /tmp/chromedriver.tar.gz
           retention-days: 1
+
+      - name: Limit ccache size before saving
+        run: |
+          ccache -M 2G
+          ccache -c
 
       - name: Save ccache
         uses: actions/cache@v4
