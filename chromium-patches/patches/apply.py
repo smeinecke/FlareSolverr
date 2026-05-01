@@ -414,7 +414,7 @@ _WORKER_PRELOAD = (
     "          ScriptFetchOptions(),\n"
     "          ScriptSourceLocationType::kInternal,\n"
     "          SanitizeScriptErrors::kDoNotSanitize);\n"
-    "      script->RunScriptOnScriptStateAndReturnValue(\n"
+    "      std::ignore = script->RunScriptOnScriptStateAndReturnValue(\n"
     "          ScriptController()->GetScriptState());\n"
     "    }\n"
     "  }\n"
