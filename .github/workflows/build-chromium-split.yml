@@ -44,15 +44,34 @@ jobs:
             echo "chromium_version=$VERSION" >> $GITHUB_OUTPUT
           fi
 
-      - name: Check for cached Chromium source
-        id: cache-source
-        uses: actions/cache@v4
-        with:
-          path: /tmp/chromium-source.tar.zst
-          key: chromium-source-${{ steps.resolve.outputs.chromium_version }}
+      - name: Check for existing source artifact
+        id: check-artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Look for a non-expired artifact named chromium-source-{version} from any prior run
+          ARTIFACT_ID=$(gh api \
+            "repos/${{ github.repository }}/actions/artifacts?name=chromium-source-${{ steps.resolve.outputs.chromium_version }}&per_page=5" \
+            --jq '[.artifacts[] | select(.expired == false)] | first | .id // ""')
+          echo "artifact_id=${ARTIFACT_ID}" >> $GITHUB_OUTPUT
+          if [ -n "$ARTIFACT_ID" ]; then
+            echo "Reusing existing artifact $ARTIFACT_ID for ${{ steps.resolve.outputs.chromium_version }}"
+          else
+            echo "No existing artifact found, will fetch source"
+          fi
+
+      - name: Reuse existing source artifact
+        if: steps.check-artifact.outputs.artifact_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y unzip zstd
+          gh api "repos/${{ github.repository }}/actions/artifacts/${{ steps.check-artifact.outputs.artifact_id }}/zip" > /tmp/artifact.zip
+          cd /tmp && unzip -q artifact.zip
+          ls -lh chromium-source.tar.zst
 
       - name: Fetch Chromium source
-        if: steps.cache-source.outputs.cache-hit != 'true'
+        if: steps.check-artifact.outputs.artifact_id == ''
         run: |
           sudo apt-get update && sudo apt-get install -y zstd
           mkdir -p /tmp/chromium
@@ -74,25 +93,28 @@ jobs:
           find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
           find . -type f -name "*.bin" -exec chmod +x {} \; 2>/dev/null || true
 
-      - name: Compress source for upload
-        if: steps.cache-source.outputs.cache-hit != 'true'
+      - name: Compress source
+        if: steps.check-artifact.outputs.artifact_id == ''
         run: |
           cd /tmp
-          ZSTD_CLEVEL=9 tar --zstd -cf chromium-source.tar.zst chromium
+          tar -I 'pzstd -9' -cf chromium-source.tar.zst chromium
           ls -lh chromium-source.tar.zst
 
       - name: Upload source artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chromium-source
+          name: chromium-source-${{ steps.resolve.outputs.chromium_version }}
           path: /tmp/chromium-source.tar.zst
-          retention-days: 1
+          retention-days: 5
 
   # Stage 2: Build chrome and chromedriver in parallel (independent build graphs)
+  # NOTE: First cold build of a new Chromium version will exceed the 6h free-runner
+  # limit. Use build-chromium.yml (Docker + registry cache) for initial version
+  # builds. This workflow is fast on warm ccache (cache keyed on version+target).
   build:
     needs: fetch-source
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 350
     strategy:
       matrix:
         target:
@@ -104,13 +126,14 @@ jobs:
       - name: Download source artifact
         uses: actions/download-artifact@v4
         with:
-          name: chromium-source
+          name: chromium-source-${{ needs.fetch-source.outputs.chromium_version }}
           path: /tmp
 
       - name: Extract source
         run: |
+          sudo apt-get install -y zstd
           cd /tmp
-          tar --zstd -xf chromium-source.tar.zst
+          tar -I pzstd -xf chromium-source.tar.zst
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -136,7 +159,7 @@ jobs:
           export PATH="/tmp/chromium/depot_tools:$PATH"
           export CCACHE_DIR=~/.ccache
           cd /tmp/chromium/src
-          ninja -C out/Release -j2 ${{ matrix.target.name }}
+          ninja -C out/Release -j$(nproc) ${{ matrix.target.name }}
 
       - name: Collect artifacts
         run: |

@@ -70,7 +70,7 @@ jobs:
             CHROMIUM_VERSION=${{ env.CHROMIUM_VERSION }}
             # 127GB RAM allows ~20 parallel jobs with component build
             # Increase to 24-28 if you want to push closer to memory limits
-            NINJA_JOBS=20
+            NINJA_JOBS=28
             IS_COMPONENT_BUILD=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CHROMIUM_VERSION }}
