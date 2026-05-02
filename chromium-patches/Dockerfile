@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2-dev libpulse-dev \
     libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 \
     libxrandr2 libxrender1 libxtst6 libxshmfence-dev \
+    libgtk-3-dev libpango1.0-dev libatk1.0-dev libcairo2-dev \
+    libgdk-pixbuf-2.0-dev libatspi2.0-dev \
     libjpeg-dev libpng-dev libwebp-dev libtiff-dev \
     libxml2-dev libxslt1-dev \
     libfontconfig1-dev \

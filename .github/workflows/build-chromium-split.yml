@@ -92,7 +92,6 @@ jobs:
   build-chrome-components:
     needs: fetch-source
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # 3 hours per component
     strategy:
       matrix:
         component:
