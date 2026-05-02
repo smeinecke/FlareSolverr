@@ -167,6 +167,7 @@ jobs:
           cd /tmp/chromium/src/out/Release
           if [ "${{ matrix.target.name }}" = "chrome" ]; then
             cp chrome /tmp/output/
+            cp *.so /tmp/output/ 2>/dev/null || true
             cp *.pak /tmp/output/ 2>/dev/null || true
             cp icudtl.dat /tmp/output/ 2>/dev/null || true
             cp -r locales /tmp/output/ 2>/dev/null || true
