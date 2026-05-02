@@ -11,9 +11,21 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/chromium-stealth
+  APT_BUILD_DEPS: >-
+    zstd build-essential ccache lld clang ninja-build pkg-config
+    libgl1-mesa-dev libgles2-mesa-dev
+    libx11-dev libxkbcommon-dev libwayland-dev
+    libnss3-dev libdbus-1-dev libdrm-dev libgbm-dev
+    libasound2-dev libpulse-dev libxshmfence-dev
+    libjpeg-dev libpng-dev libwebp-dev libtiff-dev
+    libxml2-dev libxslt1-dev libfontconfig1-dev
+    libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6
+    libxrandr2 libxrender1 libxtst6
+    libgtk-3-dev libpango1.0-dev libatk1.0-dev libcairo2-dev
+    libgdk-pixbuf-2.0-dev libatspi2.0-dev
 
 jobs:
-  # Stage 1: Fetch source - this is network-bound, works fine on free runner
+  # Stage 1: Fetch source - network-bound, works fine on free runner
   fetch-source:
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -32,14 +44,6 @@ jobs:
             echo "chromium_version=$VERSION" >> $GITHUB_OUTPUT
           fi
 
-      - name: Cache depot_tools
-        uses: actions/cache@v4
-        with:
-          path: /tmp/chromium/depot_tools
-          key: depot-tools-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            depot-tools-${{ runner.os }}-
-
       - name: Check for cached Chromium source
         id: cache-source
         uses: actions/cache@v4
@@ -53,24 +57,20 @@ jobs:
           sudo apt-get update && sudo apt-get install -y zstd
           mkdir -p /tmp/chromium
           cd /tmp/chromium
-          if [ ! -d depot_tools/.git ]; then
-            rm -rf depot_tools
-            git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
-          fi
+          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
           export PATH="/tmp/chromium/depot_tools:$PATH"
-          # Retry fetch up to 5 times with 60s backoff on rate limits
+          git config --global http.lowSpeedLimit 0
+          git config --global http.lowSpeedTime 999999
           for i in {1..5}; do
             fetch --nohooks --no-history chromium && break || sleep 60
           done
           cd src
           git fetch origin "refs/tags/${{ steps.resolve.outputs.chromium_version }}:refs/tags/${{ steps.resolve.outputs.chromium_version }}" --no-tags --depth=1 || true
           git checkout "${{ steps.resolve.outputs.chromium_version }}" || git checkout "tags/${{ steps.resolve.outputs.chromium_version }}"
-          # Retry gclient sync up to 5 times with 60s backoff on rate limits
           for i in {1..5}; do
             gclient sync --with_tags --no-history -D -j4 && break || sleep 60
           done
           gclient runhooks
-          # Fix execute permissions on third-party binaries
           find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
           find . -type f -name "*.bin" -exec chmod +x {} \; 2>/dev/null || true
 
@@ -88,21 +88,16 @@ jobs:
           path: /tmp/chromium-source.tar.zst
           retention-days: 1
 
-  # Stage 2: Build Chrome components in parallel using matrix strategy
-  build-chrome-components:
+  # Stage 2: Build chrome and chromedriver in parallel (independent build graphs)
+  build:
     needs: fetch-source
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     strategy:
       matrix:
-        component:
-          - name: chrome-binary
-            targets: chrome
-          - name: resources
-            targets: chrome:resources
-          - name: pak-files
-            targets: v8_snapshot
-          - name: icu-data
-            targets: chrome:resources
+        target:
+          - name: chrome
+          - name: chromedriver
     steps:
       - uses: actions/checkout@v4
 
@@ -116,133 +111,67 @@ jobs:
         run: |
           cd /tmp
           tar --zstd -xf chromium-source.tar.zst
-          ls -la chromium/
 
       - name: Restore ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-${{ needs.fetch-source.outputs.chromium_version }}-${{ matrix.component.name }}-${{ github.sha }}
+          key: ccache-${{ needs.fetch-source.outputs.chromium_version }}-${{ matrix.target.name }}-${{ github.sha }}
           restore-keys: |
-            ccache-${{ needs.fetch-source.outputs.chromium_version }}-${{ matrix.component.name }}-
+            ccache-${{ needs.fetch-source.outputs.chromium_version }}-${{ matrix.target.name }}-
             ccache-${{ needs.fetch-source.outputs.chromium_version }}-
 
-      - name: Build Chrome component
-        shell: bash
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y ${{ env.APT_BUILD_DEPS }}
+
+      - name: Apply patches and configure
         run: |
-          sudo apt-get update && sudo apt-get install -y zstd build-essential ccache lld clang ninja-build pkg-config libgl1-mesa-dev libgles2-mesa-dev libx11-dev libxkbcommon-dev libwayland-dev libnss3-dev libdbus-1-dev libdrm-dev libgbm-dev libasound2-dev libpulse-dev libxshmfence-dev libjpeg-dev libpng-dev libwebp-dev libtiff-dev libxml2-dev libxslt1-dev libfontconfig1-dev
           export PATH="/tmp/chromium/depot_tools:$PATH"
           cd /tmp/chromium/src
           python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
-          gn gen out/Release --args='is_debug=false is_component_build=false symbol_level=0 blink_symbol_level=0 is_official_build=false chrome_pgo_phase=0 ffmpeg_branding="Chrome" proprietary_codecs=true enable_nacl=false use_cups=false use_pulseaudio=false use_gtk=false use_qt=false use_ozone=true ozone_platform_headless=true'
-          export CCACHE_DIR=~/.ccache
-          case "${{ matrix.component.name }}" in
-            chrome-binary)
-              ninja -C out/Release -j2 chrome
-              mkdir -p /tmp/output
-              cp out/Release/chrome /tmp/output/
-              ;;
-            resources)
-              ninja -C out/Release -j2 chrome:resources
-              mkdir -p /tmp/output
-              cp -r out/Release/locales /tmp/output/ 2>/dev/null || true
-              cp -r out/Release/resources /tmp/output/ 2>/dev/null || true
-              ;;
-            pak-files)
-              ninja -C out/Release -j2 v8_snapshot
-              mkdir -p /tmp/output
-              cp out/Release/*.pak /tmp/output/ 2>/dev/null || true
-              ;;
-            icu-data)
-              ninja -C out/Release -j2 chrome:resources
-              mkdir -p /tmp/output
-              cp out/Release/icudtl.dat /tmp/output/ 2>/dev/null || true
-              ;;
-          esac
-          cd /tmp && tar czf ${{ matrix.component.name }}.tar.gz -C output .
+          gn gen out/Release --args="$(cat ${{ github.workspace }}/chromium-patches/gn-args.txt)"
 
-      - name: Upload ${{ matrix.component.name }} artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.component.name }}
-          path: /tmp/${{ matrix.component.name }}.tar.gz
-          retention-days: 1
-
-      - name: Limit ccache size before saving
+      - name: Build ${{ matrix.target.name }}
         run: |
-          ccache -M 2G
-          ccache -c
-
-      - name: Save ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: ccache-${{ needs.fetch-source.outputs.chromium_version }}-${{ matrix.component.name }}-${{ github.sha }}
-
-  # Stage 2b: Build chromedriver separately (can run in parallel)
-  build-chromedriver:
-    needs: fetch-source
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download source artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: chromium-source
-          path: /tmp
-
-      - name: Extract source
-        run: |
-          cd /tmp
-          tar --zstd -xf chromium-source.tar.zst
-          ls -la chromium/
-
-      - name: Restore ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: ccache-${{ needs.fetch-source.outputs.chromium_version }}-chromedriver-${{ github.sha }}
-          restore-keys: |
-            ccache-${{ needs.fetch-source.outputs.chromium_version }}-chromedriver-
-            ccache-${{ needs.fetch-source.outputs.chromium_version }}-
-
-      - name: Build Chromedriver only
-        shell: bash
-        run: |
-          sudo apt-get update && sudo apt-get install -y zstd build-essential ccache lld clang ninja-build pkg-config libgl1-mesa-dev libnss3-dev libdbus-1-dev libdrm-dev libgbm-dev libxshmfence-dev libfontconfig1-dev
           export PATH="/tmp/chromium/depot_tools:$PATH"
-          cd /tmp/chromium/src
-          python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
-          gn gen out/Release --args='is_debug=false is_component_build=false symbol_level=0 blink_symbol_level=0 is_official_build=false chrome_pgo_phase=0 ffmpeg_branding="Chrome" proprietary_codecs=true enable_nacl=false use_cups=false use_pulseaudio=false use_gtk=false use_qt=false use_ozone=true ozone_platform_headless=true'
           export CCACHE_DIR=~/.ccache
-          ninja -C out/Release -j2 chromedriver
+          cd /tmp/chromium/src
+          ninja -C out/Release -j2 ${{ matrix.target.name }}
+
+      - name: Collect artifacts
+        run: |
           mkdir -p /tmp/output
-          cp out/Release/chromedriver /tmp/output/
-          cd /tmp && tar czf chromedriver.tar.gz -C output .
+          cd /tmp/chromium/src/out/Release
+          if [ "${{ matrix.target.name }}" = "chrome" ]; then
+            cp chrome /tmp/output/
+            cp *.pak /tmp/output/ 2>/dev/null || true
+            cp icudtl.dat /tmp/output/ 2>/dev/null || true
+            cp -r locales /tmp/output/ 2>/dev/null || true
+            cp -r resources /tmp/output/ 2>/dev/null || true
+          else
+            cp chromedriver /tmp/output/
+          fi
+          cd /tmp && tar czf ${{ matrix.target.name }}.tar.gz -C output .
 
-      - name: Upload Chromedriver artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chromedriver-binary
-          path: /tmp/chromedriver.tar.gz
+          name: ${{ matrix.target.name }}
+          path: /tmp/${{ matrix.target.name }}.tar.gz
           retention-days: 1
 
-      - name: Limit ccache size before saving
-        run: |
-          ccache -M 2G
-          ccache -c
+      - name: Trim ccache before saving
+        run: ccache -M 2G && ccache -c
 
       - name: Save ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-${{ needs.fetch-source.outputs.chromium_version }}-chromedriver-${{ github.sha }}
+          key: ccache-${{ needs.fetch-source.outputs.chromium_version }}-${{ matrix.target.name }}-${{ github.sha }}
 
   # Stage 3: Assemble final Docker image
   assemble:
-    needs: [fetch-source, build-chrome-components, build-chromedriver]
+    needs: [fetch-source, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -262,19 +191,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract binaries and assemble
+      - name: Assemble binaries
         run: |
           mkdir -p /tmp/chromium-bin/opt/chromium
-          # Extract all Chrome component artifacts
-          tar xzf /tmp/artifacts/chrome-binary/chrome-binary.tar.gz -C /tmp/chromium-bin/opt/chromium
-          tar xzf /tmp/artifacts/resources/resources.tar.gz -C /tmp/chromium-bin/opt/chromium
-          tar xzf /tmp/artifacts/pak-files/pak-files.tar.gz -C /tmp/chromium-bin/opt/chromium
-          tar xzf /tmp/artifacts/icu-data/icu-data.tar.gz -C /tmp/chromium-bin/opt/chromium
-          # Extract chromedriver
-          tar xzf /tmp/artifacts/chromedriver-binary/chromedriver.tar.gz -C /tmp/chromium-bin/opt/chromium
+          tar xzf /tmp/artifacts/chrome/chrome.tar.gz       -C /tmp/chromium-bin/opt/chromium
+          tar xzf /tmp/artifacts/chromedriver/chromedriver.tar.gz -C /tmp/chromium-bin/opt/chromium
           ls -la /tmp/chromium-bin/opt/chromium/
 
-      - name: Build and push
+      - name: Build and push runtime image
         uses: docker/build-push-action@v5
         with:
           context: /tmp/chromium-bin
