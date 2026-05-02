@@ -4,28 +4,28 @@ body:
 - type: checkboxes
   attributes:
     label: Have you checked our README?
-    description: Please check the <a href="https://github.com/FlareSolverr/FlareSolverr/blob/master/README.md">README</a>.
+    description: Please check the <a href="https://github.com/smeinecke/FlareSolverr/blob/master/README.md">README</a>.
     options:
       - label: I have checked the README
         required: true
 - type: checkboxes
   attributes:
     label: Have you followed our Troubleshooting?
-    description: Please follow our <a href="https://github.com/FlareSolverr/FlareSolverr/wiki/Troubleshooting">Troubleshooting</a>.
+    description: Please follow our <a href="https://github.com/smeinecke/FlareSolverr/wiki/Troubleshooting">Troubleshooting</a>.
     options:
       - label: I have followed your Troubleshooting
         required: true
 - type: checkboxes
   attributes:
     label: Is there already an issue for your problem?
-    description: Please make sure you are not creating an already submitted <a href="https://github.com/FlareSolverr/FlareSolverr/issues">Issue</a>. Check closed issues as well, because your issue may have already been fixed.
+    description: Please make sure you are not creating an already submitted <a href="https://github.com/smeinecke/FlareSolverr/issues">Issue</a>. Check closed issues as well, because your issue may have already been fixed.
     options:
       - label: I have checked older issues, open and closed
         required: true
 - type: checkboxes
   attributes:
     label: Have you checked the discussions?
-    description: Please read our <a href="https://github.com/FlareSolverr/FlareSolverr/discussions">Discussions</a> before submitting your issue, some wider problems may be dealt with there.
+    description: Please read our <a href="https://github.com/smeinecke/FlareSolverr/discussions">Discussions</a> before submitting your issue, some wider problems may be dealt with there.
     options:
       - label: I have read the Discussions
         required: true
@@ -66,7 +66,7 @@ body:
     description: |
       Place any relevant error messages you noticed from the logs here.
       Make sure you attach the full logs with your personal information removed in case we need more information.
-      If you wish to provide debug logs, follow the instructions from this <a href="https://github.com/FlareSolverr/FlareSolverr/wiki/How-to-enable-debug-and-html-trace">wiki page</a>.
+      If you wish to provide debug logs, follow the instructions from this <a href="https://github.com/smeinecke/FlareSolverr/wiki/How-to-enable-debug-and-html-trace">wiki page</a>.
     render: text
   validations:
     required: true
