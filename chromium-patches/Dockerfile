@@ -17,7 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3-dev libdbus-1-dev \
     libdrm-dev libgbm-dev \
     libasound2-dev libpulse-dev \
-    libxshmfence-dev \
+    libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 \
+    libxrandr2 libxrender1 libxtst6 libxshmfence-dev \
     libjpeg-dev libpng-dev libwebp-dev libtiff-dev \
     libxml2-dev libxslt1-dev \
     libfontconfig1-dev \
