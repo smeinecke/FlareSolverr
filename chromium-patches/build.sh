@@ -87,6 +87,7 @@ mkdir -p /opt/chromium
 
 cp out/Release/chrome /opt/chromium/chrome
 cp out/Release/chromedriver /opt/chromium/chromedriver
+cp out/Release/*.so /opt/chromium/ 2>/dev/null || true
 cp out/Release/*.pak /opt/chromium/ 2>/dev/null || true
 cp out/Release/icudtl.dat /opt/chromium/ 2>/dev/null || true
 cp -r out/Release/locales /opt/chromium/ 2>/dev/null || true
