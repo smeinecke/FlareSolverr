@@ -167,6 +167,7 @@ jobs:
           cd /tmp/chromium/src/out/Release
           if [ "${{ matrix.target.name }}" = "chrome" ]; then
             cp chrome chrome_crashpad_handler /tmp/output/ 2>/dev/null || true
+            cp *.bin /tmp/output/ 2>/dev/null || true
             cp *.so /tmp/output/ 2>/dev/null || true
             cp *.pak /tmp/output/ 2>/dev/null || true
             cp icudtl.dat /tmp/output/ 2>/dev/null || true
