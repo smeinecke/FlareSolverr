@@ -315,8 +315,7 @@ add_include(
 
 patch(
     "content/browser/renderer_host/render_process_host_impl.cc",
-    "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
-    "    base::CommandLine* command_line) {",
+    "void RenderProcessHostImpl::AppendRendererCommandLine(\n    base::CommandLine* command_line) {",
     "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
     "    base::CommandLine* command_line) {\n"
     "  // Forward custom stealth switches to renderer processes.\n"
