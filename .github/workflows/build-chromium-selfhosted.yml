@@ -171,6 +171,7 @@ jobs:
           mkdir -p /tmp/chromium-bin/opt/chromium
           cd "${{ env.CHROMIUM_ROOT }}/src/out/Release"
           cp chrome chromedriver chrome_crashpad_handler /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
+          cp *.bin /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
           cp *.so /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
           cp *.pak /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
           cp icudtl.dat /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
