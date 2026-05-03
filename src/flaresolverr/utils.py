@@ -405,10 +405,35 @@ def _maybe_normalize_user_agent(driver: WebDriver, effective_stealth_mode: str) 
         logging.warning("Failed normalizing default user-agent: %s", e)
 
 
+def _apply_screen_size_override(driver: WebDriver) -> None:
+    """Override screen dimensions via CDP to avoid headless 800x600 default."""
+    try:
+        sw = driver.execute_script("return screen.width")
+        sh = driver.execute_script("return screen.height")
+        if sw == 800 and sh == 600:
+            # Set viewport + screen to 1920x1080 (matches --window-size flag).
+            driver.execute_cdp_cmd(
+                "Emulation.setDeviceMetricsOverride",
+                {
+                    "width": 1920,
+                    "height": 1080,
+                    "deviceScaleFactor": 1,
+                    "mobile": False,
+                    "screenWidth": 1920,
+                    "screenHeight": 1080,
+                },
+            )
+            logging.info("Applied screen size override: 1920x1080 (was 800x600 headless default).")
+    except Exception as e:
+        logging.debug("Screen size override skipped: %s", e)
+
+
 def _maybe_apply_stealth(driver: WebDriver, effective_stealth_mode: str) -> None:
     """Apply stealth patches based on mode and Chromium type."""
     if effective_stealth_mode == STEALTH_MODE_OFF:
         return
+
+    _apply_screen_size_override(driver)
 
     if _is_custom_chromium():
         logging.info("Custom Chromium stealth flags active (mode=%s).", effective_stealth_mode)

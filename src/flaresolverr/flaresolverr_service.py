@@ -9,7 +9,7 @@ from typing import cast
 from urllib.parse import unquote, quote
 
 from func_timeout import FunctionTimedOut, func_timeout
-from selenium.common import TimeoutException
+from selenium.common import TimeoutException, UnexpectedAlertPresentException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -705,14 +705,14 @@ def _wait_for_challenge(driver: WebDriver, html_element) -> None:
 
 def _execute_actions(driver: WebDriver, actions: list) -> None:
     """Execute a list of browser actions after page load (fill forms, click, wait)."""
-    action_timeout = 15
+    default_action_timeout = 15
     for action in actions:
         action_type = action.get("type")
         selector = action.get("selector")
         if action_type == "fill":
             import random
 
-            el = WebDriverWait(driver, action_timeout).until(presence_of_element_located((By.XPATH, selector)))
+            el = WebDriverWait(driver, default_action_timeout).until(presence_of_element_located((By.XPATH, selector)))
             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
             time.sleep(_random_delay(0.3, 0.6))
             ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.1)).click().perform()
@@ -724,17 +724,31 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
                 time.sleep(random.uniform(0.06, 0.18))  # nosec B311
             logging.debug(f"Action fill: selector={selector}")
         elif action_type == "click":
-            el = WebDriverWait(driver, action_timeout).until(presence_of_element_located((By.XPATH, selector)))
+            logging.debug(f"Action click: waiting for selector={selector}")
+            el = WebDriverWait(driver, default_action_timeout).until(presence_of_element_located((By.XPATH, selector)))
+            logging.debug(f"Action click: element found, scrolling")
             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
             time.sleep(_random_delay(0.2, 0.4))
             if action.get("humanLike"):
                 _human_like_click(driver, el)
             else:
-                ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.15)).click().perform()
-            logging.debug(f"Action click: selector={selector}")
+                logging.debug(f"Action click: calling ActionChains.perform()")
+                try:
+                    ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.15)).click().perform()
+                except UnexpectedAlertPresentException:
+                    try:
+                        alert_text = driver.switch_to.alert.text
+                        logging.debug(f"Action click: dismissing alert: {alert_text!r}")
+                        driver.switch_to.alert.dismiss()
+                    except Exception:
+                        pass
+            logging.debug(f"Action click: done selector={selector}")
         elif action_type == "wait_for":
-            WebDriverWait(driver, action_timeout).until(visibility_of_element_located((By.XPATH, selector)))
-            logging.debug(f"Action wait_for: selector={selector}")
+            timeout_ms = action.get("timeout")
+            wait_timeout = timeout_ms / 1000.0 if timeout_ms is not None else default_action_timeout
+            logging.debug(f"Action wait_for: selector={selector}, timeout={wait_timeout}s")
+            WebDriverWait(driver, wait_timeout).until(visibility_of_element_located((By.XPATH, selector)))
+            logging.debug(f"Action wait_for done: selector={selector}")
         elif action_type == "wait":
             seconds = float(action.get("seconds", 1))
             logging.debug(f"Action wait: {seconds}s")
