@@ -134,14 +134,18 @@ patch(
     "bool isTrusted() const { return is_trusted_; }",
     (
         "bool isTrusted() const {\n"
-        "    if (base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
-        '            "enable-trusted-synthetic-events")) {\n'
+        "    // Static cached flag to avoid CommandLine lookup on every call\n"
+        "    // (thread-safe in C++11+: static init is guaranteed once)\n"
+        "    static const bool force_trusted = []() {\n"
+        "      return base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
+        '          "enable-trusted-synthetic-events");\n'
+        "    }();\n"
+        "    if (force_trusted)\n"
         "      return true;\n"
-        "    }\n"
         "    return is_trusted_;\n"
         "  }"
     ),
-    "force isTrusted=true when flag is set",
+    "force isTrusted=true when flag is set (cached, thread-safe)",
     fallbacks=[
         # Some builds define it as a two-liner
         "bool isTrusted() const {\n  return is_trusted_;\n}",
