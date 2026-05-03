@@ -142,10 +142,16 @@ class TestBotChallenge(unittest.TestCase):
                               f"{test_name} should pass - critical stealth failure")
 
         # Log all failed tests for debugging
-        failed_tests = [name for name, data in results["tests"].items()
+        failed_tests = [(name, data) for name, data in results["tests"].items()
                        if not data.get("passed", False)]
         if failed_tests:
-            print(f"\nDetected bot indicators: {failed_tests}")
+            print(f"\nDetected bot indicators ({len(failed_tests)}):")
+            for name, data in failed_tests:
+                print(f"  - {name}: status={data.get('status')}, severity={data.get('severity')}, "
+                      f"countsAsIndicator={data.get('countsAsIndicator')}, value={data.get('value')}")
+                desc = data.get('description')
+                if desc:
+                    print(f"    description: {desc}")
 
     def test_interaction_challenge_form_submission(self):
         """

@@ -3,7 +3,7 @@
  *
  * When custom Chromium is used, this file is auto-injected at document_start
  * via the --preload-script flag (no CDP call required). The C++ patches handle:
- *   - navigator.webdriver, WebGL vendor/renderer, isTrusted, screenX/Y, worker prelude.
+ *   - navigator.webdriver, WebGL vendor/renderer, isTrusted, worker prelude.
  *
  * Patches below are grouped by signal. Each block is independently try-caught so
  * a failure in one never breaks the others.
