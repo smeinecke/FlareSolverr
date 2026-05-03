@@ -122,13 +122,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libwebp7 libwebpdemux2 libxml2 libxslt1.1 \
     libx11-6 libxcomposite1 libxcursor1 libxdamage1 libxext6 \
     libxfixes3 libxi6 libxrandr2 libxrender1 libxtst6 \
-    libpango-1.0-0 libcairo2 libatk1.0-0 libgdk-pixbuf-2.0-0 \
+    libpango-1.0-0 libcairo2 libatk1.0-0 libgdk-pixbuf-2.0-0 libatspi2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=patched-build /opt/chromium/ /opt/chromium/
 
 # Sentinel file: utils.py checks for this to detect the patched build.
 RUN touch /opt/chromium/.stealth-patched
+
+RUN apt-get update && apt-get install -y --no-install-recommends binutils \
+    && echo "=== ldd chrome ===" && ldd /opt/chromium/chrome \
+    && echo "=== ldd chromedriver ===" && ldd /opt/chromium/chromedriver \
+    && apt-get remove -y binutils && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN /opt/chromium/chrome --version && /opt/chromium/chromedriver --version
 
