@@ -7,6 +7,7 @@ Uses string replacement so patches survive line-number churn.
 On failure, prints the relevant section of the target file so the
 search string can be fixed without a full re-sync.
 """
+
 import re
 import sys
 import pathlib
@@ -21,7 +22,7 @@ def _ctx(content: str, pattern: str, radius: int = 20) -> str:
     best = -1
     best_score = 0
     for i, line in enumerate(lines):
-        words = [w for w in re.split(r'\W+', pattern.lower()) if len(w) > 3]
+        words = [w for w in re.split(r"\W+", pattern.lower()) if len(w) > 3]
         score = sum(1 for w in words if w in line.lower())
         if score > best_score:
             best_score, best = score, i
@@ -29,12 +30,11 @@ def _ctx(content: str, pattern: str, radius: int = 20) -> str:
         best = 0
     lo = max(0, best - radius // 2)
     hi = min(len(lines), best + radius // 2)
-    numbered = [f"{lo+i+1:5}: {l}" for i, l in enumerate(lines[lo:hi])]
-    return '\n'.join(numbered)
+    numbered = [f"{lo + i + 1:5}: {line}" for i, line in enumerate(lines[lo:hi])]
+    return "\n".join(numbered)
 
 
-def patch(rel_path: str, old: str, new: str, description: str,
-          fallbacks: "list[str] | None" = None) -> None:
+def patch(rel_path: str, old: str, new: str, description: str, fallbacks: "list[str] | None" = None) -> None:
     global ERRORS
     p = pathlib.Path(rel_path)
     if not p.exists():
@@ -43,7 +43,7 @@ def patch(rel_path: str, old: str, new: str, description: str,
         return
 
     content = p.read_text()
-    for candidate in ([old] + (fallbacks or [])):
+    for candidate in [old] + (fallbacks or []):
         if candidate in content:
             p.write_text(content.replace(candidate, new, 1))
             print(f"  OK  {rel_path}  ({description})")
@@ -51,14 +51,13 @@ def patch(rel_path: str, old: str, new: str, description: str,
 
     print(f"\nERROR [{description}]: target string not found in {rel_path}", file=sys.stderr)
     print(f"  Searched for: {old[:120]!r}", file=sys.stderr)
-    print(f"  Nearest context in file:", file=sys.stderr)
+    print("  Nearest context in file:", file=sys.stderr)
     for line in _ctx(content, old).splitlines():
         print(f"    {line}", file=sys.stderr)
     ERRORS += 1
 
 
-def add_include(rel_path: str, new_include: str,
-                after_patterns: "list[str] | None" = None) -> None:
+def add_include(rel_path: str, new_include: str, after_patterns: "list[str] | None" = None) -> None:
     """Insert new_include if not already present.
 
     Tries each string in after_patterns as an insertion anchor.
@@ -80,9 +79,9 @@ def add_include(rel_path: str, new_include: str,
         return
 
     # Try explicit anchors first
-    for anchor in (after_patterns or []):
+    for anchor in after_patterns or []:
         if anchor in content:
-            content = content.replace(anchor, anchor + '\n' + new_include, 1)
+            content = content.replace(anchor, anchor + "\n" + new_include, 1)
             p.write_text(content)
             print(f"  OK  {rel_path}  (inserted {new_include!r})")
             return
@@ -90,7 +89,7 @@ def add_include(rel_path: str, new_include: str,
     # Fallback 1: before first #include "third_party/blink/
     m = re.search(r'^(#include "third_party/blink/)', content, re.MULTILINE)
     if m:
-        content = content[:m.start()] + new_include + '\n' + content[m.start():]
+        content = content[: m.start()] + new_include + "\n" + content[m.start() :]
         p.write_text(content)
         print(f"  OK  {rel_path}  (inserted {new_include!r} before third_party/blink includes)")
         return
@@ -102,7 +101,7 @@ def add_include(rel_path: str, new_include: str,
 
     if last_base:
         end = last_base.end()
-        content = content[:end] + '\n' + new_include + content[end:]
+        content = content[:end] + "\n" + new_include + content[end:]
         p.write_text(content)
         print(f"  OK  {rel_path}  (inserted {new_include!r} after last base include)")
         return
@@ -135,7 +134,7 @@ patch(
     "bool isTrusted() const { return is_trusted_; }",
     (
         "bool isTrusted() const {\n"
-        '    if (base::CommandLine::ForCurrentProcess()->HasSwitch(\n'
+        "    if (base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
         '            "enable-trusted-synthetic-events")) {\n'
         "      return true;\n"
         "    }\n"
@@ -210,9 +209,7 @@ patch(
     "  probe::ApplyAutomationOverride(GetExecutionContext(), automation_enabled);\n"
     "  return automation_enabled;\n"
     "}",
-    "std::optional<bool> Navigator::webdriver() const {\n"
-    "  return std::nullopt;\n"
-    "}",
+    "std::optional<bool> Navigator::webdriver() const {\n  return std::nullopt;\n}",
     "return nullopt",
     fallbacks=[
         # Older Chrome: navigatorcontrolled module
@@ -243,58 +240,58 @@ add_include(
 # Chrome 112+: UNMASKED uses WebGLDebugRendererInfo enum + ContextGL()->GetString()
 patch(
     "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc",
-    '    case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:\n'
-    '      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n'
-    '        return WebGLAny(script_state,\n'
-    '                        String(ContextGL()->GetString(GL_RENDERER)));\n'
-    '      }\n'
-    '      SynthesizeGLError(\n'
+    "    case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:\n"
+    "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
+    "        return WebGLAny(script_state,\n"
+    "                        String(ContextGL()->GetString(GL_RENDERER)));\n"
+    "      }\n"
+    "      SynthesizeGLError(\n"
     '          GL_INVALID_ENUM, "getParameter",\n'
     '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-    '      return ScriptValue::CreateNull(script_state->GetIsolate());\n'
-    '    case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:\n'
-    '      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n'
-    '        return WebGLAny(script_state,\n'
-    '                        String(ContextGL()->GetString(GL_VENDOR)));\n'
-    '      }\n'
-    '      SynthesizeGLError(\n'
+    "      return ScriptValue::CreateNull(script_state->GetIsolate());\n"
+    "    case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:\n"
+    "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
+    "        return WebGLAny(script_state,\n"
+    "                        String(ContextGL()->GetString(GL_VENDOR)));\n"
+    "      }\n"
+    "      SynthesizeGLError(\n"
     '          GL_INVALID_ENUM, "getParameter",\n'
     '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-    '      return ScriptValue::CreateNull(script_state->GetIsolate());',
+    "      return ScriptValue::CreateNull(script_state->GetIsolate());",
     (
-        '    case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:\n'
-        '      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n'
+        "    case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:\n"
+        "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
         '        if (base::CommandLine::ForCurrentProcess()->HasSwitch("webgl-unmasked-renderer")) {\n'
-        '          return WebGLAny(script_state, String(base::CommandLine::ForCurrentProcess()\n'
+        "          return WebGLAny(script_state, String(base::CommandLine::ForCurrentProcess()\n"
         '                                                   ->GetSwitchValueASCII("webgl-unmasked-renderer")));\n'
-        '        }\n'
-        '        return WebGLAny(script_state,\n'
-        '                        String(ContextGL()->GetString(GL_RENDERER)));\n'
-        '      }\n'
-        '      SynthesizeGLError(\n'
+        "        }\n"
+        "        return WebGLAny(script_state,\n"
+        "                        String(ContextGL()->GetString(GL_RENDERER)));\n"
+        "      }\n"
+        "      SynthesizeGLError(\n"
         '          GL_INVALID_ENUM, "getParameter",\n'
         '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-        '      return ScriptValue::CreateNull(script_state->GetIsolate());\n'
-        '    case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:\n'
-        '      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n'
+        "      return ScriptValue::CreateNull(script_state->GetIsolate());\n"
+        "    case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:\n"
+        "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
         '        if (base::CommandLine::ForCurrentProcess()->HasSwitch("webgl-unmasked-vendor")) {\n'
-        '          return WebGLAny(script_state, String(base::CommandLine::ForCurrentProcess()\n'
+        "          return WebGLAny(script_state, String(base::CommandLine::ForCurrentProcess()\n"
         '                                                   ->GetSwitchValueASCII("webgl-unmasked-vendor")));\n'
-        '        }\n'
-        '        return WebGLAny(script_state,\n'
-        '                        String(ContextGL()->GetString(GL_VENDOR)));\n'
-        '      }\n'
-        '      SynthesizeGLError(\n'
+        "        }\n"
+        "        return WebGLAny(script_state,\n"
+        "                        String(ContextGL()->GetString(GL_VENDOR)));\n"
+        "      }\n"
+        "      SynthesizeGLError(\n"
         '          GL_INVALID_ENUM, "getParameter",\n'
         '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-        '      return ScriptValue::CreateNull(script_state->GetIsolate());'
+        "      return ScriptValue::CreateNull(script_state->GetIsolate());"
     ),
     "intercept UNMASKED_VENDOR/RENDERER (Chrome 112+ enum style)",
     fallbacks=[
         # Older Chrome uses GL_UNMASKED_* integer constants directly
-        '    case GL_UNMASKED_VENDOR_WEBGL:\n'
+        "    case GL_UNMASKED_VENDOR_WEBGL:\n"
         '      return WebGLAny(script_state, String("WebKit"));\n'
-        '    case GL_UNMASKED_RENDERER_WEBGL:\n'
+        "    case GL_UNMASKED_RENDERER_WEBGL:\n"
         '      return WebGLAny(script_state, String("WebKit"));',
     ],
 )
@@ -348,13 +345,8 @@ _PRELOAD_INJECTION = (
 
 patch(
     "content/renderer/render_frame_impl.cc",
-    "  for (auto& observer : observers_)\n"
-    "    observer.DidCreateScriptContext(context, world_id);\n"
-    "}",
-    _PRELOAD_INJECTION
-    + "  for (auto& observer : observers_)\n"
-    "    observer.DidCreateScriptContext(context, world_id);\n"
-    "}",
+    "  for (auto& observer : observers_)\n    observer.DidCreateScriptContext(context, world_id);\n}",
+    _PRELOAD_INJECTION + "  for (auto& observer : observers_)\n    observer.DidCreateScriptContext(context, world_id);\n}",
     "inject preload script at context creation",
 )
 
@@ -426,8 +418,7 @@ patch(
     "  EvaluateClassicScript(\n"
     "      classic_script_loader->ResponseURL(), classic_script_loader->SourceText(),\n"
     "      classic_script_loader->ReleaseCachedMetadata(), stack_id);",
-    _WORKER_PRELOAD
-    + "  EvaluateClassicScript(\n"
+    _WORKER_PRELOAD + "  EvaluateClassicScript(\n"
     "      classic_script_loader->ResponseURL(), classic_script_loader->SourceText(),\n"
     "      classic_script_loader->ReleaseCachedMetadata(), stack_id);",
     "evaluate preload script before user code",
