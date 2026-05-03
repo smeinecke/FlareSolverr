@@ -105,7 +105,7 @@ class TestBotChallenge(unittest.TestCase):
                 "url": static_url,
                 "stealth": True,
                 "actions": [
-                    {"type": "wait", "seconds": 2},
+                    {"type": "wait", "seconds": 8},
                     {"type": "click", "selector": "//button[@onclick='showJSONOutput()']"},
                     {"type": "wait_for", "selector": "//pre/code", "timeout": 5000},
                 ],
@@ -233,7 +233,7 @@ class TestBotChallenge(unittest.TestCase):
                 "url": static_url,
                 "stealth": True,
                 "actions": [
-                    {"type": "wait", "seconds": 2},
+                    {"type": "wait", "seconds": 8},
                     {"type": "click", "selector": "//button[@onclick='showJSONOutput()']"},
                     {"type": "wait_for", "selector": "//pre/code", "timeout": 5000},
                 ],
