@@ -429,6 +429,21 @@ patch(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Patch 6: Remove "HeadlessChrome" product name token from UA string and
+# userAgentData brand lists — replace with plain "Chrome" so headless mode
+# is indistinguishable from a normal browser UA.
+# File: headless/lib/browser/headless_browser_impl.cc
+# ──────────────────────────────────────────────────────────────────────────────
+print("Patch 6: HeadlessChrome → Chrome in UA product name")
+
+patch(
+    "headless/lib/browser/headless_browser_impl.cc",
+    'const char kHeadlessProductName[] = "HeadlessChrome";',
+    'const char kHeadlessProductName[] = "Chrome";',
+    "rename HeadlessChrome product token to Chrome",
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
 
 if ERRORS:
     print(f"\n{ERRORS} patch(es) failed — see errors above.", file=sys.stderr)

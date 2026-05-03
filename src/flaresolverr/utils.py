@@ -388,10 +388,7 @@ def _configure_headless() -> bool:
 
 
 def _maybe_normalize_user_agent(driver: WebDriver, effective_stealth_mode: str) -> None:
-    """Normalize user agent for fallback Chromium builds."""
-    if _is_custom_chromium():
-        return
-
+    """Normalize user agent by removing HeadlessChrome token and applying consistent UA metadata."""
     try:
         default_ua = driver.execute_script("return navigator.userAgent")
         if not isinstance(default_ua, str):
