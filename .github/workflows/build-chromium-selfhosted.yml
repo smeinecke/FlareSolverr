@@ -133,7 +133,9 @@ jobs:
             third_party/blink/renderer/core/frame/navigator.cc \
             third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc \
             content/renderer/render_frame_impl.cc \
+            content/browser/renderer_host/render_process_host_impl.cc \
             third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc \
+            headless/lib/browser/headless_browser_impl.cc \
             2>/dev/null || true
           python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
 

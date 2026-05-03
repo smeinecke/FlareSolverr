@@ -296,6 +296,40 @@ patch(
     ],
 )
 
+# Patch 3b: Forward webgl-unmasked-* switches from browser process to renderer.
+# Chrome's multi-process model does NOT automatically propagate custom switches
+# to renderer processes — they must be explicitly copied in AppendRendererCommandLine
+# (or the equivalent AppendExtraCommandLineSwitches hook).
+# File: content/browser/renderer_host/render_process_host_impl.cc
+print("Patch 3b: forward webgl-unmasked-* switches to renderer processes")
+
+add_include(
+    "content/browser/renderer_host/render_process_host_impl.cc",
+    '#include "base/command_line.h"',
+    after_patterns=[
+        '#include "base/check_deref.h"',
+        '#include "base/byte_count.h"',
+        '#include "base/allocator/partition_allocator/src/partition_alloc/partition_alloc_buildflags.h"',
+    ],
+)
+
+patch(
+    "content/browser/renderer_host/render_process_host_impl.cc",
+    "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
+    "    base::CommandLine* command_line) {",
+    "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
+    "    base::CommandLine* command_line) {\n"
+    "  // Forward custom stealth switches to renderer processes.\n"
+    "  const base::CommandLine& browser_cmd =\n"
+    "      *base::CommandLine::ForCurrentProcess();\n"
+    '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
+    '                          "preload-script", "enable-trusted-synthetic-events"}) {\n'
+    "    if (browser_cmd.HasSwitch(sw))\n"
+    "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
+    "  }",
+    "forward stealth switches from browser to renderer process command line",
+)
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Patch 4: --preload-script flag (document_start injection via V8)
 # Chrome 112+: AddScriptToEvaluateOnNewDocument was removed from WebContents.
