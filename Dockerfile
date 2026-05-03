@@ -99,10 +99,11 @@ RUN dpkg -i /libgl1-mesa-dri.deb /adwaita-icon-theme.deb \
 COPY --from=custom-chrome /opt/chromium-dist/ /opt/chromium-dist/
 RUN mkdir -p /opt/chromium && \
     if [ -f /opt/chromium-dist/chrome ]; then \
-        cp /opt/chromium-dist/chrome /usr/bin/chromium && \
-        cp /opt/chromium-dist/chromedriver /usr/bin/chromedriver && \
-        cp /opt/chromium-dist/chromedriver /app/chromedriver && \
-        cp /opt/chromium-dist/.stealth-patched /opt/chromium/.stealth-patched && \
+        cp -r /opt/chromium-dist/* /usr/lib/chromium/ && \
+        ln -sf /usr/lib/chromium/chrome /usr/bin/chromium && \
+        ln -sf /usr/lib/chromium/chromedriver /usr/bin/chromedriver && \
+        cp /usr/lib/chromium/chromedriver /app/chromedriver && \
+        cp /opt/chromium-dist/.stealth-patched /opt/chromium/.stealth-patched 2>/dev/null || touch /opt/chromium/.stealth-patched && \
         rm -rf /opt/chromium-dist; \
     fi
 
