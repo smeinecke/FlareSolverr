@@ -16,15 +16,7 @@
   try {
     const _log  = console.log.bind(console);
     const _safe = (...a) => _log(...a.map(x => x instanceof Error ? x.name + ': ' + x.message : x));
-    try { Object.defineProperty(console, 'log', { value: _safe, writable: false, configurable: false }); }
-    catch (_) { console.log = _safe; }
-  } catch (_) {}
-
-  // ── window.chrome ─────────────────────────────────────────────────────────────
-  // Fingerprinters verify that window.chrome and window.chrome.runtime exist.
-  try {
-    if (!window.chrome)              window.chrome = { app: { isInstalled: false }, runtime: {} };
-    else if (!window.chrome.runtime) window.chrome.runtime = {};
+    console.log = _safe;
   } catch (_) {}
 
   // ── navigator.languages / language ───────────────────────────────────────────
