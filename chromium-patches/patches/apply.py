@@ -509,9 +509,7 @@ add_include(
 
 patch(
     "third_party/blink/renderer/core/frame/visual_viewport.cc",
-    "double VisualViewport::width() const {\n"
-    "  return visible_size_.width();\n"
-    "}",
+    "double VisualViewport::width() const {\n  return visible_size_.width();\n}",
     (
         "double VisualViewport::width() const {\n"
         "  // When stealth flag is set, return innerWidth to avoid\n"
@@ -531,9 +529,7 @@ patch(
 
 patch(
     "third_party/blink/renderer/core/frame/visual_viewport.cc",
-    "double VisualViewport::height() const {\n"
-    "  return visible_size_.height();\n"
-    "}",
+    "double VisualViewport::height() const {\n  return visible_size_.height();\n}",
     (
         "double VisualViewport::height() const {\n"
         "  // When stealth flag is set, return innerHeight to avoid\n"
@@ -569,10 +565,7 @@ add_include(
 
 patch(
     "third_party/blink/renderer/core/frame/navigator_language.cc",
-    "const Vector<String>& NavigatorLanguage::languages() {\n"
-    "  EnsureUpdatedLanguage();\n"
-    "  return languages_;\n"
-    "}",
+    "const Vector<String>& NavigatorLanguage::languages() {\n  EnsureUpdatedLanguage();\n  return languages_;\n}",
     (
         "const Vector<String>& NavigatorLanguage::languages() {\n"
         "  static const bool stealth_languages = base::CommandLine::ForCurrentProcess()->HasSwitch(\\n"
