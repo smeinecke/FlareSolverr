@@ -381,6 +381,8 @@ class PatchApplier:
 
         _PRELOAD_INJECTION = (
             "  // --preload-script: evaluate JS file at document_start in every new context.\n"
+            "  // kDoNotRunMicrotasks prevents microtask-driven DidCreateScriptContext re-entrancy\n"
+            "  // that caused renderer CPU spin when running scripts from this notification.\n"
             "  if (world_id == ISOLATED_WORLD_ID_GLOBAL) {\n"
             "    static std::string* preload_script_content = new std::string();\n"
             "    static bool preload_script_loaded = false;\n"
@@ -395,6 +397,9 @@ class PatchApplier:
             "    }\n"
             "    if (!preload_script_content->empty()) {\n"
             "      v8::Isolate* isolate = v8::Isolate::GetCurrent();\n"
+            "      v8::MicrotasksScope microtasks_scope(\n"
+            "          isolate, context->GetMicrotaskQueue(),\n"
+            "          v8::MicrotasksScope::kDoNotRunMicrotasks);\n"
             "      v8::Local<v8::String> source =\n"
             "          v8::String::NewFromUtf8(isolate, preload_script_content->c_str(),\n"
             "                                  v8::NewStringType::kNormal)\n"
