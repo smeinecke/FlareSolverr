@@ -120,15 +120,15 @@ jobs:
             echo "$CHROMIUM_VERSION" > .version
           fi
 
-      - name: Apply patches
-        env:
-          CHROMIUM_VERSION: ${{ steps.resolve.outputs.chromium_version }}
+      - name: Revert patched files
         run: |
           cd "${{ env.CHROMIUM_ROOT }}/src"
-          # Reset patched files to a clean state before re-applying
-          git checkout -- \
-            $(python3 ${{ github.workspace }}/chromium-patches/patches/apply.py --list-files) \
-            2>/dev/null || true
+          python3 ${{ github.workspace }}/chromium-patches/patches/apply.py --list-files \
+            | xargs --no-run-if-empty git checkout --
+
+      - name: Apply patches
+        run: |
+          cd "${{ env.CHROMIUM_ROOT }}/src"
           python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
 
       - name: Configure build
