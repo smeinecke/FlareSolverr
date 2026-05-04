@@ -48,101 +48,101 @@ class PatchApplier:
         if self.list_files_only:
             return
 
-            p = pathlib.Path(rel_path)
-            if not p.exists():
-                print(f"\nERROR [{description}]: file not found: {rel_path}", file=sys.stderr)
-                self.errors += 1
-                return
-
-            content = p.read_text()
-            # If the replacement is already present, the patch was applied previously
-            if new in content:
-                print(f"  SKIP  {rel_path}  ({description} – already patched)")
-                return
-
-            for candidate in [old] + (fallbacks or []):
-                if candidate in content:
-                    if self.dry_run:
-                        print(f"  WOULD_PATCH  {rel_path}  ({description})")
-                    else:
-                        p.write_text(content.replace(candidate, new, 1))
-                        print(f"  OK  {rel_path}  ({description})")
-                    return
-
-            print(f"\nERROR [{description}]: target string not found in {rel_path}", file=sys.stderr)
-            print(f"  Searched for: {old[:120]!r}", file=sys.stderr)
-            print("  Nearest context in file:", file=sys.stderr)
-            for line in self._ctx(content, old).splitlines():
-                print(f"    {line}", file=sys.stderr)
+        p = pathlib.Path(rel_path)
+        if not p.exists():
+            print(f"\nERROR [{description}]: file not found: {rel_path}", file=sys.stderr)
             self.errors += 1
+            return
+
+        content = p.read_text()
+        # If the replacement is already present, the patch was applied previously
+        if new in content:
+            print(f"  SKIP  {rel_path}  ({description} – already patched)")
+            return
+
+        for candidate in [old] + (fallbacks or []):
+            if candidate in content:
+                if self.dry_run:
+                    print(f"  WOULD_PATCH  {rel_path}  ({description})")
+                else:
+                    p.write_text(content.replace(candidate, new, 1))
+                    print(f"  OK  {rel_path}  ({description})")
+                return
+
+        print(f"\nERROR [{description}]: target string not found in {rel_path}", file=sys.stderr)
+        print(f"  Searched for: {old[:120]!r}", file=sys.stderr)
+        print("  Nearest context in file:", file=sys.stderr)
+        for line in self._ctx(content, old).splitlines():
+            print(f"    {line}", file=sys.stderr)
+        self.errors += 1
 
     def add_include(self, rel_path: str, new_include: str, after_patterns: "list[str] | None" = None) -> None:
+        """Insert new_include if not already present.
+
+        Tries each string in after_patterns as an insertion anchor.
+        Falls back to inserting before the first #include "third_party/blink/ line,
+        then after the last #include "base/ line, in that order.
+        """
         if rel_path not in self.patched_files:
             self.patched_files.append(rel_path)
         if self.list_files_only:
             return
-            """Insert new_include if not already present.
 
-            Tries each string in after_patterns as an insertion anchor.
-            Falls back to inserting before the first #include "third_party/blink/ line,
-            then before the first #include " line, in that order.
-            """
-
-            p = pathlib.Path(rel_path)
-            if not p.exists():
-                print(f"\nERROR [add_include]: file not found: {rel_path}", file=sys.stderr)
-                self.errors += 1
-                return
-
-            content = p.read_text()
-
-            # Already present?
-            if new_include in content:
-                print(f"  SKIP {rel_path}  ({new_include!r} already present)")
-                return
-
-            # Try explicit anchors first
-            for anchor in after_patterns or []:
-                if anchor in content:
-                    if self.dry_run:
-                        print(f"  WOULD_INSERT  {rel_path}  ({new_include!r})")
-                    else:
-                        content = content.replace(anchor, anchor + "\n" + new_include, 1)
-                        p.write_text(content)
-                        print(f"  OK  {rel_path}  (inserted {new_include!r})")
-                    return
-
-            # Fallback 1: before first #include "third_party/blink/
-            m = re.search(r'^(#include "third_party/blink/)', content, re.MULTILINE)
-            if m:
-                if self.dry_run:
-                    print(f"  WOULD_INSERT  {rel_path}  ({new_include!r} before third_party/blink includes)")
-                else:
-                    content = content[: m.start()] + new_include + "\n" + content[m.start() :]
-                    p.write_text(content)
-                    print(f"  OK  {rel_path}  (inserted {new_include!r} before third_party/blink includes)")
-                return
-
-            # Fallback 2: after the last #include "base/ line
-            last_base = None
-            for m in re.finditer(r'^#include "base/[^\n]+', content, re.MULTILINE):
-                last_base = m
-
-            if last_base:
-                if self.dry_run:
-                    print(f"  WOULD_INSERT  {rel_path}  ({new_include!r} after last base include)")
-                else:
-                    end = last_base.end()
-                    content = content[:end] + "\n" + new_include + content[end:]
-                    p.write_text(content)
-                    print(f"  OK  {rel_path}  (inserted {new_include!r} after last base include)")
-                return
-
-            print(f"\nERROR [add_include]: no insertion point found in {rel_path}", file=sys.stderr)
-            print("  First 30 lines:", file=sys.stderr)
-            for line in content.splitlines()[:30]:
-                print(f"    {line}", file=sys.stderr)
+        p = pathlib.Path(rel_path)
+        if not p.exists():
+            print(f"\nERROR [add_include]: file not found: {rel_path}", file=sys.stderr)
             self.errors += 1
+            return
+
+        content = p.read_text()
+
+        # Already present?
+        if new_include in content:
+            print(f"  SKIP {rel_path}  ({new_include!r} already present)")
+            return
+
+        # Try explicit anchors first
+        for anchor in after_patterns or []:
+            if anchor in content:
+                if self.dry_run:
+                    print(f"  WOULD_INSERT  {rel_path}  ({new_include!r})")
+                else:
+                    content = content.replace(anchor, anchor + "\n" + new_include, 1)
+                    p.write_text(content)
+                    print(f"  OK  {rel_path}  (inserted {new_include!r})")
+                return
+
+        # Fallback 1: before first #include "third_party/blink/
+        m = re.search(r'^(#include "third_party/blink/)', content, re.MULTILINE)
+        if m:
+            if self.dry_run:
+                print(f"  WOULD_INSERT  {rel_path}  ({new_include!r} before third_party/blink includes)")
+            else:
+                content = content[: m.start()] + new_include + "\n" + content[m.start() :]
+                p.write_text(content)
+                print(f"  OK  {rel_path}  (inserted {new_include!r} before third_party/blink includes)")
+            return
+
+        # Fallback 2: after the last #include "base/ line
+        last_base = None
+        for m in re.finditer(r'^#include "base/[^\n]+', content, re.MULTILINE):
+            last_base = m
+
+        if last_base:
+            if self.dry_run:
+                print(f"  WOULD_INSERT  {rel_path}  ({new_include!r} after last base include)")
+            else:
+                end = last_base.end()
+                content = content[:end] + "\n" + new_include + content[end:]
+                p.write_text(content)
+                print(f"  OK  {rel_path}  (inserted {new_include!r} after last base include)")
+            return
+
+        print(f"\nERROR [add_include]: no insertion point found in {rel_path}", file=sys.stderr)
+        print("  First 30 lines:", file=sys.stderr)
+        for line in content.splitlines()[:30]:
+            print(f"    {line}", file=sys.stderr)
+        self.errors += 1
 
     def run_patches(self) -> None:
         # ──────────────────────────────────────────────────────────────────────────────
@@ -221,10 +221,6 @@ class PatchApplier:
             "  bool webdriver() const;",
             "  std::optional<bool> webdriver() const;",
             "update header declaration",
-            fallbacks=[
-                # Older Chrome used navigatorcontrolled module
-                "third_party/blink/renderer/modules/navigatorcontrolled/navigator_controlled.h",
-            ],
         )
 
         self.add_include(
@@ -530,15 +526,6 @@ class PatchApplier:
             ],
         )
 
-        self.add_include(
-            "third_party/blink/renderer/core/frame/visual_viewport.cc",
-            '#include "third_party/blink/renderer/core/frame/local_dom_window.h"',
-            after_patterns=[
-                '#include "third_party/blink/renderer/core/frame/local_frame.h"',
-                '#include "third_party/blink/renderer/core/frame/local_frame_view.h"',
-            ],
-        )
-
         self.patch(
             "third_party/blink/renderer/core/frame/visual_viewport.cc",
             "double VisualViewport::Width() const {\n"
@@ -549,14 +536,14 @@ class PatchApplier:
             "}",
             (
                 "double VisualViewport::Width() const {\n"
-                "  // When stealth flag is set, return innerWidth to avoid\n"
-                "  // viewport coherence mismatch detection.\n"
+                "  // When stealth flag is set, return the layout viewport width to avoid\n"
+                "  // visualViewport vs innerWidth coherence mismatch detection.\n"
+                "  // Note: do NOT call window->innerWidth() here — that recurses back into\n"
+                "  // VisualViewport::Width() via Page::GetVisualViewport().Width().\n"
                 "  static const bool stealth_viewport =\n"
                 '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
-                "  if (stealth_viewport && GetFrame()) {\n"
-                "    if (LocalDOMWindow* window = GetFrame()->DomWindow()) {\n"
-                "      return window->innerWidth();\n"
-                "    }\n"
+                "  if (stealth_viewport && GetFrame() && GetFrame()->View()) {\n"
+                "    return GetFrame()->View()->GetLayoutSize().width();\n"
                 "  }\n"
                 "  DCHECK(IsActiveViewport());\n"
                 "  if (Document* document = LocalMainFrame().GetDocument())\n"
@@ -564,7 +551,7 @@ class PatchApplier:
                 "  return VisibleWidthCSSPx();\n"
                 "}"
             ),
-            "visualViewport Width() returns innerWidth with stealth flag",
+            "visualViewport Width() returns layout viewport width with stealth flag",
         )
 
         self.patch(
@@ -577,14 +564,14 @@ class PatchApplier:
             "}",
             (
                 "double VisualViewport::Height() const {\n"
-                "  // When stealth flag is set, return innerHeight to avoid\n"
-                "  // viewport coherence mismatch detection.\n"
+                "  // When stealth flag is set, return the layout viewport height to avoid\n"
+                "  // visualViewport vs innerHeight coherence mismatch detection.\n"
+                "  // Note: do NOT call window->innerHeight() here — that recurses back into\n"
+                "  // VisualViewport::Height() via Page::GetVisualViewport().Height().\n"
                 "  static const bool stealth_viewport =\n"
                 '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
-                "  if (stealth_viewport && GetFrame()) {\n"
-                "    if (LocalDOMWindow* window = GetFrame()->DomWindow()) {\n"
-                "      return window->innerHeight();\n"
-                "    }\n"
+                "  if (stealth_viewport && GetFrame() && GetFrame()->View()) {\n"
+                "    return GetFrame()->View()->GetLayoutSize().height();\n"
                 "  }\n"
                 "  DCHECK(IsActiveViewport());\n"
                 "  if (Document* document = LocalMainFrame().GetDocument())\n"
@@ -592,7 +579,7 @@ class PatchApplier:
                 "  return VisibleHeightCSSPx();\n"
                 "}"
             ),
-            "visualViewport Height() returns innerHeight with stealth flag",
+            "visualViewport Height() returns layout viewport height with stealth flag",
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
@@ -616,7 +603,7 @@ class PatchApplier:
             "const Vector<String>& NavigatorLanguage::languages() {\n  EnsureUpdatedLanguage();\n  return languages_;\n}",
             (
                 "const Vector<String>& NavigatorLanguage::languages() {\n"
-                "  static const bool stealth_languages = base::CommandLine::ForCurrentProcess()->HasSwitch(\\n"
+                "  static const bool stealth_languages = base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
                 '      "stealth-navigator-languages");\n'
                 "  if (stealth_languages && languages_.IsEmpty()) {\n"
                 '    languages_.push_back("en-US");\n'
