@@ -14,675 +14,664 @@ import pathlib
 import re
 import sys
 
-ERRORS = 0
-DRY_RUN = False
 
-# Deduplicated list of every file touched by the patches below.
-# This is the single source of truth — other tooling can read it directly.
-PATCHED_FILES: list[str] = [
-    "third_party/blink/renderer/core/dom/events/event.h",
-    "third_party/blink/renderer/core/frame/navigator_automation_information.idl",
-    "third_party/blink/renderer/core/frame/navigator.h",
-    "third_party/blink/renderer/core/frame/navigator.cc",
-    "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc",
-    "content/browser/renderer_host/render_process_host_impl.cc",
-    "content/renderer/render_frame_impl.cc",
-    "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
-    "headless/lib/browser/headless_browser_impl.cc",
-    "third_party/blink/renderer/core/frame/visual_viewport.cc",
-    "third_party/blink/renderer/core/frame/navigator_language.cc",
-]
+class PatchApplier:
+    """Applies Chromium C++ patches and tracks touched files."""
 
+    def __init__(self) -> None:
+        self.errors = 0
+        self.dry_run = False
+        self.list_files_only = False
+        self.patched_files: list[str] = []
 
-def set_dry_run(enabled: bool = True) -> None:
-    """Enable or disable dry-run mode programmatically."""
-    global DRY_RUN
-    DRY_RUN = enabled
+    def _ctx(self, content: str, pattern: str, radius: int = 20) -> str:
+        """Return up to `radius` lines of context around `pattern` in `content`."""
+        lines = content.splitlines()
+        # Find best matching line index
+        best = -1
+        best_score = 0
+        for i, line in enumerate(lines):
+            words = [w for w in re.split(r"\W+", pattern.lower()) if len(w) > 3]
+            score = sum(1 for w in words if w in line.lower())
+            if score > best_score:
+                best_score, best = score, i
+        if best < 0:
+            best = 0
+        lo = max(0, best - radius // 2)
+        hi = min(len(lines), best + radius // 2)
+        numbered = [f"{lo + i + 1:5}: {line}" for i, line in enumerate(lines[lo:hi])]
+        return "\n".join(numbered)
 
-
-def _ctx(content: str, pattern: str, radius: int = 20) -> str:
-    """Return up to `radius` lines of context around `pattern` in `content`."""
-    lines = content.splitlines()
-    # Find best matching line index
-    best = -1
-    best_score = 0
-    for i, line in enumerate(lines):
-        words = [w for w in re.split(r"\W+", pattern.lower()) if len(w) > 3]
-        score = sum(1 for w in words if w in line.lower())
-        if score > best_score:
-            best_score, best = score, i
-    if best < 0:
-        best = 0
-    lo = max(0, best - radius // 2)
-    hi = min(len(lines), best + radius // 2)
-    numbered = [f"{lo + i + 1:5}: {line}" for i, line in enumerate(lines[lo:hi])]
-    return "\n".join(numbered)
-
-
-def patch(rel_path: str, old: str, new: str, description: str, fallbacks: "list[str] | None" = None) -> None:
-    global ERRORS
-    p = pathlib.Path(rel_path)
-    if not p.exists():
-        print(f"\nERROR [{description}]: file not found: {rel_path}", file=sys.stderr)
-        ERRORS += 1
-        return
-
-    content = p.read_text()
-    # If the replacement is already present, the patch was applied previously
-    if new in content:
-        print(f"  SKIP  {rel_path}  ({description} – already patched)")
-        return
-
-    for candidate in [old] + (fallbacks or []):
-        if candidate in content:
-            if DRY_RUN:
-                print(f"  WOULD_PATCH  {rel_path}  ({description})")
-            else:
-                p.write_text(content.replace(candidate, new, 1))
-                print(f"  OK  {rel_path}  ({description})")
+    def patch(self, rel_path: str, old: str, new: str, description: str, fallbacks: "list[str] | None" = None) -> None:
+        if rel_path not in self.patched_files:
+            self.patched_files.append(rel_path)
+        if self.list_files_only:
             return
 
-    print(f"\nERROR [{description}]: target string not found in {rel_path}", file=sys.stderr)
-    print(f"  Searched for: {old[:120]!r}", file=sys.stderr)
-    print("  Nearest context in file:", file=sys.stderr)
-    for line in _ctx(content, old).splitlines():
-        print(f"    {line}", file=sys.stderr)
-    ERRORS += 1
+            p = pathlib.Path(rel_path)
+            if not p.exists():
+                print(f"\nERROR [{description}]: file not found: {rel_path}", file=sys.stderr)
+                self.errors += 1
+                return
 
+            content = p.read_text()
+            # If the replacement is already present, the patch was applied previously
+            if new in content:
+                print(f"  SKIP  {rel_path}  ({description} – already patched)")
+                return
 
-def add_include(rel_path: str, new_include: str, after_patterns: "list[str] | None" = None) -> None:
-    """Insert new_include if not already present.
+            for candidate in [old] + (fallbacks or []):
+                if candidate in content:
+                    if self.dry_run:
+                        print(f"  WOULD_PATCH  {rel_path}  ({description})")
+                    else:
+                        p.write_text(content.replace(candidate, new, 1))
+                        print(f"  OK  {rel_path}  ({description})")
+                    return
 
-    Tries each string in after_patterns as an insertion anchor.
-    Falls back to inserting before the first #include "third_party/blink/ line,
-    then before the first #include " line, in that order.
-    """
-    global ERRORS
-    p = pathlib.Path(rel_path)
-    if not p.exists():
-        print(f"\nERROR [add_include]: file not found: {rel_path}", file=sys.stderr)
-        ERRORS += 1
-        return
+            print(f"\nERROR [{description}]: target string not found in {rel_path}", file=sys.stderr)
+            print(f"  Searched for: {old[:120]!r}", file=sys.stderr)
+            print("  Nearest context in file:", file=sys.stderr)
+            for line in self._ctx(content, old).splitlines():
+                print(f"    {line}", file=sys.stderr)
+            self.errors += 1
 
-    content = p.read_text()
-
-    # Already present?
-    if new_include in content:
-        print(f"  SKIP {rel_path}  ({new_include!r} already present)")
-        return
-
-    # Try explicit anchors first
-    for anchor in after_patterns or []:
-        if anchor in content:
-            if DRY_RUN:
-                print(f"  WOULD_INSERT  {rel_path}  ({new_include!r})")
-            else:
-                content = content.replace(anchor, anchor + "\n" + new_include, 1)
-                p.write_text(content)
-                print(f"  OK  {rel_path}  (inserted {new_include!r})")
+    def add_include(self, rel_path: str, new_include: str, after_patterns: "list[str] | None" = None) -> None:
+        if rel_path not in self.patched_files:
+            self.patched_files.append(rel_path)
+        if self.list_files_only:
             return
+            """Insert new_include if not already present.
 
-    # Fallback 1: before first #include "third_party/blink/
-    m = re.search(r'^(#include "third_party/blink/)', content, re.MULTILINE)
-    if m:
-        if DRY_RUN:
-            print(f"  WOULD_INSERT  {rel_path}  ({new_include!r} before third_party/blink includes)")
-        else:
-            content = content[: m.start()] + new_include + "\n" + content[m.start() :]
-            p.write_text(content)
-            print(f"  OK  {rel_path}  (inserted {new_include!r} before third_party/blink includes)")
-        return
+            Tries each string in after_patterns as an insertion anchor.
+            Falls back to inserting before the first #include "third_party/blink/ line,
+            then before the first #include " line, in that order.
+            """
 
-    # Fallback 2: after the last #include "base/ line
-    last_base = None
-    for m in re.finditer(r'^#include "base/[^\n]+', content, re.MULTILINE):
-        last_base = m
+            p = pathlib.Path(rel_path)
+            if not p.exists():
+                print(f"\nERROR [add_include]: file not found: {rel_path}", file=sys.stderr)
+                self.errors += 1
+                return
 
-    if last_base:
-        if DRY_RUN:
-            print(f"  WOULD_INSERT  {rel_path}  ({new_include!r} after last base include)")
-        else:
-            end = last_base.end()
-            content = content[:end] + "\n" + new_include + content[end:]
-            p.write_text(content)
-            print(f"  OK  {rel_path}  (inserted {new_include!r} after last base include)")
-        return
+            content = p.read_text()
 
-    print(f"\nERROR [add_include]: no insertion point found in {rel_path}", file=sys.stderr)
-    print("  First 30 lines:", file=sys.stderr)
-    for line in content.splitlines()[:30]:
-        print(f"    {line}", file=sys.stderr)
-    ERRORS += 1
+            # Already present?
+            if new_include in content:
+                print(f"  SKIP {rel_path}  ({new_include!r} already present)")
+                return
 
+            # Try explicit anchors first
+            for anchor in after_patterns or []:
+                if anchor in content:
+                    if self.dry_run:
+                        print(f"  WOULD_INSERT  {rel_path}  ({new_include!r})")
+                    else:
+                        content = content.replace(anchor, anchor + "\n" + new_include, 1)
+                        p.write_text(content)
+                        print(f"  OK  {rel_path}  (inserted {new_include!r})")
+                    return
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Patch 1: isTrusted=true for CDP synthetic events
-# In Chrome 112+ isTrusted() is an inline function in event.h, not event.cc.
-# ──────────────────────────────────────────────────────────────────────────────
-print("Patch 1: --enable-trusted-synthetic-events")
+            # Fallback 1: before first #include "third_party/blink/
+            m = re.search(r'^(#include "third_party/blink/)', content, re.MULTILINE)
+            if m:
+                if self.dry_run:
+                    print(f"  WOULD_INSERT  {rel_path}  ({new_include!r} before third_party/blink includes)")
+                else:
+                    content = content[: m.start()] + new_include + "\n" + content[m.start() :]
+                    p.write_text(content)
+                    print(f"  OK  {rel_path}  (inserted {new_include!r} before third_party/blink includes)")
+                return
 
-add_include(
-    "third_party/blink/renderer/core/dom/events/event.h",
-    '#include "base/command_line.h"',
-    after_patterns=[
-        '#include "base/check_op.h"',
-        '#include "base/check.h"',
-        '#include "base/time/time.h"',
-    ],
-)
+            # Fallback 2: after the last #include "base/ line
+            last_base = None
+            for m in re.finditer(r'^#include "base/[^\n]+', content, re.MULTILINE):
+                last_base = m
 
-patch(
-    "third_party/blink/renderer/core/dom/events/event.h",
-    "bool isTrusted() const { return is_trusted_; }",
-    (
-        "bool isTrusted() const {\n"
-        "    // Static cached flag to avoid CommandLine lookup on every call\n"
-        "    // (thread-safe in C++11+: static init is guaranteed once)\n"
-        "    static const bool force_trusted = []() {\n"
-        "      return base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
-        '          "enable-trusted-synthetic-events");\n'
-        "    }();\n"
-        "    if (force_trusted)\n"
-        "      return true;\n"
-        "    return is_trusted_;\n"
-        "  }"
-    ),
-    "force isTrusted=true when flag is set (cached, thread-safe)",
-    fallbacks=[
-        # Some builds define it as a two-liner
-        "bool isTrusted() const {\n  return is_trusted_;\n}",
-        # Older field name
-        "bool isTrusted() const { return trusted_; }",
-        "bool isTrusted() const {\n  return trusted_;\n}",
-    ],
-)
+            if last_base:
+                if self.dry_run:
+                    print(f"  WOULD_INSERT  {rel_path}  ({new_include!r} after last base include)")
+                else:
+                    end = last_base.end()
+                    content = content[:end] + "\n" + new_include + content[end:]
+                    p.write_text(content)
+                    print(f"  OK  {rel_path}  (inserted {new_include!r} after last base include)")
+                return
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Patch 2: navigator.webdriver → undefined (IDL boolean? + C++ std::nullopt)
-# Chrome 112+: moved to core/frame/navigator_automation_information.idl +
-#              navigator.cc (was in modules/navigatorcontrolled/ before).
-# ──────────────────────────────────────────────────────────────────────────────
-print("Patch 2: navigator.webdriver → undefined")
+            print(f"\nERROR [add_include]: no insertion point found in {rel_path}", file=sys.stderr)
+            print("  First 30 lines:", file=sys.stderr)
+            for line in content.splitlines()[:30]:
+                print(f"    {line}", file=sys.stderr)
+            self.errors += 1
 
-# Chrome 112+: navigator_automation_information.idl in core/frame/
-patch(
-    "third_party/blink/renderer/core/frame/navigator_automation_information.idl",
-    "    readonly attribute boolean webdriver;",
-    "    readonly attribute boolean? webdriver;",
-    "nullable boolean in IDL",
-    fallbacks=[
-        # Older Chrome: modules/navigatorcontrolled/
-        "readonly attribute boolean webdriver;",
-    ],
-)
+    def run_patches(self) -> None:
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 1: isTrusted=true for CDP synthetic events
+        # In Chrome 112+ isTrusted() is an inline function in event.h, not event.cc.
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 1: --enable-trusted-synthetic-events")
 
-add_include(
-    "third_party/blink/renderer/core/frame/navigator.h",
-    "#include <optional>",
-    after_patterns=[
-        '#include "third_party/blink/renderer/platform/supplementable.h"',
-        '#include "third_party/blink/renderer/platform/wtf/forward.h"',
-        '#include "third_party/blink/renderer/core/execution_context/navigator_base.h"',
-    ],
-)
+        self.add_include(
+            "third_party/blink/renderer/core/dom/events/event.h",
+            '#include "base/command_line.h"',
+            after_patterns=[
+                '#include "base/check_op.h"',
+                '#include "base/check.h"',
+                '#include "base/time/time.h"',
+            ],
+        )
 
-patch(
-    "third_party/blink/renderer/core/frame/navigator.h",
-    "  bool webdriver() const;",
-    "  std::optional<bool> webdriver() const;",
-    "update header declaration",
-    fallbacks=[
-        # Older Chrome used navigatorcontrolled module
-        "third_party/blink/renderer/modules/navigatorcontrolled/navigator_controlled.h",
-    ],
-)
+        self.patch(
+            "third_party/blink/renderer/core/dom/events/event.h",
+            "bool isTrusted() const { return is_trusted_; }",
+            (
+                "bool isTrusted() const {\n"
+                "    // Static cached flag to avoid CommandLine lookup on every call\n"
+                "    // (thread-safe in C++11+: static init is guaranteed once)\n"
+                "    static const bool force_trusted = []() {\n"
+                "      return base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
+                '          "enable-trusted-synthetic-events");\n'
+                "    }();\n"
+                "    if (force_trusted)\n"
+                "      return true;\n"
+                "    return is_trusted_;\n"
+                "  }"
+            ),
+            "force isTrusted=true when flag is set (cached, thread-safe)",
+            fallbacks=[
+                # Some builds define it as a two-liner
+                "bool isTrusted() const {\n  return is_trusted_;\n}",
+                # Older field name
+                "bool isTrusted() const { return trusted_; }",
+                "bool isTrusted() const {\n  return trusted_;\n}",
+            ],
+        )
 
-add_include(
-    "third_party/blink/renderer/core/frame/navigator.cc",
-    "#include <optional>",
-    after_patterns=[
-        '#include "third_party/blink/renderer/core/frame/navigator.h"',
-    ],
-)
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 2: navigator.webdriver → undefined (IDL boolean? + C++ std::nullopt)
+        # Chrome 112+: moved to core/frame/navigator_automation_information.idl +
+        #              navigator.cc (was in modules/navigatorcontrolled/ before).
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 2: navigator.webdriver → undefined")
 
-patch(
-    "third_party/blink/renderer/core/frame/navigator.cc",
-    "bool Navigator::webdriver() const {\n"
-    "  if (RuntimeEnabledFeatures::AutomationControlledEnabled())\n"
-    "    return true;\n"
-    "\n"
-    "  bool automation_enabled = false;\n"
-    "  probe::ApplyAutomationOverride(GetExecutionContext(), automation_enabled);\n"
-    "  return automation_enabled;\n"
-    "}",
-    "std::optional<bool> Navigator::webdriver() const {\n  return std::nullopt;\n}",
-    "return nullopt",
-    fallbacks=[
-        # Older Chrome: navigatorcontrolled module
-        "bool NavigatorControlled::webdriver() const {\n  return true;\n}",
-    ],
-)
+        # Chrome 112+: navigator_automation_information.idl in core/frame/
+        self.patch(
+            "third_party/blink/renderer/core/frame/navigator_automation_information.idl",
+            "    readonly attribute boolean webdriver;",
+            "    readonly attribute boolean? webdriver;",
+            "nullable boolean in IDL",
+            fallbacks=[
+                # Older Chrome: modules/navigatorcontrolled/
+                "readonly attribute boolean webdriver;",
+            ],
+        )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Patch 3: WebGL vendor/renderer command-line override
-# Chrome 112+ uses WebGLDebugRendererInfo enum values instead of GL_UNMASKED_*.
-# ──────────────────────────────────────────────────────────────────────────────
-print("Patch 3: --webgl-unmasked-vendor / --webgl-unmasked-renderer")
+        self.add_include(
+            "third_party/blink/renderer/core/frame/navigator.h",
+            "#include <optional>",
+            after_patterns=[
+                '#include "third_party/blink/renderer/platform/supplementable.h"',
+                '#include "third_party/blink/renderer/platform/wtf/forward.h"',
+                '#include "third_party/blink/renderer/core/execution_context/navigator_base.h"',
+            ],
+        )
 
-add_include(
-    "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc",
-    '#include "base/command_line.h"',
-    after_patterns=[
-        '#include "base/feature_list.h"',
-        '#include "base/notimplemented.h"',
-        '#include "base/trace_event/trace_event.h"',
-        '#include "base/atomic_sequence_num.h"',
-        '#include "base/check.h"',
-        '#include "base/check_op.h"',
-        '#include "base/notreached.h"',
-    ],
-)
+        self.patch(
+            "third_party/blink/renderer/core/frame/navigator.h",
+            "  bool webdriver() const;",
+            "  std::optional<bool> webdriver() const;",
+            "update header declaration",
+            fallbacks=[
+                # Older Chrome used navigatorcontrolled module
+                "third_party/blink/renderer/modules/navigatorcontrolled/navigator_controlled.h",
+            ],
+        )
 
-# Chrome 112+: UNMASKED uses WebGLDebugRendererInfo enum + ContextGL()->GetString()
-patch(
-    "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc",
-    "    case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:\n"
-    "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
-    "        return WebGLAny(script_state,\n"
-    "                        String(ContextGL()->GetString(GL_RENDERER)));\n"
-    "      }\n"
-    "      SynthesizeGLError(\n"
-    '          GL_INVALID_ENUM, "getParameter",\n'
-    '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-    "      return ScriptValue::CreateNull(script_state->GetIsolate());\n"
-    "    case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:\n"
-    "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
-    "        return WebGLAny(script_state,\n"
-    "                        String(ContextGL()->GetString(GL_VENDOR)));\n"
-    "      }\n"
-    "      SynthesizeGLError(\n"
-    '          GL_INVALID_ENUM, "getParameter",\n'
-    '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-    "      return ScriptValue::CreateNull(script_state->GetIsolate());",
-    (
-        "    case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:\n"
-        "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
-        '        if (base::CommandLine::ForCurrentProcess()->HasSwitch("webgl-unmasked-renderer")) {\n'
-        "          return WebGLAny(script_state, String(base::CommandLine::ForCurrentProcess()\n"
-        '                                                   ->GetSwitchValueASCII("webgl-unmasked-renderer")));\n'
-        "        }\n"
-        "        return WebGLAny(script_state,\n"
-        "                        String(ContextGL()->GetString(GL_RENDERER)));\n"
-        "      }\n"
-        "      SynthesizeGLError(\n"
-        '          GL_INVALID_ENUM, "getParameter",\n'
-        '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-        "      return ScriptValue::CreateNull(script_state->GetIsolate());\n"
-        "    case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:\n"
-        "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
-        '        if (base::CommandLine::ForCurrentProcess()->HasSwitch("webgl-unmasked-vendor")) {\n'
-        "          return WebGLAny(script_state, String(base::CommandLine::ForCurrentProcess()\n"
-        '                                                   ->GetSwitchValueASCII("webgl-unmasked-vendor")));\n'
-        "        }\n"
-        "        return WebGLAny(script_state,\n"
-        "                        String(ContextGL()->GetString(GL_VENDOR)));\n"
-        "      }\n"
-        "      SynthesizeGLError(\n"
-        '          GL_INVALID_ENUM, "getParameter",\n'
-        '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-        "      return ScriptValue::CreateNull(script_state->GetIsolate());"
-    ),
-    "intercept UNMASKED_VENDOR/RENDERER (Chrome 112+ enum style)",
-    fallbacks=[
-        # Older Chrome uses GL_UNMASKED_* integer constants directly
-        "    case GL_UNMASKED_VENDOR_WEBGL:\n"
-        '      return WebGLAny(script_state, String("WebKit"));\n'
-        "    case GL_UNMASKED_RENDERER_WEBGL:\n"
-        '      return WebGLAny(script_state, String("WebKit"));',
-    ],
-)
+        self.add_include(
+            "third_party/blink/renderer/core/frame/navigator.cc",
+            "#include <optional>",
+            after_patterns=[
+                '#include "third_party/blink/renderer/core/frame/navigator.h"',
+            ],
+        )
 
-# Patch 3b: Forward webgl-unmasked-* switches from browser process to renderer.
-# Chrome's multi-process model does NOT automatically propagate custom switches
-# to renderer processes — they must be explicitly copied in AppendRendererCommandLine
-# (or the equivalent AppendExtraCommandLineSwitches hook).
-# File: content/browser/renderer_host/render_process_host_impl.cc
-print("Patch 3b: forward webgl-unmasked-* switches to renderer processes")
+        self.patch(
+            "third_party/blink/renderer/core/frame/navigator.cc",
+            "bool Navigator::webdriver() const {\n"
+            "  if (RuntimeEnabledFeatures::AutomationControlledEnabled())\n"
+            "    return true;\n"
+            "\n"
+            "  bool automation_enabled = false;\n"
+            "  probe::ApplyAutomationOverride(GetExecutionContext(), automation_enabled);\n"
+            "  return automation_enabled;\n"
+            "}",
+            "std::optional<bool> Navigator::webdriver() const {\n  return std::nullopt;\n}",
+            "return nullopt",
+            fallbacks=[
+                # Older Chrome: navigatorcontrolled module
+                "bool NavigatorControlled::webdriver() const {\n  return true;\n}",
+            ],
+        )
 
-add_include(
-    "content/browser/renderer_host/render_process_host_impl.cc",
-    '#include "base/command_line.h"',
-    after_patterns=[
-        '#include "base/check_deref.h"',
-        '#include "base/byte_count.h"',
-        '#include "base/allocator/partition_allocator/src/partition_alloc/partition_alloc_buildflags.h"',
-    ],
-)
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 3: WebGL vendor/renderer command-line override
+        # Chrome 112+ uses WebGLDebugRendererInfo enum values instead of GL_UNMASKED_*.
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 3: --webgl-unmasked-vendor / --webgl-unmasked-renderer")
 
-patch(
-    "content/browser/renderer_host/render_process_host_impl.cc",
-    "void RenderProcessHostImpl::AppendRendererCommandLine(\n    base::CommandLine* command_line) {",
-    "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
-    "    base::CommandLine* command_line) {\n"
-    "  // Forward custom stealth switches to renderer processes.\n"
-    "  const base::CommandLine& browser_cmd =\n"
-    "      *base::CommandLine::ForCurrentProcess();\n"
-    '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
-    '                          "preload-script", "enable-trusted-synthetic-events"}) {\n'
-    "    if (browser_cmd.HasSwitch(sw))\n"
-    "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
-    "  }",
-    "forward stealth switches from browser to renderer process command line",
-)
+        self.add_include(
+            "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc",
+            '#include "base/command_line.h"',
+            after_patterns=[
+                '#include "base/feature_list.h"',
+                '#include "base/notimplemented.h"',
+                '#include "base/trace_event/trace_event.h"',
+                '#include "base/atomic_sequence_num.h"',
+                '#include "base/check.h"',
+                '#include "base/check_op.h"',
+                '#include "base/notreached.h"',
+            ],
+        )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Patch 4: --preload-script flag (document_start injection via V8)
-# Chrome 112+: AddScriptToEvaluateOnNewDocument was removed from WebContents.
-# Hook into RenderFrameImpl::DidCreateScriptContext — runs for every new JS
-# context before any page scripts, using raw V8 (no Blink deps needed).
-# ──────────────────────────────────────────────────────────────────────────────
-print("Patch 4: --preload-script flag")
+        # Chrome 112+: UNMASKED uses WebGLDebugRendererInfo enum + ContextGL()->GetString()
+        self.patch(
+            "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc",
+            "    case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:\n"
+            "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
+            "        return WebGLAny(script_state,\n"
+            "                        String(ContextGL()->GetString(GL_RENDERER)));\n"
+            "      }\n"
+            "      SynthesizeGLError(\n"
+            '          GL_INVALID_ENUM, "getParameter",\n'
+            '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
+            "      return ScriptValue::CreateNull(script_state->GetIsolate());\n"
+            "    case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:\n"
+            "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
+            "        return WebGLAny(script_state,\n"
+            "                        String(ContextGL()->GetString(GL_VENDOR)));\n"
+            "      }\n"
+            "      SynthesizeGLError(\n"
+            '          GL_INVALID_ENUM, "getParameter",\n'
+            '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
+            "      return ScriptValue::CreateNull(script_state->GetIsolate());",
+            (
+                "    case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:\n"
+                "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
+                '        if (base::CommandLine::ForCurrentProcess()->HasSwitch("webgl-unmasked-renderer")) {\n'
+                "          return WebGLAny(script_state, String(base::CommandLine::ForCurrentProcess()\n"
+                '                                                   ->GetSwitchValueASCII("webgl-unmasked-renderer")));\n'
+                "        }\n"
+                "        return WebGLAny(script_state,\n"
+                "                        String(ContextGL()->GetString(GL_RENDERER)));\n"
+                "      }\n"
+                "      SynthesizeGLError(\n"
+                '          GL_INVALID_ENUM, "getParameter",\n'
+                '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
+                "      return ScriptValue::CreateNull(script_state->GetIsolate());\n"
+                "    case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:\n"
+                "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
+                '        if (base::CommandLine::ForCurrentProcess()->HasSwitch("webgl-unmasked-vendor")) {\n'
+                "          return WebGLAny(script_state, String(base::CommandLine::ForCurrentProcess()\n"
+                '                                                   ->GetSwitchValueASCII("webgl-unmasked-vendor")));\n'
+                "        }\n"
+                "        return WebGLAny(script_state,\n"
+                "                        String(ContextGL()->GetString(GL_VENDOR)));\n"
+                "      }\n"
+                "      SynthesizeGLError(\n"
+                '          GL_INVALID_ENUM, "getParameter",\n'
+                '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
+                "      return ScriptValue::CreateNull(script_state->GetIsolate());"
+            ),
+            "intercept UNMASKED_VENDOR/RENDERER (Chrome 112+ enum style)",
+            fallbacks=[
+                # Older Chrome uses GL_UNMASKED_* integer constants directly
+                "    case GL_UNMASKED_VENDOR_WEBGL:\n"
+                '      return WebGLAny(script_state, String("WebKit"));\n'
+                "    case GL_UNMASKED_RENDERER_WEBGL:\n"
+                '      return WebGLAny(script_state, String("WebKit"));',
+            ],
+        )
 
-add_include(
-    "content/renderer/render_frame_impl.cc",
-    '#include "base/files/file_util.h"',
-    after_patterns=[
-        '#include "base/command_line.h"',
-        '#include "base/check_deref.h"',
-        '#include "base/byte_count.h"',
-    ],
-)
+        # Patch 3b: Forward webgl-unmasked-* switches from browser process to renderer.
+        # Chrome's multi-process model does NOT automatically propagate custom switches
+        # to renderer processes — they must be explicitly copied in AppendRendererCommandLine
+        # (or the equivalent AppendExtraCommandLineSwitches hook).
+        # File: content/browser/renderer_host/render_process_host_impl.cc
+        print("Patch 3b: forward webgl-unmasked-* switches to renderer processes")
 
-_PRELOAD_INJECTION = (
-    "  // --preload-script: evaluate JS file at document_start in every new context.\n"
-    "  if (world_id == ISOLATED_WORLD_ID_GLOBAL) {\n"
-    "    static std::string* preload_script_content = new std::string();\n"
-    "    static bool preload_script_loaded = false;\n"
-    "    if (!preload_script_loaded) {\n"
-    "      preload_script_loaded = true;\n"
-    "      base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();\n"
-    '      if (cmd->HasSwitch("preload-script")) {\n'
-    "        base::ReadFileToString(\n"
-    '            cmd->GetSwitchValuePath("preload-script"),\n'
-    "            preload_script_content);\n"
-    "      }\n"
-    "    }\n"
-    "    if (!preload_script_content->empty()) {\n"
-    "      v8::Isolate* isolate = v8::Isolate::GetCurrent();\n"
-    "      v8::Local<v8::String> source =\n"
-    "          v8::String::NewFromUtf8(isolate, preload_script_content->c_str(),\n"
-    "                                  v8::NewStringType::kNormal)\n"
-    "              .ToLocalChecked();\n"
-    "      v8::Local<v8::Script> script;\n"
-    "      if (v8::Script::Compile(context, source).ToLocal(&script)) {\n"
-    "        v8::Local<v8::Value> result;\n"
-    "        (void)script->Run(context).ToLocal(&result);\n"
-    "      }\n"
-    "    }\n"
-    "  }\n"
-)
+        self.add_include(
+            "content/browser/renderer_host/render_process_host_impl.cc",
+            '#include "base/command_line.h"',
+            after_patterns=[
+                '#include "base/check_deref.h"',
+                '#include "base/byte_count.h"',
+                '#include "base/allocator/partition_allocator/src/partition_alloc/partition_alloc_buildflags.h"',
+            ],
+        )
 
-patch(
-    "content/renderer/render_frame_impl.cc",
-    "  for (auto& observer : observers_)\n    observer.DidCreateScriptContext(context, world_id);\n}",
-    _PRELOAD_INJECTION + "  for (auto& observer : observers_)\n    observer.DidCreateScriptContext(context, world_id);\n}",
-    "inject preload script at context creation",
-)
+        self.patch(
+            "content/browser/renderer_host/render_process_host_impl.cc",
+            "void RenderProcessHostImpl::AppendRendererCommandLine(\n    base::CommandLine* command_line) {",
+            "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
+            "    base::CommandLine* command_line) {\n"
+            "  // Forward custom stealth switches to renderer processes.\n"
+            "  const base::CommandLine& browser_cmd =\n"
+            "      *base::CommandLine::ForCurrentProcess();\n"
+            '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
+            '                          "preload-script", "enable-trusted-synthetic-events"}) {\n'
+            "    if (browser_cmd.HasSwitch(sw))\n"
+            "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
+            "  }",
+            "forward stealth switches from browser to renderer process command line",
+        )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Patch 5: Inject preload script into DedicatedWorkerGlobalScope at C++ level
-# Chrome 112+: hook before EvaluateClassicScript() in DidFetchClassicScript.
-# ──────────────────────────────────────────────────────────────────────────────
-print("Patch 5: worker prelude injection")
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 4: --preload-script flag (document_start injection via V8)
+        # Chrome 112+: AddScriptToEvaluateOnNewDocument was removed from WebContents.
+        # Hook into RenderFrameImpl::DidCreateScriptContext — runs for every new JS
+        # context before any page scripts, using raw V8 (no Blink deps needed).
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 4: --preload-script flag")
 
-add_include(
-    "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
-    '#include "base/command_line.h"',
-    after_patterns=[
-        '#include "base/types/pass_key.h"',
-        '#include "base/metrics/histogram_macros.h"',
-        '#include "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.h"',
-        '#include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"',
-    ],
-)
+        self.add_include(
+            "content/renderer/render_frame_impl.cc",
+            '#include "base/files/file_util.h"',
+            after_patterns=[
+                '#include "base/command_line.h"',
+                '#include "base/check_deref.h"',
+                '#include "base/byte_count.h"',
+            ],
+        )
 
-add_include(
-    "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
-    '#include "base/files/file_util.h"',
-    after_patterns=[
-        '#include "base/command_line.h"',
-    ],
-)
+        _PRELOAD_INJECTION = (
+            "  // --preload-script: evaluate JS file at document_start in every new context.\n"
+            "  if (world_id == ISOLATED_WORLD_ID_GLOBAL) {\n"
+            "    static std::string* preload_script_content = new std::string();\n"
+            "    static bool preload_script_loaded = false;\n"
+            "    if (!preload_script_loaded) {\n"
+            "      preload_script_loaded = true;\n"
+            "      base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();\n"
+            '      if (cmd->HasSwitch("preload-script")) {\n'
+            "        base::ReadFileToString(\n"
+            '            cmd->GetSwitchValuePath("preload-script"),\n'
+            "            preload_script_content);\n"
+            "      }\n"
+            "    }\n"
+            "    if (!preload_script_content->empty()) {\n"
+            "      v8::Isolate* isolate = v8::Isolate::GetCurrent();\n"
+            "      v8::Local<v8::String> source =\n"
+            "          v8::String::NewFromUtf8(isolate, preload_script_content->c_str(),\n"
+            "                                  v8::NewStringType::kNormal)\n"
+            "              .ToLocalChecked();\n"
+            "      v8::Local<v8::Script> script;\n"
+            "      if (v8::Script::Compile(context, source).ToLocal(&script)) {\n"
+            "        v8::Local<v8::Value> result;\n"
+            "        (void)script->Run(context).ToLocal(&result);\n"
+            "      }\n"
+            "    }\n"
+            "  }\n"
+        )
 
-add_include(
-    "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
-    '#include "third_party/blink/renderer/core/script/classic_script.h"',
-    after_patterns=[
-        '#include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"',
-        '#include "third_party/blink/renderer/core/frame/local_frame.h"',
-    ],
-)
+        self.patch(
+            "content/renderer/render_frame_impl.cc",
+            "  for (auto& observer : observers_)\n    observer.DidCreateScriptContext(context, world_id);\n}",
+            _PRELOAD_INJECTION + "  for (auto& observer : observers_)\n    observer.DidCreateScriptContext(context, world_id);\n}",
+            "inject preload script at context creation",
+        )
 
-_WORKER_PRELOAD = (
-    "  // --preload-script: evaluate preload content before any user worker scripts.\n"
-    "  {\n"
-    "    static std::string* preload_content = new std::string();\n"
-    "    static bool preload_loaded = false;\n"
-    "    if (!preload_loaded) {\n"
-    "      preload_loaded = true;\n"
-    "      base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();\n"
-    '      if (cmd->HasSwitch("preload-script")) {\n'
-    '        base::FilePath path = cmd->GetSwitchValuePath("preload-script");\n'
-    "        if (!base::ReadFileToString(path, preload_content))\n"
-    "          preload_content->clear();\n"
-    "      }\n"
-    "    }\n"
-    "    if (!preload_content->empty()) {\n"
-    "      ClassicScript* script = ClassicScript::Create(\n"
-    "          String::FromUtf8(*preload_content),\n"
-    '          KURL("about:preload-script"),\n'
-    "          KURL(),\n"
-    "          ScriptFetchOptions(),\n"
-    "          ScriptSourceLocationType::kInternal,\n"
-    "          SanitizeScriptErrors::kDoNotSanitize);\n"
-    "      std::ignore = script->RunScriptOnScriptStateAndReturnValue(\n"
-    "          ScriptController()->GetScriptState());\n"
-    "    }\n"
-    "  }\n"
-)
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 5: Inject preload script into DedicatedWorkerGlobalScope at C++ level
+        # Chrome 112+: hook before EvaluateClassicScript() in DidFetchClassicScript.
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 5: worker prelude injection")
 
-# Chrome 112+: inject before EvaluateClassicScript() in DidFetchClassicScript
-patch(
-    "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
-    "  EvaluateClassicScript(\n"
-    "      classic_script_loader->ResponseURL(), classic_script_loader->SourceText(),\n"
-    "      classic_script_loader->ReleaseCachedMetadata(), stack_id);",
-    _WORKER_PRELOAD + "  EvaluateClassicScript(\n"
-    "      classic_script_loader->ResponseURL(), classic_script_loader->SourceText(),\n"
-    "      classic_script_loader->ReleaseCachedMetadata(), stack_id);",
-    "evaluate preload script before user code",
-    fallbacks=[
-        # Older hook point: before WorkerGlobalScope::Initialize call
-        "  WorkerGlobalScope::Initialize(user_agent,",
-    ],
-)
+        self.add_include(
+            "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
+            '#include "base/command_line.h"',
+            after_patterns=[
+                '#include "base/types/pass_key.h"',
+                '#include "base/metrics/histogram_macros.h"',
+                '#include "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.h"',
+                '#include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"',
+            ],
+        )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Patch 6: Remove "HeadlessChrome" product name token from UA string and
-# userAgentData brand lists — replace with plain "Chrome" so headless mode
-# is indistinguishable from a normal browser UA.
-# File: headless/lib/browser/headless_browser_impl.cc
-# ──────────────────────────────────────────────────────────────────────────────
-print("Patch 6: HeadlessChrome → Chrome in UA product name")
+        self.add_include(
+            "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
+            '#include "base/files/file_util.h"',
+            after_patterns=[
+                '#include "base/command_line.h"',
+            ],
+        )
 
-patch(
-    "headless/lib/browser/headless_browser_impl.cc",
-    'const char kHeadlessProductName[] = "HeadlessChrome";',
-    'const char kHeadlessProductName[] = "Chrome";',
-    "rename HeadlessChrome product token to Chrome",
-)
+        self.add_include(
+            "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
+            '#include "third_party/blink/renderer/core/script/classic_script.h"',
+            after_patterns=[
+                '#include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"',
+                '#include "third_party/blink/renderer/core/frame/local_frame.h"',
+            ],
+        )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Patch 7: VisualViewport width/height to match innerWidth/innerHeight
-# Prevents detection via visualViewport vs innerWidth/innerHeight mismatch.
-# The width()/height() methods return visible_size_; override to return
-# innerWidth/innerHeight when stealth flag is set.
-# File: third_party/blink/renderer/core/frame/visual_viewport.cc
-# ──────────────────────────────────────────────────────────────────────────────
-print("Patch 7: visualViewport width/height → innerWidth/innerHeight")
+        _WORKER_PRELOAD = (
+            "  // --preload-script: evaluate preload content before any user worker scripts.\n"
+            "  {\n"
+            "    static std::string* preload_content = new std::string();\n"
+            "    static bool preload_loaded = false;\n"
+            "    if (!preload_loaded) {\n"
+            "      preload_loaded = true;\n"
+            "      base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();\n"
+            '      if (cmd->HasSwitch("preload-script")) {\n'
+            '        base::FilePath path = cmd->GetSwitchValuePath("preload-script");\n'
+            "        if (!base::ReadFileToString(path, preload_content))\n"
+            "          preload_content->clear();\n"
+            "      }\n"
+            "    }\n"
+            "    if (!preload_content->empty()) {\n"
+            "      ClassicScript* script = ClassicScript::Create(\n"
+            "          String::FromUtf8(*preload_content),\n"
+            '          KURL("about:preload-script"),\n'
+            "          KURL(),\n"
+            "          ScriptFetchOptions(),\n"
+            "          ScriptSourceLocationType::kInternal,\n"
+            "          SanitizeScriptErrors::kDoNotSanitize);\n"
+            "      std::ignore = script->RunScriptOnScriptStateAndReturnValue(\n"
+            "          ScriptController()->GetScriptState());\n"
+            "    }\n"
+            "  }\n"
+        )
 
-add_include(
-    "third_party/blink/renderer/core/frame/visual_viewport.cc",
-    '#include "base/command_line.h"',
-    after_patterns=[
-        '#include "base/check_op.h"',
-        '#include "base/notreached.h"',
-    ],
-)
+        # Chrome 112+: inject before EvaluateClassicScript() in DidFetchClassicScript
+        self.patch(
+            "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
+            "  EvaluateClassicScript(\n"
+            "      classic_script_loader->ResponseURL(), classic_script_loader->SourceText(),\n"
+            "      classic_script_loader->ReleaseCachedMetadata(), stack_id);",
+            _WORKER_PRELOAD + "  EvaluateClassicScript(\n"
+            "      classic_script_loader->ResponseURL(), classic_script_loader->SourceText(),\n"
+            "      classic_script_loader->ReleaseCachedMetadata(), stack_id);",
+            "evaluate preload script before user code",
+            fallbacks=[
+                # Older hook point: before WorkerGlobalScope::Initialize call
+                "  WorkerGlobalScope::Initialize(user_agent,",
+            ],
+        )
 
-add_include(
-    "third_party/blink/renderer/core/frame/visual_viewport.cc",
-    '#include "third_party/blink/renderer/core/frame/local_dom_window.h"',
-    after_patterns=[
-        '#include "third_party/blink/renderer/core/frame/local_frame.h"',
-        '#include "third_party/blink/renderer/core/frame/local_frame_view.h"',
-    ],
-)
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 6: Remove "HeadlessChrome" product name token from UA string and
+        # userAgentData brand lists — replace with plain "Chrome" so headless mode
+        # is indistinguishable from a normal browser UA.
+        # File: headless/lib/browser/headless_browser_impl.cc
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 6: HeadlessChrome → Chrome in UA product name")
 
-patch(
-    "third_party/blink/renderer/core/frame/visual_viewport.cc",
-    "double VisualViewport::Width() const {\n"
-    "  DCHECK(IsActiveViewport());\n"
-    "  if (Document* document = LocalMainFrame().GetDocument())\n"
-    "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
-    "  return VisibleWidthCSSPx();\n"
-    "}",
-    (
-        "double VisualViewport::Width() const {\n"
-        "  // When stealth flag is set, return innerWidth to avoid\n"
-        "  // viewport coherence mismatch detection.\n"
-        "  static const bool stealth_viewport =\n"
-        '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
-        "  if (stealth_viewport && GetFrame()) {\n"
-        "    if (LocalDOMWindow* window = GetFrame()->DomWindow()) {\n"
-        "      return window->innerWidth();\n"
-        "    }\n"
-        "  }\n"
-        "  DCHECK(IsActiveViewport());\n"
-        "  if (Document* document = LocalMainFrame().GetDocument())\n"
-        "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
-        "  return VisibleWidthCSSPx();\n"
-        "}"
-    ),
-    "visualViewport Width() returns innerWidth with stealth flag",
-)
+        self.patch(
+            "headless/lib/browser/headless_browser_impl.cc",
+            'const char kHeadlessProductName[] = "HeadlessChrome";',
+            'const char kHeadlessProductName[] = "Chrome";',
+            "rename HeadlessChrome product token to Chrome",
+        )
 
-patch(
-    "third_party/blink/renderer/core/frame/visual_viewport.cc",
-    "double VisualViewport::Height() const {\n"
-    "  DCHECK(IsActiveViewport());\n"
-    "  if (Document* document = LocalMainFrame().GetDocument())\n"
-    "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
-    "  return VisibleHeightCSSPx();\n"
-    "}",
-    (
-        "double VisualViewport::Height() const {\n"
-        "  // When stealth flag is set, return innerHeight to avoid\n"
-        "  // viewport coherence mismatch detection.\n"
-        "  static const bool stealth_viewport =\n"
-        '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
-        "  if (stealth_viewport && GetFrame()) {\n"
-        "    if (LocalDOMWindow* window = GetFrame()->DomWindow()) {\n"
-        "      return window->innerHeight();\n"
-        "    }\n"
-        "  }\n"
-        "  DCHECK(IsActiveViewport());\n"
-        "  if (Document* document = LocalMainFrame().GetDocument())\n"
-        "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
-        "  return VisibleHeightCSSPx();\n"
-        "}"
-    ),
-    "visualViewport Height() returns innerHeight with stealth flag",
-)
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 7: VisualViewport width/height to match innerWidth/innerHeight
+        # Prevents detection via visualViewport vs innerWidth/innerHeight mismatch.
+        # The width()/height() methods return visible_size_; override to return
+        # innerWidth/innerHeight when stealth flag is set.
+        # File: third_party/blink/renderer/core/frame/visual_viewport.cc
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 7: visualViewport width/height → innerWidth/innerHeight")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Patch 8: Navigator languages to return non-empty array
-# Headless Chrome returns [] which is detectable. Return ['en-US', 'en'] instead.
-# File: third_party/blink/renderer/core/frame/navigator_language.cc
-# ──────────────────────────────────────────────────────────────────────────────
-print("Patch 8: navigator.languages returns ['en-US', 'en'] instead of []")
+        self.add_include(
+            "third_party/blink/renderer/core/frame/visual_viewport.cc",
+            '#include "base/command_line.h"',
+            after_patterns=[
+                '#include "base/check_op.h"',
+                '#include "base/notreached.h"',
+            ],
+        )
 
-add_include(
-    "third_party/blink/renderer/core/frame/navigator_language.cc",
-    '#include "base/command_line.h"',
-    after_patterns=[
-        '#include "third_party/blink/renderer/core/frame/navigator_language.h"',
-        '#include "third_party/blink/renderer/core/frame/local_frame.h"',
-    ],
-)
+        self.add_include(
+            "third_party/blink/renderer/core/frame/visual_viewport.cc",
+            '#include "third_party/blink/renderer/core/frame/local_dom_window.h"',
+            after_patterns=[
+                '#include "third_party/blink/renderer/core/frame/local_frame.h"',
+                '#include "third_party/blink/renderer/core/frame/local_frame_view.h"',
+            ],
+        )
 
-patch(
-    "third_party/blink/renderer/core/frame/navigator_language.cc",
-    "const Vector<String>& NavigatorLanguage::languages() {\n  EnsureUpdatedLanguage();\n  return languages_;\n}",
-    (
-        "const Vector<String>& NavigatorLanguage::languages() {\n"
-        "  static const bool stealth_languages = base::CommandLine::ForCurrentProcess()->HasSwitch(\\n"
-        '      "stealth-navigator-languages");\n'
-        "  if (stealth_languages && languages_.IsEmpty()) {\n"
-        '    languages_.push_back("en-US");\n'
-        '    languages_.push_back("en");\n'
-        "    return languages_;\n"
-        "  }\n"
-        "  EnsureUpdatedLanguage();\n"
-        "  return languages_;\n"
-        "}"
-    ),
-    "navigator.languages returns ['en-US', 'en'] with --stealth-navigator-languages",
-)
+        self.patch(
+            "third_party/blink/renderer/core/frame/visual_viewport.cc",
+            "double VisualViewport::Width() const {\n"
+            "  DCHECK(IsActiveViewport());\n"
+            "  if (Document* document = LocalMainFrame().GetDocument())\n"
+            "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
+            "  return VisibleWidthCSSPx();\n"
+            "}",
+            (
+                "double VisualViewport::Width() const {\n"
+                "  // When stealth flag is set, return innerWidth to avoid\n"
+                "  // viewport coherence mismatch detection.\n"
+                "  static const bool stealth_viewport =\n"
+                '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
+                "  if (stealth_viewport && GetFrame()) {\n"
+                "    if (LocalDOMWindow* window = GetFrame()->DomWindow()) {\n"
+                "      return window->innerWidth();\n"
+                "    }\n"
+                "  }\n"
+                "  DCHECK(IsActiveViewport());\n"
+                "  if (Document* document = LocalMainFrame().GetDocument())\n"
+                "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
+                "  return VisibleWidthCSSPx();\n"
+                "}"
+            ),
+            "visualViewport Width() returns innerWidth with stealth flag",
+        )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Patch 9: Forward stealth-navigator-languages switch to renderer
-# File: content/browser/renderer_host/render_process_host_impl.cc
-# ──────────────────────────────────────────────────────────────────────────────
-print("Patch 9: forward stealth-navigator-languages switch to renderer")
+        self.patch(
+            "third_party/blink/renderer/core/frame/visual_viewport.cc",
+            "double VisualViewport::Height() const {\n"
+            "  DCHECK(IsActiveViewport());\n"
+            "  if (Document* document = LocalMainFrame().GetDocument())\n"
+            "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
+            "  return VisibleHeightCSSPx();\n"
+            "}",
+            (
+                "double VisualViewport::Height() const {\n"
+                "  // When stealth flag is set, return innerHeight to avoid\n"
+                "  // viewport coherence mismatch detection.\n"
+                "  static const bool stealth_viewport =\n"
+                '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
+                "  if (stealth_viewport && GetFrame()) {\n"
+                "    if (LocalDOMWindow* window = GetFrame()->DomWindow()) {\n"
+                "      return window->innerHeight();\n"
+                "    }\n"
+                "  }\n"
+                "  DCHECK(IsActiveViewport());\n"
+                "  if (Document* document = LocalMainFrame().GetDocument())\n"
+                "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
+                "  return VisibleHeightCSSPx();\n"
+                "}"
+            ),
+            "visualViewport Height() returns innerHeight with stealth flag",
+        )
 
-patch(
-    "content/browser/renderer_host/render_process_host_impl.cc",
-    "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
-    "    base::CommandLine* command_line) {\n"
-    "  // Forward custom stealth switches to renderer processes.\n"
-    "  const base::CommandLine& browser_cmd =\n"
-    "      *base::CommandLine::ForCurrentProcess();\n"
-    '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
-    '                          "preload-script", "enable-trusted-synthetic-events"}) {\n'
-    "    if (browser_cmd.HasSwitch(sw))\n"
-    "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
-    "  }",
-    "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
-    "    base::CommandLine* command_line) {\n"
-    "  // Forward custom stealth switches to renderer processes.\n"
-    "  const base::CommandLine& browser_cmd =\n"
-    "      *base::CommandLine::ForCurrentProcess();\n"
-    '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
-    '                          "preload-script", "enable-trusted-synthetic-events",\n'
-    '                          "stealth-navigator-languages", "stealth-viewport-size"}) {\n'
-    "    if (browser_cmd.HasSwitch(sw))\n"
-    "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
-    "  }",
-    "forward stealth-navigator-languages switch to renderer",
-)
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 8: Navigator languages to return non-empty array
+        # Headless Chrome returns [] which is detectable. Return ['en-US', 'en'] instead.
+        # File: third_party/blink/renderer/core/frame/navigator_language.cc
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 8: navigator.languages returns ['en-US', 'en'] instead of []")
 
-# ──────────────────────────────────────────────────────────────────────────────
+        self.add_include(
+            "third_party/blink/renderer/core/frame/navigator_language.cc",
+            '#include "base/command_line.h"',
+            after_patterns=[
+                '#include "third_party/blink/renderer/core/frame/navigator_language.h"',
+                '#include "third_party/blink/renderer/core/frame/local_frame.h"',
+            ],
+        )
 
-def get_patched_files() -> list[str]:
-    """Return the deduplicated list of files that are touched by patches."""
-    return list(dict.fromkeys(PATCHED_FILES))
+        self.patch(
+            "third_party/blink/renderer/core/frame/navigator_language.cc",
+            "const Vector<String>& NavigatorLanguage::languages() {\n  EnsureUpdatedLanguage();\n  return languages_;\n}",
+            (
+                "const Vector<String>& NavigatorLanguage::languages() {\n"
+                "  static const bool stealth_languages = base::CommandLine::ForCurrentProcess()->HasSwitch(\\n"
+                '      "stealth-navigator-languages");\n'
+                "  if (stealth_languages && languages_.IsEmpty()) {\n"
+                '    languages_.push_back("en-US");\n'
+                '    languages_.push_back("en");\n'
+                "    return languages_;\n"
+                "  }\n"
+                "  EnsureUpdatedLanguage();\n"
+                "  return languages_;\n"
+                "}"
+            ),
+            "navigator.languages returns ['en-US', 'en'] with --stealth-navigator-languages",
+        )
 
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 9: Forward stealth-navigator-languages switch to renderer
+        # File: content/browser/renderer_host/render_process_host_impl.cc
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 9: forward stealth-navigator-languages switch to renderer")
 
-def print_patched_files() -> None:
-    """Print the list of patched files, one per line."""
-    for f in get_patched_files():
-        print(f)
+        self.patch(
+            "content/browser/renderer_host/render_process_host_impl.cc",
+            "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
+            "    base::CommandLine* command_line) {\n"
+            "  // Forward custom stealth switches to renderer processes.\n"
+            "  const base::CommandLine& browser_cmd =\n"
+            "      *base::CommandLine::ForCurrentProcess();\n"
+            '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
+            '                          "preload-script", "enable-trusted-synthetic-events"}) {\n'
+            "    if (browser_cmd.HasSwitch(sw))\n"
+            "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
+            "  }",
+            "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
+            "    base::CommandLine* command_line) {\n"
+            "  // Forward custom stealth switches to renderer processes.\n"
+            "  const base::CommandLine& browser_cmd =\n"
+            "      *base::CommandLine::ForCurrentProcess();\n"
+            '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
+            '                          "preload-script", "enable-trusted-synthetic-events",\n'
+            '                          "stealth-navigator-languages", "stealth-viewport-size"}) {\n'
+            "    if (browser_cmd.HasSwitch(sw))\n"
+            "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
+            "  }",
+            "forward stealth-navigator-languages switch to renderer",
+        )
+
+        # ──────────────────────────────────────────────────────────────────────────────
+
+    def get_patched_files(self) -> list[str]:
+        """Return the deduplicated list of files that are touched by patches."""
+        return list(dict.fromkeys(self.patched_files))
+
+    def print_patched_files(self) -> None:
+        """Print the list of patched files, one per line."""
+        for f in self.get_patched_files():
+            print(f)
 
 
 if __name__ == "__main__":
@@ -691,28 +680,29 @@ if __name__ == "__main__":
     parser.add_argument("--list-files", action="store_true", help="Print the list of files touched by patches and exit")
     args = parser.parse_args()
 
+    applier = PatchApplier()
     if args.list_files:
-        print_patched_files()
+        applier.list_files_only = True
+        import io
+
+        _old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        applier.run_patches()
+        sys.stdout = _old_stdout
+        applier.print_patched_files()
         sys.exit(0)
 
     if args.dry_run:
-        DRY_RUN = True
+        applier.dry_run = True
         print("*** DRY RUN — no files will be modified ***\n")
 
-    # ──────────────────────────────────────────────────────────────────────────────
-    # Patch execution continues below in the main body
-    # ──────────────────────────────────────────────────────────────────────────────
+    applier.run_patches()
 
-# NOTE: The remaining code is the main patch body; it executes when the
-# module is imported (or when __name__ == "__main__" after the argparse block).
-# Keep this at the bottom so argparse runs first when executed directly.
+    if applier.errors:
+        print(f"\n{applier.errors} patch(es) failed — see errors above.", file=sys.stderr)
+        sys.exit(1)
 
-if ERRORS:
-    print(f"\n{ERRORS} patch(es) failed — see errors above.", file=sys.stderr)
-    sys.exit(1)
-
-if DRY_RUN and not PATCHED_FILES:
-    print("No patches defined (or script not yet fully loaded).")
-
-if not DRY_RUN:
-    print("\nAll patches applied successfully.")
+    if applier.dry_run:
+        print("No files modified (dry run).")
+    else:
+        print("\nAll patches applied successfully.")
