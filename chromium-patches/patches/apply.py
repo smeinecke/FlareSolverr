@@ -451,10 +451,10 @@ class PatchApplier:
             "      }\n"
             "    }\n"
             "    if (!preload_script_content->empty() && GetWebFrame()) {\n"
+            "      v8::Isolate* isolate = v8::Isolate::GetCurrent();\n"
             "      v8::Local<v8::Context> ctx =\n"
             "          GetWebFrame()->MainWorldScriptContext();\n"
-            "      if (!ctx.IsEmpty()) {\n"
-            "        v8::Isolate* isolate = ctx->GetIsolate();\n"
+            "      if (isolate && !ctx.IsEmpty()) {\n"
             "        v8::HandleScope handle_scope(isolate);\n"
             "        v8::Context::Scope context_scope(ctx);\n"
             "        v8::MicrotasksScope no_microtasks(\n"
@@ -504,6 +504,14 @@ class PatchApplier:
             '#include "base/files/file_util.h"',
             after_patterns=[
                 '#include "base/command_line.h"',
+            ],
+        )
+
+        self.add_include(
+            "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
+            '#include "v8/include/v8.h"',
+            after_patterns=[
+                '#include "base/files/file_util.h"',
             ],
         )
 
