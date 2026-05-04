@@ -483,8 +483,8 @@ patch(
 # ──────────────────────────────────────────────────────────────────────────────
 # Patch 7: VisualViewport width/height to match innerWidth/innerHeight
 # Prevents detection via visualViewport vs innerWidth/innerHeight mismatch.
-# The Size() method returns the visual viewport size; we override to return
-# the layout viewport size (innerWidth/innerHeight) when stealth flag is set.
+# The width()/height() methods return visible_size_; override to return
+# innerWidth/innerHeight when stealth flag is set.
 # File: third_party/blink/renderer/core/frame/visual_viewport.cc
 # ──────────────────────────────────────────────────────────────────────────────
 print("Patch 7: visualViewport width/height → innerWidth/innerHeight")
@@ -507,25 +507,48 @@ add_include(
     ],
 )
 
-# Patch the Size() method to return layout viewport size when stealth flag is set
 patch(
     "third_party/blink/renderer/core/frame/visual_viewport.cc",
-    "gfx::Size VisualViewport::Size() const {\n  return size_;\n}",
+    "double VisualViewport::width() const {\n"
+    "  return visible_size_.width();\n"
+    "}",
     (
-        "gfx::Size VisualViewport::Size() const {\n"
-        "  // When stealth flag is set, return layout viewport size to match\n"
-        "  // innerWidth/innerHeight and avoid viewport coherence detection.\n"
+        "double VisualViewport::width() const {\n"
+        "  // When stealth flag is set, return innerWidth to avoid\n"
+        "  // viewport coherence mismatch detection.\n"
         "  static const bool stealth_viewport =\n"
         '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
         "  if (stealth_viewport && GetFrame()) {\n"
         "    if (LocalDOMWindow* window = GetFrame()->DomWindow()) {\n"
-        "      return gfx::Size(window->innerWidth(), window->innerHeight());\n"
+        "      return window->innerWidth();\n"
         "    }\n"
         "  }\n"
-        "  return size_;\n"
+        "  return visible_size_.width();\n"
         "}"
     ),
-    "visualViewport Size() returns innerWidth/innerHeight with stealth flag",
+    "visualViewport width() returns innerWidth with stealth flag",
+)
+
+patch(
+    "third_party/blink/renderer/core/frame/visual_viewport.cc",
+    "double VisualViewport::height() const {\n"
+    "  return visible_size_.height();\n"
+    "}",
+    (
+        "double VisualViewport::height() const {\n"
+        "  // When stealth flag is set, return innerHeight to avoid\n"
+        "  // viewport coherence mismatch detection.\n"
+        "  static const bool stealth_viewport =\n"
+        '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
+        "  if (stealth_viewport && GetFrame()) {\n"
+        "    if (LocalDOMWindow* window = GetFrame()->DomWindow()) {\n"
+        "      return window->innerHeight();\n"
+        "    }\n"
+        "  }\n"
+        "  return visible_size_.height();\n"
+        "}"
+    ),
+    "visualViewport height() returns innerHeight with stealth flag",
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
