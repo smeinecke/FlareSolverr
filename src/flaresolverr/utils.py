@@ -336,13 +336,11 @@ def _build_chrome_options(effective_stealth_mode: str) -> uc.ChromeOptions:
 
     if effective_stealth_mode != STEALTH_MODE_OFF and _is_custom_chromium():
         options.add_argument("--enable-trusted-synthetic-events")
-        # --preload-script disabled: running v8::Script from DidCreateScriptContext triggers
-        # microtask re-entrancy causing renderer CPU spin; stealth.js injected via CDP instead.
+        # --preload-script disabled until Chromium rebuild with DidCreateDocumentElement hook
+        # options.add_argument("--preload-script=/app/src/flaresolverr/stealth.js")
         options.add_argument("--webgl-unmasked-vendor=Intel Inc.")
         options.add_argument("--webgl-unmasked-renderer=Intel(R) Iris(TM) Graphics 6100")
         options.add_argument("--stealth-navigator-languages")
-        # --stealth-viewport-size disabled: still causes renderer recursion via
-        # LocalMainFrame().View()->GetLayoutSize(); screen size fixed via Emulation CDP call.
         logging.debug("Applied custom Chromium stealth flags.")
 
     return options
@@ -441,12 +439,8 @@ def _maybe_apply_stealth(driver: WebDriver, effective_stealth_mode: str) -> None
 
     try:
         if _is_custom_chromium():
-            # C++ flags handle WebGL, webdriver, isTrusted, navigator.languages at the
-            # binary level. Inject stealth_fallback.js via CDP for JS-only patches
-            # (plugins, permissions, media devices, etc.) with WebGL patching disabled
-            # to avoid double-patching with the C++ layer.
-            # Note: --preload-script C++ injection is currently broken (microtask
-            # reentrancy during DidCreateScriptContext), so we use CDP here.
+            # C++ flags handle WebGL, webdriver, isTrusted, navigator.languages at binary level.
+            # Inject stealth_fallback.js via CDP with WebGL patching off (C++ layer handles it).
             prelude = "window.__FS_STEALTH_PATCH_WEBGL = false;\nwindow.__FS_STEALTH_BLOB_BYPASS = false;\n"
             driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": prelude + _load_stealth_script(fallback=True)})
             logging.info("Applied custom Chromium stealth (C++ flags + CDP JS patches, mode=%s).", effective_stealth_mode)
