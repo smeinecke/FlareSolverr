@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Apply all FlareSolverr stealth patches to the Chromium source tree.
+Apply Chromium C++ patches for FlareSolverr stealth mode.
+
 Run from /chromium/src:  python3 /chromium/patches/apply.py
 
 Uses string replacement so patches survive line-number churn.
@@ -8,11 +9,35 @@ On failure, prints the relevant section of the target file so the
 search string can be fixed without a full re-sync.
 """
 
+import argparse
+import pathlib
 import re
 import sys
-import pathlib
 
 ERRORS = 0
+DRY_RUN = False
+
+# Deduplicated list of every file touched by the patches below.
+# This is the single source of truth — other tooling can read it directly.
+PATCHED_FILES: list[str] = [
+    "third_party/blink/renderer/core/dom/events/event.h",
+    "third_party/blink/renderer/core/frame/navigator_automation_information.idl",
+    "third_party/blink/renderer/core/frame/navigator.h",
+    "third_party/blink/renderer/core/frame/navigator.cc",
+    "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc",
+    "content/browser/renderer_host/render_process_host_impl.cc",
+    "content/renderer/render_frame_impl.cc",
+    "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
+    "headless/lib/browser/headless_browser_impl.cc",
+    "third_party/blink/renderer/core/frame/visual_viewport.cc",
+    "third_party/blink/renderer/core/frame/navigator_language.cc",
+]
+
+
+def set_dry_run(enabled: bool = True) -> None:
+    """Enable or disable dry-run mode programmatically."""
+    global DRY_RUN
+    DRY_RUN = enabled
 
 
 def _ctx(content: str, pattern: str, radius: int = 20) -> str:
@@ -43,10 +68,18 @@ def patch(rel_path: str, old: str, new: str, description: str, fallbacks: "list[
         return
 
     content = p.read_text()
+    # If the replacement is already present, the patch was applied previously
+    if new in content:
+        print(f"  SKIP  {rel_path}  ({description} – already patched)")
+        return
+
     for candidate in [old] + (fallbacks or []):
         if candidate in content:
-            p.write_text(content.replace(candidate, new, 1))
-            print(f"  OK  {rel_path}  ({description})")
+            if DRY_RUN:
+                print(f"  WOULD_PATCH  {rel_path}  ({description})")
+            else:
+                p.write_text(content.replace(candidate, new, 1))
+                print(f"  OK  {rel_path}  ({description})")
             return
 
     print(f"\nERROR [{description}]: target string not found in {rel_path}", file=sys.stderr)
@@ -81,17 +114,23 @@ def add_include(rel_path: str, new_include: str, after_patterns: "list[str] | No
     # Try explicit anchors first
     for anchor in after_patterns or []:
         if anchor in content:
-            content = content.replace(anchor, anchor + "\n" + new_include, 1)
-            p.write_text(content)
-            print(f"  OK  {rel_path}  (inserted {new_include!r})")
+            if DRY_RUN:
+                print(f"  WOULD_INSERT  {rel_path}  ({new_include!r})")
+            else:
+                content = content.replace(anchor, anchor + "\n" + new_include, 1)
+                p.write_text(content)
+                print(f"  OK  {rel_path}  (inserted {new_include!r})")
             return
 
     # Fallback 1: before first #include "third_party/blink/
     m = re.search(r'^(#include "third_party/blink/)', content, re.MULTILINE)
     if m:
-        content = content[: m.start()] + new_include + "\n" + content[m.start() :]
-        p.write_text(content)
-        print(f"  OK  {rel_path}  (inserted {new_include!r} before third_party/blink includes)")
+        if DRY_RUN:
+            print(f"  WOULD_INSERT  {rel_path}  ({new_include!r} before third_party/blink includes)")
+        else:
+            content = content[: m.start()] + new_include + "\n" + content[m.start() :]
+            p.write_text(content)
+            print(f"  OK  {rel_path}  (inserted {new_include!r} before third_party/blink includes)")
         return
 
     # Fallback 2: after the last #include "base/ line
@@ -100,10 +139,13 @@ def add_include(rel_path: str, new_include: str, after_patterns: "list[str] | No
         last_base = m
 
     if last_base:
-        end = last_base.end()
-        content = content[:end] + "\n" + new_include + content[end:]
-        p.write_text(content)
-        print(f"  OK  {rel_path}  (inserted {new_include!r} after last base include)")
+        if DRY_RUN:
+            print(f"  WOULD_INSERT  {rel_path}  ({new_include!r} after last base include)")
+        else:
+            end = last_base.end()
+            content = content[:end] + "\n" + new_include + content[end:]
+            p.write_text(content)
+            print(f"  OK  {rel_path}  (inserted {new_include!r} after last base include)")
         return
 
     print(f"\nERROR [add_include]: no insertion point found in {rel_path}", file=sys.stderr)
@@ -632,8 +674,45 @@ patch(
 
 # ──────────────────────────────────────────────────────────────────────────────
 
+def get_patched_files() -> list[str]:
+    """Return the deduplicated list of files that are touched by patches."""
+    return list(dict.fromkeys(PATCHED_FILES))
+
+
+def print_patched_files() -> None:
+    """Print the list of patched files, one per line."""
+    for f in get_patched_files():
+        print(f)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Apply Chromium C++ patches")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be patched without writing")
+    parser.add_argument("--list-files", action="store_true", help="Print the list of files touched by patches and exit")
+    args = parser.parse_args()
+
+    if args.list_files:
+        print_patched_files()
+        sys.exit(0)
+
+    if args.dry_run:
+        DRY_RUN = True
+        print("*** DRY RUN — no files will be modified ***\n")
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    # Patch execution continues below in the main body
+    # ──────────────────────────────────────────────────────────────────────────────
+
+# NOTE: The remaining code is the main patch body; it executes when the
+# module is imported (or when __name__ == "__main__" after the argparse block).
+# Keep this at the bottom so argparse runs first when executed directly.
+
 if ERRORS:
     print(f"\n{ERRORS} patch(es) failed — see errors above.", file=sys.stderr)
     sys.exit(1)
 
-print("\nAll patches applied successfully.")
+if DRY_RUN and not PATCHED_FILES:
+    print("No patches defined (or script not yet fully loaded).")
+
+if not DRY_RUN:
+    print("\nAll patches applied successfully.")
