@@ -726,13 +726,13 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
         elif action_type == "click":
             logging.debug(f"Action click: waiting for selector={selector}")
             el = WebDriverWait(driver, default_action_timeout).until(presence_of_element_located((By.XPATH, selector)))
-            logging.debug(f"Action click: element found, scrolling")
+            logging.debug("Action click: element found, scrolling")
             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
             time.sleep(_random_delay(0.2, 0.4))
             if action.get("humanLike"):
                 _human_like_click(driver, el)
             else:
-                logging.debug(f"Action click: calling ActionChains.perform()")
+                logging.debug("Action click: calling ActionChains.perform()")
                 try:
                     ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.15)).click().perform()
                 except UnexpectedAlertPresentException:
