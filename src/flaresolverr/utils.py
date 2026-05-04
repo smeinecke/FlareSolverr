@@ -336,11 +336,13 @@ def _build_chrome_options(effective_stealth_mode: str) -> uc.ChromeOptions:
 
     if effective_stealth_mode != STEALTH_MODE_OFF and _is_custom_chromium():
         options.add_argument("--enable-trusted-synthetic-events")
-        options.add_argument("--preload-script=/app/src/flaresolverr/stealth.js")
+        # --preload-script disabled: running v8::Script from DidCreateScriptContext triggers
+        # microtask re-entrancy causing renderer CPU spin; stealth.js injected via CDP instead.
         options.add_argument("--webgl-unmasked-vendor=Intel Inc.")
         options.add_argument("--webgl-unmasked-renderer=Intel(R) Iris(TM) Graphics 6100")
         options.add_argument("--stealth-navigator-languages")
-        options.add_argument("--stealth-viewport-size")
+        # --stealth-viewport-size disabled: still causes renderer recursion via
+        # LocalMainFrame().View()->GetLayoutSize(); screen size fixed via Emulation CDP call.
         logging.debug("Applied custom Chromium stealth flags.")
 
     return options
@@ -437,13 +439,20 @@ def _maybe_apply_stealth(driver: WebDriver, effective_stealth_mode: str) -> None
 
     _apply_screen_size_override(driver)
 
-    if _is_custom_chromium():
-        logging.info("Custom Chromium stealth flags active (mode=%s).", effective_stealth_mode)
-        return
-
     try:
-        _apply_stealth_patches(driver, effective_stealth_mode)
-        logging.info("Applied CDP stealth patches (fallback mode=%s).", effective_stealth_mode)
+        if _is_custom_chromium():
+            # C++ flags handle WebGL, webdriver, isTrusted, navigator.languages at the
+            # binary level. Inject stealth_fallback.js via CDP for JS-only patches
+            # (plugins, permissions, media devices, etc.) with WebGL patching disabled
+            # to avoid double-patching with the C++ layer.
+            # Note: --preload-script C++ injection is currently broken (microtask
+            # reentrancy during DidCreateScriptContext), so we use CDP here.
+            prelude = "window.__FS_STEALTH_PATCH_WEBGL = false;\nwindow.__FS_STEALTH_BLOB_BYPASS = false;\n"
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": prelude + _load_stealth_script(fallback=True)})
+            logging.info("Applied custom Chromium stealth (C++ flags + CDP JS patches, mode=%s).", effective_stealth_mode)
+        else:
+            _apply_stealth_patches(driver, effective_stealth_mode)
+            logging.info("Applied CDP stealth patches (fallback mode=%s).", effective_stealth_mode)
     except Exception as e:
         logging.warning("Failed applying stealth patches: %s", e)
 
