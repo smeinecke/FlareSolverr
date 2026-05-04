@@ -159,6 +159,10 @@ class Patcher(object):
             self._custom_exe_path = True
 
         if self._custom_exe_path:
+            # Skip patching for FlareSolverr custom stealth-patched chromedriver.
+            # The CDC aliases are already removed at source level (C++ Patch 10).
+            if os.path.exists("/opt/chromium/.stealth-patched"):
+                return True
             ispatched = self.is_binary_patched(self.executable_path)
             if not ispatched:
                 return self.patch_exe()
