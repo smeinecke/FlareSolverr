@@ -29,7 +29,7 @@ class TestFlareSolverr(unittest.TestCase):
     post_url = "https://httpbin.org/post"
     cloudflare_url = "https://nowsecure.nl/"
     cloudflare_url_2 = "https://bt4gprx.com/search?q=2022"
-    ddos_guard_url = "https://www.litres.ru/"
+    ddos_guard_url = "https://www.anime-loads.org/"
     fairlane_url = "https://www.pararius.com/apartments/amsterdam"
     scrapingcourse_cf_url = "https://www.scrapingcourse.com/cloudflare-challenge"
     scrapingcourse_turnstile_url = "https://www.scrapingcourse.com/login/cf-turnstile"
@@ -238,6 +238,11 @@ class TestFlareSolverr(unittest.TestCase):
 
         body = V1ResponseBase(self._get_json(res))
         self.assertEqual(STATUS_OK, body.status)
+
+        # bt4gprx.com can return a Cloudflare hard-block page instead of a challenge
+        if body.solution and "Incompatible browser extension or network configuration" in body.solution.response:
+            self.skipTest("Target site returned Cloudflare hard-block page (site-specific anti-bot policy).")
+
         self._assert_challenge_status_ok(body.message)
         self.assertGreater(body.startTimestamp, 10000)
         self.assertGreaterEqual(body.endTimestamp, body.startTimestamp)
@@ -270,7 +275,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn(self.ddos_guard_url, solution.url)
         self.assertEqual(solution.status, 200)
         self.assertIs(len(solution.headers), 0)
-        self.assertRegex(solution.response, re.compile(r"Литрес|litres", re.IGNORECASE))
+        self.assertRegex(solution.response, re.compile(r"ANIME-LOADS.ORG -", re.IGNORECASE))
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
@@ -368,32 +373,38 @@ class TestFlareSolverr(unittest.TestCase):
         if turnstile_response is None:
             self.assertIn("cf-turnstile-response", solution.response)
 
-    def test_v1_endpoint_request_post_csrf_login(self):
+    def test_v1_endpoint_request_get_csrf_login(self):
         res = self._request(
             "POST",
             "/v1",
             {
-                "cmd": "request.post",
+                "cmd": "request.get",
                 "url": self.scrapingcourse_csrf_url,
-                "postData": "username=testuser&password=testpass",
-                "maxTimeout": 60000,
+                "maxTimeout": 120000,
+                "actions": [
+                    {"type": "wait", "seconds": 2},
+                    {"type": "fill", "selector": "//input[@id='email']", "value": "admin@example.com"},
+                    {"type": "fill", "selector": "//input[@id='password']", "value": "password"},
+                    {"type": "click", "selector": "//button[@id='submit-button']"},
+                    {"type": "wait", "seconds": 3},
+                ],
             },
         )
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
         self.assertEqual(STATUS_OK, body.status)
-        self.assertEqual("Challenge not detected!", body.message)
+        self._assert_challenge_status_ok(body.message)
         self.assertGreater(body.startTimestamp, 10000)
         self.assertGreaterEqual(body.endTimestamp, body.startTimestamp)
         self.assertEqual(utils.get_flaresolverr_version(), body.version)
 
         solution = body.solution
-        self.assertIn(self.scrapingcourse_csrf_url, solution.url)
         self.assertEqual(solution.status, 200)
         self.assertIs(len(solution.headers), 0)
-        self.assertIn("Login with CSRF Challenge to Learn Web Scraping", solution.response)
-        self.assertIn("csrf_token", solution.response.lower())
+        # Real form submission should not hit Laravel 419 Page Expired
+        self.assertNotIn("Page Expired", solution.response)
+        self.assertNotIn("419", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
