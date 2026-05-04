@@ -483,9 +483,20 @@ patch(
 # ──────────────────────────────────────────────────────────────────────────────
 # Patch 7: VisualViewport width/height to match innerWidth/innerHeight
 # Prevents detection via visualViewport vs innerWidth/innerHeight mismatch.
+# The Size() method returns the visual viewport size; we override to return
+# the layout viewport size (innerWidth/innerHeight) when stealth flag is set.
 # File: third_party/blink/renderer/core/frame/visual_viewport.cc
 # ──────────────────────────────────────────────────────────────────────────────
 print("Patch 7: visualViewport width/height → innerWidth/innerHeight")
+
+add_include(
+    "third_party/blink/renderer/core/frame/visual_viewport.cc",
+    '#include "base/command_line.h"',
+    after_patterns=[
+        '#include "base/check_op.h"',
+        '#include "base/notreached.h"',
+    ],
+)
 
 add_include(
     "third_party/blink/renderer/core/frame/visual_viewport.cc",
@@ -496,28 +507,25 @@ add_include(
     ],
 )
 
+# Patch the Size() method to return layout viewport size when stealth flag is set
 patch(
     "third_party/blink/renderer/core/frame/visual_viewport.cc",
-    "FloatSize VisualViewport::VisibleRectFloatSize() const {\n"
-    "  return FloatSize(FloatSize(visible_rect_.Size()) * \\n"
-    "                     FloatSize(PageScaleFactor(), PageScaleFactor()));\n"
-    "}",
+    "gfx::Size VisualViewport::Size() const {\n  return size_;\n}",
     (
-        "FloatSize VisualViewport::VisibleRectFloatSize() const {\n"
-        "  // Return innerWidth/innerHeight instead of scaled visible rect\n"
-        "  // to match window dimensions and avoid viewport coherence detection.\n"
-        "  if (LocalFrame* frame = GetFrame()) {\n"
-        "    if (LocalDOMWindow* window = frame->DomWindow()) {\n"
-        '      int inner_width = static_cast<int>(window->innerWidth());\n'
-        '      int inner_height = static_cast<int>(window->innerHeight());\n'
-        "      return FloatSize(inner_width, inner_height);\n"
+        "gfx::Size VisualViewport::Size() const {\n"
+        "  // When stealth flag is set, return layout viewport size to match\n"
+        "  // innerWidth/innerHeight and avoid viewport coherence detection.\n"
+        "  static const bool stealth_viewport =\n"
+        '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
+        "  if (stealth_viewport && GetFrame()) {\n"
+        "    if (LocalDOMWindow* window = GetFrame()->DomWindow()) {\n"
+        "      return gfx::Size(window->innerWidth(), window->innerHeight());\n"
         "    }\n"
         "  }\n"
-        "  return FloatSize(FloatSize(visible_rect_.Size()) * \\n"
-        "                     FloatSize(PageScaleFactor(), PageScaleFactor()));\n"
+        "  return size_;\n"
         "}"
     ),
-    "visualViewport VisibleRectFloatSize returns innerWidth/innerHeight",
+    "visualViewport Size() returns innerWidth/innerHeight with stealth flag",
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -539,24 +547,20 @@ add_include(
 patch(
     "third_party/blink/renderer/core/frame/navigator_language.cc",
     "const Vector<String>& NavigatorLanguage::languages() {\n"
-    "  if (!languages_cache_.size()) {\n"
-    "    PlatformLanguagesChanged();\n"
-    "  }\n"
-    "  return languages_cache_;\n"
+    "  EnsureUpdatedLanguage();\n"
+    "  return languages_;\n"
     "}",
     (
         "const Vector<String>& NavigatorLanguage::languages() {\n"
         "  static const bool stealth_languages = base::CommandLine::ForCurrentProcess()->HasSwitch(\\n"
         '      "stealth-navigator-languages");\n'
-        "  if (!languages_cache_.size()) {\n"
-        "    if (stealth_languages) {\n"
-        '      languages_cache_.push_back("en-US");\n'
-        '      languages_cache_.push_back("en");\n'
-        "    } else {\n"
-        "      PlatformLanguagesChanged();\n"
-        "    }\n"
+        "  if (stealth_languages && languages_.IsEmpty()) {\n"
+        '    languages_.push_back("en-US");\n'
+        '    languages_.push_back("en");\n'
+        "    return languages_;\n"
         "  }\n"
-        "  return languages_cache_;\n"
+        "  EnsureUpdatedLanguage();\n"
+        "  return languages_;\n"
         "}"
     ),
     "navigator.languages returns ['en-US', 'en'] with --stealth-navigator-languages",
@@ -587,7 +591,7 @@ patch(
     "      *base::CommandLine::ForCurrentProcess();\n"
     '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
     '                          "preload-script", "enable-trusted-synthetic-events",\n'
-    '                          "stealth-navigator-languages"}) {\n'
+    '                          "stealth-navigator-languages", "stealth-viewport-size"}) {\n'
     "    if (browser_cmd.HasSwitch(sw))\n"
     "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
     "  }",
