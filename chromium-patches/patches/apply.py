@@ -362,10 +362,11 @@ class PatchApplier:
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 4: --preload-script flag (document_start injection via V8)
-        # Chrome 112+: AddScriptToEvaluateOnNewDocument was removed from WebContents.
-        # Hook into RenderFrameImpl::DidCreateScriptContext — runs for every new JS
-        # context before any page scripts, using raw V8 (no Blink deps needed).
+        # Patch 4: --preload-script flag (document_start injection via Blink WebFrame)
+        # Hook into RenderFrameImpl::DidCreateDocumentElement — fires AFTER V8 context
+        # creation is complete, so it is safe to compile and run scripts.
+        # DO NOT use DidCreateScriptContext: that fires DURING V8 context creation while
+        # V8 holds internal spinlocks; calling Script::Compile there spins at 97% CPU.
         # ──────────────────────────────────────────────────────────────────────────────
         print("Patch 4: --preload-script flag")
 
@@ -379,11 +380,19 @@ class PatchApplier:
             ],
         )
 
+        self.add_include(
+            "content/renderer/render_frame_impl.cc",
+            '#include "third_party/blink/public/web/web_script_source.h"',
+            after_patterns=[
+                '#include "base/files/file_util.h"',
+                '#include "base/command_line.h"',
+            ],
+        )
+
         _PRELOAD_INJECTION = (
-            "  // --preload-script: evaluate JS file at document_start in every new context.\n"
-            "  // kDoNotRunMicrotasks prevents microtask-driven DidCreateScriptContext re-entrancy\n"
-            "  // that caused renderer CPU spin when running scripts from this notification.\n"
-            "  if (world_id == ISOLATED_WORLD_ID_GLOBAL) {\n"
+            "  // --preload-script: evaluate JS file before any page scripts.\n"
+            "  // Safe here because DidCreateDocumentElement fires after V8 context init.\n"
+            "  {\n"
             "    static std::string* preload_script_content = new std::string();\n"
             "    static bool preload_script_loaded = false;\n"
             "    if (!preload_script_loaded) {\n"
@@ -395,29 +404,19 @@ class PatchApplier:
             "            preload_script_content);\n"
             "      }\n"
             "    }\n"
-            "    if (!preload_script_content->empty()) {\n"
-            "      v8::Isolate* isolate = v8::Isolate::GetCurrent();\n"
-            "      v8::MicrotasksScope microtasks_scope(\n"
-            "          isolate, context->GetMicrotaskQueue(),\n"
-            "          v8::MicrotasksScope::kDoNotRunMicrotasks);\n"
-            "      v8::Local<v8::String> source =\n"
-            "          v8::String::NewFromUtf8(isolate, preload_script_content->c_str(),\n"
-            "                                  v8::NewStringType::kNormal)\n"
-            "              .ToLocalChecked();\n"
-            "      v8::Local<v8::Script> script;\n"
-            "      if (v8::Script::Compile(context, source).ToLocal(&script)) {\n"
-            "        v8::Local<v8::Value> result;\n"
-            "        (void)script->Run(context).ToLocal(&result);\n"
-            "      }\n"
+            "    if (!preload_script_content->empty() && GetWebFrame()) {\n"
+            "      GetWebFrame()->ExecuteScript(\n"
+            "          blink::WebScriptSource(\n"
+            "              blink::WebString::FromUTF8(*preload_script_content)));\n"
             "    }\n"
             "  }\n"
         )
 
         self.patch(
             "content/renderer/render_frame_impl.cc",
-            "  for (auto& observer : observers_)\n    observer.DidCreateScriptContext(context, world_id);\n}",
-            _PRELOAD_INJECTION + "  for (auto& observer : observers_)\n    observer.DidCreateScriptContext(context, world_id);\n}",
-            "inject preload script at context creation",
+            "  for (auto& observer : observers_)\n    observer.DidCreateDocumentElement();\n}",
+            _PRELOAD_INJECTION + "  for (auto& observer : observers_)\n    observer.DidCreateDocumentElement();\n}",
+            "inject preload script at DidCreateDocumentElement (safe, after V8 init)",
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
