@@ -340,6 +340,7 @@ def _build_chrome_options(effective_stealth_mode: str) -> uc.ChromeOptions:
         options.add_argument("--webgl-unmasked-vendor=Intel Inc.")
         options.add_argument("--webgl-unmasked-renderer=Intel(R) Iris(TM) Graphics 6100")
         options.add_argument("--stealth-navigator-languages")
+        options.add_argument("--stealth-viewport-size")
         logging.debug("Applied custom Chromium stealth flags.")
 
     return options
