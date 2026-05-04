@@ -542,8 +542,8 @@ class PatchApplier:
                 "  // VisualViewport::Width() via Page::GetVisualViewport().Width().\n"
                 "  static const bool stealth_viewport =\n"
                 '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
-                "  if (stealth_viewport && GetFrame() && GetFrame()->View()) {\n"
-                "    return GetFrame()->View()->GetLayoutSize().width();\n"
+                "  if (stealth_viewport && LocalMainFrame().View()) {\n"
+                "    return LocalMainFrame().View()->GetLayoutSize().width();\n"
                 "  }\n"
                 "  DCHECK(IsActiveViewport());\n"
                 "  if (Document* document = LocalMainFrame().GetDocument())\n"
@@ -570,8 +570,8 @@ class PatchApplier:
                 "  // VisualViewport::Height() via Page::GetVisualViewport().Height().\n"
                 "  static const bool stealth_viewport =\n"
                 '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
-                "  if (stealth_viewport && GetFrame() && GetFrame()->View()) {\n"
-                "    return GetFrame()->View()->GetLayoutSize().height();\n"
+                "  if (stealth_viewport && LocalMainFrame().View()) {\n"
+                "    return LocalMainFrame().View()->GetLayoutSize().height();\n"
                 "  }\n"
                 "  DCHECK(IsActiveViewport());\n"
                 "  if (Document* document = LocalMainFrame().GetDocument())\n"
@@ -605,7 +605,7 @@ class PatchApplier:
                 "const Vector<String>& NavigatorLanguage::languages() {\n"
                 "  static const bool stealth_languages = base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
                 '      "stealth-navigator-languages");\n'
-                "  if (stealth_languages && languages_.IsEmpty()) {\n"
+                "  if (stealth_languages && languages_.empty()) {\n"
                 '    languages_.push_back("en-US");\n'
                 '    languages_.push_back("en");\n'
                 "    return languages_;\n"
