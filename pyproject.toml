@@ -79,7 +79,7 @@ include = [
 ]
 
 [tool.ruff]
-exclude = ["docs", "tests", "src/flaresolverr/undetected_chromedriver"]
+exclude = ["docs", "tests", "src/flaresolverr/undetected_chromedriver", "chromium-patches"]
 line-length = 160
 
 [tool.bandit]

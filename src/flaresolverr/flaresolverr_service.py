@@ -740,8 +740,8 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
                         alert_text = driver.switch_to.alert.text
                         logging.debug(f"Action click: dismissing alert: {alert_text!r}")
                         driver.switch_to.alert.dismiss()
-                    except Exception:
-                        pass
+                    except Exception as alert_err:  # noqa: BLE001
+                        logging.debug(f"Action click: alert already gone: {alert_err}")
             logging.debug(f"Action click: done selector={selector}")
         elif action_type == "wait_for":
             timeout_ms = action.get("timeout")
