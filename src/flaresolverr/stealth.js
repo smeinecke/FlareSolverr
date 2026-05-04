@@ -103,16 +103,9 @@
   } catch (_) {}
 
   // ── visualViewport ────────────────────────────────────────────────────────────
-  // Ensure visualViewport dimensions match innerWidth/innerHeight so
-  // fingerprinters checking viewport coherence don't flag a mismatch.
-  // visualViewport width/height are native getters on VisualViewport.prototype,
-  // so we patch the prototype rather than the live instance.
-  try {
-    const VVP = window.VisualViewport && window.VisualViewport.prototype;
-    if (VVP) {
-      try { Object.defineProperty(VVP, 'width',  { get: () => innerWidth  || 1280, configurable: true }); } catch (_) {}
-      try { Object.defineProperty(VVP, 'height', { get: () => innerHeight || 800,  configurable: true }); } catch (_) {}
-    }
-  } catch (_) {}
+  // NOTE: Now handled at C++ level via --stealth-viewport-size flag.
+  // The C++ patch in VisualViewport::Width() and ::Height() returns
+  // innerWidth/innerHeight instead of the scaled visual viewport size,
+  // avoiding JS property descriptor modification.
 
 })();

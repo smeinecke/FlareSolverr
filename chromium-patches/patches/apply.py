@@ -509,9 +509,14 @@ add_include(
 
 patch(
     "third_party/blink/renderer/core/frame/visual_viewport.cc",
-    "double VisualViewport::width() const {\n  return visible_size_.width();\n}",
+    "double VisualViewport::Width() const {\n"
+    "  DCHECK(IsActiveViewport());\n"
+    "  if (Document* document = LocalMainFrame().GetDocument())\n"
+    "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
+    "  return VisibleWidthCSSPx();\n"
+    "}",
     (
-        "double VisualViewport::width() const {\n"
+        "double VisualViewport::Width() const {\n"
         "  // When stealth flag is set, return innerWidth to avoid\n"
         "  // viewport coherence mismatch detection.\n"
         "  static const bool stealth_viewport =\n"
@@ -521,17 +526,25 @@ patch(
         "      return window->innerWidth();\n"
         "    }\n"
         "  }\n"
-        "  return visible_size_.width();\n"
+        "  DCHECK(IsActiveViewport());\n"
+        "  if (Document* document = LocalMainFrame().GetDocument())\n"
+        "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
+        "  return VisibleWidthCSSPx();\n"
         "}"
     ),
-    "visualViewport width() returns innerWidth with stealth flag",
+    "visualViewport Width() returns innerWidth with stealth flag",
 )
 
 patch(
     "third_party/blink/renderer/core/frame/visual_viewport.cc",
-    "double VisualViewport::height() const {\n  return visible_size_.height();\n}",
+    "double VisualViewport::Height() const {\n"
+    "  DCHECK(IsActiveViewport());\n"
+    "  if (Document* document = LocalMainFrame().GetDocument())\n"
+    "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
+    "  return VisibleHeightCSSPx();\n"
+    "}",
     (
-        "double VisualViewport::height() const {\n"
+        "double VisualViewport::Height() const {\n"
         "  // When stealth flag is set, return innerHeight to avoid\n"
         "  // viewport coherence mismatch detection.\n"
         "  static const bool stealth_viewport =\n"
@@ -541,10 +554,13 @@ patch(
         "      return window->innerHeight();\n"
         "    }\n"
         "  }\n"
-        "  return visible_size_.height();\n"
+        "  DCHECK(IsActiveViewport());\n"
+        "  if (Document* document = LocalMainFrame().GetDocument())\n"
+        "    document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);\n"
+        "  return VisibleHeightCSSPx();\n"
         "}"
     ),
-    "visualViewport height() returns innerHeight with stealth flag",
+    "visualViewport Height() returns innerHeight with stealth flag",
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
