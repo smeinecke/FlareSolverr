@@ -609,7 +609,8 @@ class PatchApplier:
                 "const Vector<String>& NavigatorLanguage::languages() {\n"
                 "  static const bool stealth_languages = base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
                 '      "stealth-navigator-languages");\n'
-                "  if (stealth_languages && languages_.empty()) {\n"
+                "  if (stealth_languages) {\n"
+                "    languages_.clear();\n"
                 '    languages_.push_back("en-US");\n'
                 '    languages_.push_back("en");\n'
                 "    return languages_;\n"
