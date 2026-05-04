@@ -76,6 +76,51 @@ class PatchApplier:
             print(f"    {line}", file=sys.stderr)
         self.errors += 1
 
+    def patch_regex(
+        self,
+        rel_path: str,
+        pattern: str,
+        replacement: str,
+        description: str,
+        flags: int = 0,
+    ) -> None:
+        """Apply a regex-based patch.
+
+        Searches `rel_path` for `pattern` and replaces the first match with
+        `replacement`.  If `replacement` is already present, skips.
+        """
+        if rel_path not in self.patched_files:
+            self.patched_files.append(rel_path)
+        if self.list_files_only:
+            return
+
+        p = pathlib.Path(rel_path)
+        if not p.exists():
+            print(f"\nERROR [{description}]: file not found: {rel_path}", file=sys.stderr)
+            self.errors += 1
+            return
+
+        content = p.read_text()
+        if replacement in content:
+            print(f"  SKIP  {rel_path}  ({description} – already patched)")
+            return
+
+        m = re.search(pattern, content, flags)
+        if m:
+            if self.dry_run:
+                print(f"  WOULD_PATCH  {rel_path}  ({description})")
+            else:
+                p.write_text(content[: m.start()] + replacement + content[m.end() :])
+                print(f"  OK  {rel_path}  ({description})")
+            return
+
+        print(f"\nERROR [{description}]: regex not found in {rel_path}", file=sys.stderr)
+        print(f"  Pattern: {pattern[:120]!r}", file=sys.stderr)
+        print("  Nearest context in file:", file=sys.stderr)
+        for line in self._ctx(content, pattern).splitlines():
+            print(f"    {line}", file=sys.stderr)
+        self.errors += 1
+
     def add_include(self, rel_path: str, new_include: str, after_patterns: "list[str] | None" = None) -> None:
         """Insert new_include if not already present.
 
@@ -362,11 +407,12 @@ class PatchApplier:
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 4: --preload-script flag (document_start injection via Blink WebFrame)
+        # Patch 4: --preload-script flag (document_start injection via raw V8)
         # Hook into RenderFrameImpl::DidCreateDocumentElement — fires AFTER V8 context
         # creation is complete, so it is safe to compile and run scripts.
         # DO NOT use DidCreateScriptContext: that fires DURING V8 context creation while
         # V8 holds internal spinlocks; calling Script::Compile there spins at 97% CPU.
+        # Uses raw V8 with kDoNotRunMicrotasks to prevent microtask-queue re-entrancy spin.
         # ──────────────────────────────────────────────────────────────────────────────
         print("Patch 4: --preload-script flag")
 
@@ -382,7 +428,7 @@ class PatchApplier:
 
         self.add_include(
             "content/renderer/render_frame_impl.cc",
-            '#include "third_party/blink/public/web/web_script_source.h"',
+            '#include "v8/include/v8.h"',
             after_patterns=[
                 '#include "base/files/file_util.h"',
                 '#include "base/command_line.h"',
@@ -391,7 +437,7 @@ class PatchApplier:
 
         _PRELOAD_INJECTION = (
             "  // --preload-script: evaluate JS file before any page scripts.\n"
-            "  // Safe here because DidCreateDocumentElement fires after V8 context init.\n"
+            "  // Uses raw V8 with kDoNotRunMicrotasks to prevent microtask re-entrancy spin.\n"
             "  {\n"
             "    static std::string* preload_script_content = new std::string();\n"
             "    static bool preload_script_loaded = false;\n"
@@ -405,9 +451,26 @@ class PatchApplier:
             "      }\n"
             "    }\n"
             "    if (!preload_script_content->empty() && GetWebFrame()) {\n"
-            "      GetWebFrame()->ExecuteScript(\n"
-            "          blink::WebScriptSource(\n"
-            "              blink::WebString::FromUTF8(*preload_script_content)));\n"
+            "      v8::Local<v8::Context> ctx =\n"
+            "          GetWebFrame()->MainWorldScriptContext();\n"
+            "      if (!ctx.IsEmpty()) {\n"
+            "        v8::Isolate* isolate = ctx->GetIsolate();\n"
+            "        v8::HandleScope handle_scope(isolate);\n"
+            "        v8::Context::Scope context_scope(ctx);\n"
+            "        v8::MicrotasksScope no_microtasks(\n"
+            "            isolate, ctx->GetMicrotaskQueue(),\n"
+            "            v8::MicrotasksScope::kDoNotRunMicrotasks);\n"
+            "        v8::TryCatch try_catch(isolate);\n"
+            "        v8::Local<v8::String> src;\n"
+            "        if (v8::String::NewFromUtf8(\n"
+            "                isolate, preload_script_content->c_str()).ToLocal(&src)) {\n"
+            "          v8::Local<v8::Script> script;\n"
+            "          if (v8::Script::Compile(ctx, src).ToLocal(&script)) {\n"
+            "            v8::Local<v8::Value> result;\n"
+            "            (void)script->Run(ctx).ToLocal(&result);\n"
+            "          }\n"
+            "        }\n"
+            "      }\n"
             "    }\n"
             "  }\n"
         )
@@ -444,17 +507,10 @@ class PatchApplier:
             ],
         )
 
-        self.add_include(
-            "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
-            '#include "third_party/blink/renderer/core/script/classic_script.h"',
-            after_patterns=[
-                '#include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"',
-                '#include "third_party/blink/renderer/core/frame/local_frame.h"',
-            ],
-        )
-
         _WORKER_PRELOAD = (
             "  // --preload-script: evaluate preload content before any user worker scripts.\n"
+            "  // Uses raw V8 with kDoNotRunMicrotasks to prevent microtask-queue draining\n"
+            "  // from re-entering the worker lifecycle and causing a CPU spin.\n"
             "  {\n"
             "    static std::string* preload_content = new std::string();\n"
             "    static bool preload_loaded = false;\n"
@@ -468,15 +524,21 @@ class PatchApplier:
             "      }\n"
             "    }\n"
             "    if (!preload_content->empty()) {\n"
-            "      ClassicScript* script = ClassicScript::Create(\n"
-            "          String::FromUtf8(*preload_content),\n"
-            '          KURL("about:preload-script"),\n'
-            "          KURL(),\n"
-            "          ScriptFetchOptions(),\n"
-            "          ScriptSourceLocationType::kInternal,\n"
-            "          SanitizeScriptErrors::kDoNotSanitize);\n"
-            "      std::ignore = script->RunScriptOnScriptStateAndReturnValue(\n"
-            "          ScriptController()->GetScriptState());\n"
+            "      v8::Isolate* isolate = ScriptController()->GetScriptState()->GetIsolate();\n"
+            "      v8::HandleScope handle_scope(isolate);\n"
+            "      v8::Local<v8::Context> ctx = ScriptController()->GetScriptState()->GetContext();\n"
+            "      v8::MicrotasksScope no_microtasks(\n"
+            "          isolate, ctx->GetMicrotaskQueue(),\n"
+            "          v8::MicrotasksScope::kDoNotRunMicrotasks);\n"
+            "      v8::TryCatch try_catch(isolate);\n"
+            "      v8::Local<v8::String> src;\n"
+            "      if (v8::String::NewFromUtf8(isolate, preload_content->c_str()).ToLocal(&src)) {\n"
+            "        v8::Local<v8::Script> script;\n"
+            "        if (v8::Script::Compile(ctx, src).ToLocal(&script)) {\n"
+            "          v8::Local<v8::Value> result;\n"
+            "          (void)script->Run(ctx).ToLocal(&result);\n"
+            "        }\n"
+            "      }\n"
             "    }\n"
             "  }\n"
         )
@@ -652,6 +714,27 @@ class PatchApplier:
             "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
             "  }",
             "forward stealth-navigator-languages switch to renderer",
+        )
+
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 10: Remove chromedriver CDC variable injection
+        # ChromeDriver injects window.cdc_adoQpoasnfa76pfcZLmcfl_* aliases into
+        # every page via Page.addScriptToEvaluateOnNewDocument / Runtime.evaluate.
+        # These variables are a well-known automation fingerprint.
+        # The injected JS files (execute_script.js, call_function.js, etc.) all
+        # fall back to window.Promise / window.Array / ... when the CDC alias is
+        # missing (window.cdc_... || window.X), so removing the injection is
+        # safe for chromedriver runtime operation.
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 10: remove chromedriver CDC (window.cdc_*) injection")
+
+        self.patch_regex(
+            "chrome/test/chromedriver/chrome/devtools_client_impl.cc",
+            r'std::string script =\s*"\(function \(\) \{"\s*(?:"window\.cdc_[^"]+;"\s*)*"\}\) \(\);"\s*;',
+            'std::string script =\n'
+            '        "(function () {"\n'
+            '        ") ();";',
+            "remove CDC alias injection from chromedriver SetUpDevTools",
         )
 
         # ──────────────────────────────────────────────────────────────────────────────

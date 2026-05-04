@@ -409,7 +409,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "radon", specifier = ">=6.0.1" },
     { name = "ruff", specifier = ">=0.15.12" },
-    { name = "tox", specifier = "==4.53.1" },
+    { name = "tox", specifier = ">=4.32.0" },
     { name = "vulture", specifier = ">=2.14" },
     { name = "webtest", specifier = "==3.0.7" },
     { name = "xenon", specifier = ">=0.9.3" },
