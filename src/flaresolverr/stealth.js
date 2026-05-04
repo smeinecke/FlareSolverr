@@ -20,13 +20,9 @@
   } catch (_) {}
 
   // ── navigator.languages / language ───────────────────────────────────────────
-  // Headless Chrome can expose empty arrays; ensure non-empty and self-consistent.
-  try {
-    const langs = navigator.languages?.length ? navigator.languages : ['en-US', 'en'];
-    const lang  = (typeof navigator.language === 'string' && navigator.language) ? navigator.language : langs[0];
-    Object.defineProperty(Navigator.prototype, 'languages', { get: () => langs, configurable: true });
-    Object.defineProperty(Navigator.prototype, 'language',  { get: () => lang,  configurable: true });
-  } catch (_) {}
+  // NOTE: Now handled at C++ level via --stealth-navigator-languages flag.
+  // The C++ patch in NavigatorLanguage::languages() returns ['en-US', 'en']
+  // instead of empty array, avoiding JS property descriptor modification.
 
   // ── media devices ─────────────────────────────────────────────────────────────
   // Headless/container runs often return zero devices, which gets scored as a
@@ -103,6 +99,19 @@
         Object.defineProperty(screen, 'availWidth',  { get: () => ow,      configurable: true });
         Object.defineProperty(screen, 'availHeight', { get: () => oh,      configurable: true });
       } catch (_) {}
+    }
+  } catch (_) {}
+
+  // ── visualViewport ────────────────────────────────────────────────────────────
+  // Ensure visualViewport dimensions match innerWidth/innerHeight so
+  // fingerprinters checking viewport coherence don't flag a mismatch.
+  // visualViewport width/height are native getters on VisualViewport.prototype,
+  // so we patch the prototype rather than the live instance.
+  try {
+    const VVP = window.VisualViewport && window.VisualViewport.prototype;
+    if (VVP) {
+      try { Object.defineProperty(VVP, 'width',  { get: () => innerWidth  || 1280, configurable: true }); } catch (_) {}
+      try { Object.defineProperty(VVP, 'height', { get: () => innerHeight || 800,  configurable: true }); } catch (_) {}
     }
   } catch (_) {}
 

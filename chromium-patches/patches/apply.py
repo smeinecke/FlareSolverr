@@ -481,6 +481,120 @@ patch(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Patch 7: VisualViewport width/height to match innerWidth/innerHeight
+# Prevents detection via visualViewport vs innerWidth/innerHeight mismatch.
+# File: third_party/blink/renderer/core/frame/visual_viewport.cc
+# ──────────────────────────────────────────────────────────────────────────────
+print("Patch 7: visualViewport width/height → innerWidth/innerHeight")
+
+add_include(
+    "third_party/blink/renderer/core/frame/visual_viewport.cc",
+    '#include "third_party/blink/renderer/core/frame/local_dom_window.h"',
+    after_patterns=[
+        '#include "third_party/blink/renderer/core/frame/local_frame.h"',
+        '#include "third_party/blink/renderer/core/frame/local_frame_view.h"',
+    ],
+)
+
+patch(
+    "third_party/blink/renderer/core/frame/visual_viewport.cc",
+    "FloatSize VisualViewport::VisibleRectFloatSize() const {\n"
+    "  return FloatSize(FloatSize(visible_rect_.Size()) * \\n"
+    "                     FloatSize(PageScaleFactor(), PageScaleFactor()));\n"
+    "}",
+    (
+        "FloatSize VisualViewport::VisibleRectFloatSize() const {\n"
+        "  // Return innerWidth/innerHeight instead of scaled visible rect\n"
+        "  // to match window dimensions and avoid viewport coherence detection.\n"
+        "  if (LocalFrame* frame = GetFrame()) {\n"
+        "    if (LocalDOMWindow* window = frame->DomWindow()) {\n"
+        '      int inner_width = static_cast<int>(window->innerWidth());\n'
+        '      int inner_height = static_cast<int>(window->innerHeight());\n'
+        "      return FloatSize(inner_width, inner_height);\n"
+        "    }\n"
+        "  }\n"
+        "  return FloatSize(FloatSize(visible_rect_.Size()) * \\n"
+        "                     FloatSize(PageScaleFactor(), PageScaleFactor()));\n"
+        "}"
+    ),
+    "visualViewport VisibleRectFloatSize returns innerWidth/innerHeight",
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Patch 8: Navigator languages to return non-empty array
+# Headless Chrome returns [] which is detectable. Return ['en-US', 'en'] instead.
+# File: third_party/blink/renderer/core/frame/navigator_language.cc
+# ──────────────────────────────────────────────────────────────────────────────
+print("Patch 8: navigator.languages returns ['en-US', 'en'] instead of []")
+
+add_include(
+    "third_party/blink/renderer/core/frame/navigator_language.cc",
+    '#include "base/command_line.h"',
+    after_patterns=[
+        '#include "third_party/blink/renderer/core/frame/navigator_language.h"',
+        '#include "third_party/blink/renderer/core/frame/local_frame.h"',
+    ],
+)
+
+patch(
+    "third_party/blink/renderer/core/frame/navigator_language.cc",
+    "const Vector<String>& NavigatorLanguage::languages() {\n"
+    "  if (!languages_cache_.size()) {\n"
+    "    PlatformLanguagesChanged();\n"
+    "  }\n"
+    "  return languages_cache_;\n"
+    "}",
+    (
+        "const Vector<String>& NavigatorLanguage::languages() {\n"
+        "  static const bool stealth_languages = base::CommandLine::ForCurrentProcess()->HasSwitch(\\n"
+        '      "stealth-navigator-languages");\n'
+        "  if (!languages_cache_.size()) {\n"
+        "    if (stealth_languages) {\n"
+        '      languages_cache_.push_back("en-US");\n'
+        '      languages_cache_.push_back("en");\n'
+        "    } else {\n"
+        "      PlatformLanguagesChanged();\n"
+        "    }\n"
+        "  }\n"
+        "  return languages_cache_;\n"
+        "}"
+    ),
+    "navigator.languages returns ['en-US', 'en'] with --stealth-navigator-languages",
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Patch 9: Forward stealth-navigator-languages switch to renderer
+# File: content/browser/renderer_host/render_process_host_impl.cc
+# ──────────────────────────────────────────────────────────────────────────────
+print("Patch 9: forward stealth-navigator-languages switch to renderer")
+
+patch(
+    "content/browser/renderer_host/render_process_host_impl.cc",
+    "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
+    "    base::CommandLine* command_line) {\n"
+    "  // Forward custom stealth switches to renderer processes.\n"
+    "  const base::CommandLine& browser_cmd =\n"
+    "      *base::CommandLine::ForCurrentProcess();\n"
+    '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
+    '                          "preload-script", "enable-trusted-synthetic-events"}) {\n'
+    "    if (browser_cmd.HasSwitch(sw))\n"
+    "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
+    "  }",
+    "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
+    "    base::CommandLine* command_line) {\n"
+    "  // Forward custom stealth switches to renderer processes.\n"
+    "  const base::CommandLine& browser_cmd =\n"
+    "      *base::CommandLine::ForCurrentProcess();\n"
+    '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
+    '                          "preload-script", "enable-trusted-synthetic-events",\n'
+    '                          "stealth-navigator-languages"}) {\n'
+    "    if (browser_cmd.HasSwitch(sw))\n"
+    "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
+    "  }",
+    "forward stealth-navigator-languages switch to renderer",
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
 
 if ERRORS:
     print(f"\n{ERRORS} patch(es) failed — see errors above.", file=sys.stderr)
