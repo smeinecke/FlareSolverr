@@ -29,7 +29,7 @@ dependencies = [
     "packaging==26.2",
     "pefile==2024.8.26; platform_system == 'Windows'",
     "prometheus-client==0.25.0",
-    "requests==2.33.0",
+    "requests>=2.33.0",
     "selenium==4.43.0",
     "tomli>=1.1.0; python_version < '3.11'",
     "waitress==3.0.2",
@@ -40,6 +40,12 @@ dependencies = [
 [project.optional-dependencies]
 build = [
     "pyinstaller==6.20.0",
+]
+seleniumbase = [
+    "seleniumbase>=4.30",
+]
+camoufox = [
+    "camoufox[geoip]>=0.3",
 ]
 test = [
     "WebTest==3.0.7",

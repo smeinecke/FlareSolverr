@@ -35,39 +35,67 @@ def _make_driver():
     return driver
 
 
+def _make_context(driver=None):
+    """Create a mock BrowserContext for unit tests."""
+    ctx = MagicMock()
+    mock_element = _make_element()
+
+    ctx.current_url = "https://example.com"
+    ctx.page_source = "<html></html>"
+    ctx.title = "Example"
+    ctx.get_cookies.return_value = []
+    ctx.get_screenshot_as_base64.return_value = ""
+    ctx.get_user_agent.return_value = "Chrome/1"
+
+    # Wait methods return a mock element
+    ctx.wait_for_presence.return_value = mock_element
+    ctx.wait_for_visibility.return_value = mock_element
+    ctx.wait_for_absence.return_value = True
+    ctx.wait_for_title.return_value = True
+    ctx.wait_for_title_not.return_value = True
+    ctx.wait_for_staleness.return_value = True
+
+    # Action chain returns a fluent mock
+    chain = MagicMock()
+    chain.move_to_element.return_value = chain
+    chain.move_by_offset.return_value = chain
+    chain.pause.return_value = chain
+    chain.click.return_value = chain
+    chain.click_and_hold.return_value = chain
+    chain.release.return_value = chain
+    chain.send_keys.return_value = chain
+    ctx.action_chain.return_value = chain
+
+    ctx.execute_script.return_value = None
+
+    if driver is not None:
+        # Proxy execute_script to the underlying driver for tests that inspect it
+        ctx.execute_script.side_effect = lambda script, *args: driver.execute_script(script, *args)
+
+    return ctx, mock_element, chain
+
+
 def _patch_wait(monkeypatch, element=None):
-    """Replace WebDriverWait so .until()/.until_not() return immediately."""
-    from flaresolverr import flaresolverr_service as svc
+    """No-op; waits are mocked via _make_context."""
     el = element or _make_element()
-    mock_wait = MagicMock()
-    mock_wait.return_value.until.return_value = el
-    mock_wait.return_value.until_not.return_value = el
-    monkeypatch.setattr(svc, "WebDriverWait", mock_wait)
-    return el, mock_wait
+    return el, None
+
+
+def _patch_action_chains(monkeypatch):
+    """No-op; action chains are mocked via _make_context."""
+    pass
 
 
 # ── fill ──────────────────────────────────────────────────────────────────────
 
-def _patch_action_chains(monkeypatch):
-    """Patch ActionChains with a fluent MagicMock to avoid real Selenium WebElement checks."""
-    from flaresolverr import flaresolverr_service as svc
-    chains = MagicMock()
-    chains.return_value.move_to_element.return_value = chains.return_value
-    chains.return_value.pause.return_value = chains.return_value
-    chains.return_value.click.return_value = chains.return_value
-    monkeypatch.setattr(svc, "ActionChains", chains)
-    return chains
-
-
 class TestFillAction:
     def test_clears_and_types_value(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
-        driver = _make_driver()
-        el, _ = _patch_wait(monkeypatch)
-        _patch_action_chains(monkeypatch)
+
+        ctx, el, _ = _make_context()
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
 
-        svc._execute_actions(driver, [
+        svc._execute_actions(ctx, [
             {"type": "fill", "selector": "//input[@id='email']", "value": "hi@x.com"},
         ])
 
@@ -77,12 +105,11 @@ class TestFillAction:
 
     def test_types_each_char_individually(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
-        driver = _make_driver()
-        el, _ = _patch_wait(monkeypatch)
-        _patch_action_chains(monkeypatch)
+
+        ctx, el, _ = _make_context()
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
 
-        svc._execute_actions(driver, [
+        svc._execute_actions(ctx, [
             {"type": "fill", "selector": "//input", "value": "abc"},
         ])
 
@@ -91,45 +118,42 @@ class TestFillAction:
 
     def test_empty_value_clears_without_typing(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
-        driver = _make_driver()
-        el, _ = _patch_wait(monkeypatch)
-        _patch_action_chains(monkeypatch)
+
+        ctx, el, _ = _make_context()
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
 
-        svc._execute_actions(driver, [{"type": "fill", "selector": "//input", "value": ""}])
+        svc._execute_actions(ctx, [{"type": "fill", "selector": "//input", "value": ""}])
 
         el.clear.assert_called_once()
         el.send_keys.assert_not_called()
 
     def test_scrolls_into_view(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
+
         driver = _make_driver()
-        _patch_wait(monkeypatch)
-        _patch_action_chains(monkeypatch)
+        ctx, _, _ = _make_context(driver=driver)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         scripts = []
         driver.execute_script.side_effect = lambda s, *_: scripts.append(s)
 
-        svc._execute_actions(driver, [{"type": "fill", "selector": "//input", "value": "x"}])
+        svc._execute_actions(ctx, [{"type": "fill", "selector": "//input", "value": "x"}])
 
         assert any("scrollIntoView" in s for s in scripts)
 
     def test_uses_xpath_locator(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
         from selenium.webdriver.common.by import By
-        driver = _make_driver()
-        _patch_wait(monkeypatch)
-        _patch_action_chains(monkeypatch)
-        monkeypatch.setattr(svc.time, "sleep", lambda _: None)
-        captured = []
-        monkeypatch.setattr(svc, "presence_of_element_located", lambda loc: captured.append(loc) or loc)
 
-        svc._execute_actions(driver, [
+        ctx, _, _ = _make_context()
+        monkeypatch.setattr(svc.time, "sleep", lambda _: None)
+
+        svc._execute_actions(ctx, [
             {"type": "fill", "selector": "//input[@name='q']", "value": "x"},
         ])
 
-        assert captured[0][0] == By.XPATH
-        assert captured[0][1] == "//input[@name='q']"
+        # wait_for_presence is called with (by, value, timeout)
+        assert ctx.wait_for_presence.call_args[0][0] == By.XPATH
+        assert ctx.wait_for_presence.call_args[0][1] == "//input[@name='q']"
 
 
 # ── click ─────────────────────────────────────────────────────────────────────
@@ -137,81 +161,68 @@ class TestFillAction:
 class TestClickAction:
     def test_default_uses_action_chains(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
-        driver = _make_driver()
-        _patch_wait(monkeypatch)
+
+        ctx, _, chains = _make_context()
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         human_called = []
-        monkeypatch.setattr(svc, "_human_like_click", lambda d, e: human_called.append(True))
-        chains = MagicMock()
-        chains.return_value.move_to_element.return_value = chains.return_value
-        chains.return_value.pause.return_value = chains.return_value
-        monkeypatch.setattr(svc, "ActionChains", chains)
+        monkeypatch.setattr(svc, "_human_like_click", lambda c, e: human_called.append(True))
 
-        svc._execute_actions(driver, [{"type": "click", "selector": "//button"}])
+        svc._execute_actions(ctx, [{"type": "click", "selector": "//button"}])
 
         assert not human_called
-        chains.return_value.move_to_element.assert_called_once()
-        chains.return_value.click.assert_called_once()
+        chains.move_to_element.assert_called_once()
+        chains.click.assert_called_once()
 
     def test_human_like_true_calls_bezier(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
-        driver = _make_driver()
-        _patch_wait(monkeypatch)
+
+        ctx, el, _ = _make_context()
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         human_called = []
-        monkeypatch.setattr(svc, "_human_like_click", lambda d, e: human_called.append(True))
+        monkeypatch.setattr(svc, "_human_like_click", lambda c, e: human_called.append(True))
 
-        svc._execute_actions(driver, [{"type": "click", "selector": "//button", "humanLike": True}])
+        svc._execute_actions(ctx, [{"type": "click", "selector": "//button", "humanLike": True}])
 
         assert human_called == [True]
 
     def test_human_like_false_uses_action_chains(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
-        driver = _make_driver()
-        _patch_wait(monkeypatch)
+
+        ctx, _, chains = _make_context()
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         human_called = []
-        monkeypatch.setattr(svc, "_human_like_click", lambda d, e: human_called.append(True))
-        chains = MagicMock()
-        chains.return_value.move_to_element.return_value = chains.return_value
-        chains.return_value.pause.return_value = chains.return_value
-        monkeypatch.setattr(svc, "ActionChains", chains)
+        monkeypatch.setattr(svc, "_human_like_click", lambda c, e: human_called.append(True))
 
-        svc._execute_actions(driver, [{"type": "click", "selector": "//button", "humanLike": False}])
+        svc._execute_actions(ctx, [{"type": "click", "selector": "//button", "humanLike": False}])
 
         assert not human_called
-        chains.return_value.click.assert_called_once()
+        chains.click.assert_called_once()
 
     def test_scrolls_into_view(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
+
         driver = _make_driver()
-        _patch_wait(monkeypatch)
+        ctx, _, _ = _make_context(driver=driver)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
-        monkeypatch.setattr(svc, "_human_like_click", lambda d, e: None)
+        monkeypatch.setattr(svc, "_human_like_click", lambda c, e: None)
         scripts = []
         driver.execute_script.side_effect = lambda s, *_: scripts.append(s)
 
-        svc._execute_actions(driver, [{"type": "click", "selector": "//button", "humanLike": True}])
+        svc._execute_actions(ctx, [{"type": "click", "selector": "//button", "humanLike": True}])
 
         assert any("scrollIntoView" in s for s in scripts)
 
     def test_uses_xpath_locator(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
         from selenium.webdriver.common.by import By
-        driver = _make_driver()
-        _patch_wait(monkeypatch)
+
+        ctx, _, chains = _make_context()
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
-        captured = []
-        monkeypatch.setattr(svc, "presence_of_element_located", lambda loc: captured.append(loc) or loc)
-        chains = MagicMock()
-        chains.return_value.move_to_element.return_value = chains.return_value
-        chains.return_value.pause.return_value = chains.return_value
-        monkeypatch.setattr(svc, "ActionChains", chains)
 
-        svc._execute_actions(driver, [{"type": "click", "selector": "//form//button"}])
+        svc._execute_actions(ctx, [{"type": "click", "selector": "//form//button"}])
 
-        assert captured[0][0] == By.XPATH
-        assert captured[0][1] == "//form//button"
+        assert ctx.wait_for_presence.call_args[0][0] == By.XPATH
+        assert ctx.wait_for_presence.call_args[0][1] == "//form//button"
 
 
 # ── wait_for ──────────────────────────────────────────────────────────────────
@@ -219,53 +230,34 @@ class TestClickAction:
 class TestWaitForAction:
     def test_waits_for_element_visibility(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
-        driver = _make_driver()
-        _, mock_wait = _patch_wait(monkeypatch)
 
-        svc._execute_actions(driver, [{"type": "wait_for", "selector": "//div[@id='result']"}])
+        ctx, _, _ = _make_context()
 
-        mock_wait.return_value.until.assert_called_once()
+        svc._execute_actions(ctx, [{"type": "wait_for", "selector": "//div[@id='result']"}])
+
+        ctx.wait_for_visibility.assert_called_once()
 
     def test_uses_xpath_locator(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
         from selenium.webdriver.common.by import By
-        driver = _make_driver()
-        conditions = []
 
-        class CapturingWait:
-            def __init__(self, *a, **kw): pass
-            def until(self, cond): conditions.append(cond); return _make_element()
-            def until_not(self, cond): return _make_element()
+        ctx, _, _ = _make_context()
 
-        monkeypatch.setattr(svc, "WebDriverWait", CapturingWait)
+        svc._execute_actions(ctx, [{"type": "wait_for", "selector": "//div[@id='done']"}])
 
-        svc._execute_actions(driver, [{"type": "wait_for", "selector": "//div[@id='done']"}])
-
-        assert len(conditions) == 1
-        # visibility_of_element_located wraps the (By, selector) tuple into a callable
-        assert callable(conditions[0])
+        assert ctx.wait_for_visibility.call_args[0][0] == By.XPATH
+        assert ctx.wait_for_visibility.call_args[0][1] == "//div[@id='done']"
 
     def test_uses_visibility_not_presence(self, monkeypatch):
-        """wait_for must use visibility_of_element_located, not presence_of_element_located."""
+        """wait_for must use wait_for_visibility, not wait_for_presence."""
         from flaresolverr import flaresolverr_service as svc
-        driver = _make_driver()
-        conditions = []
 
-        class CapturingWait:
-            def __init__(self, *a, **kw): pass
-            def until(self, cond): conditions.append(cond); return _make_element()
-            def until_not(self, cond): return _make_element()
+        ctx, _, _ = _make_context()
 
-        monkeypatch.setattr(svc, "WebDriverWait", CapturingWait)
-        # Sentinel objects so we can distinguish the two expected_conditions factories
-        visibility_sentinel = object()
-        presence_sentinel = object()
-        monkeypatch.setattr(svc, "visibility_of_element_located", lambda loc: visibility_sentinel)
-        monkeypatch.setattr(svc, "presence_of_element_located", lambda loc: presence_sentinel)
+        svc._execute_actions(ctx, [{"type": "wait_for", "selector": "//span"}])
 
-        svc._execute_actions(driver, [{"type": "wait_for", "selector": "//span"}])
-
-        assert conditions == [visibility_sentinel]
+        ctx.wait_for_visibility.assert_called_once()
+        ctx.wait_for_presence.assert_not_called()
 
 
 # ── wait ──────────────────────────────────────────────────────────────────────
@@ -273,6 +265,7 @@ class TestWaitForAction:
 class TestWaitAction:
     def test_sleeps_given_seconds(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
+
         slept = []
         monkeypatch.setattr(svc.time, "sleep", lambda s: slept.append(s))
 
@@ -282,6 +275,7 @@ class TestWaitAction:
 
     def test_defaults_to_one_second(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
+
         slept = []
         monkeypatch.setattr(svc.time, "sleep", lambda s: slept.append(s))
 
@@ -291,6 +285,7 @@ class TestWaitAction:
 
     def test_accepts_float(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
+
         slept = []
         monkeypatch.setattr(svc.time, "sleep", lambda s: slept.append(s))
 
@@ -313,14 +308,16 @@ class TestEdgeCases:
 
     def test_empty_list_is_noop(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
-        driver = _make_driver()
 
-        svc._execute_actions(driver, [])
+        ctx, _, _ = _make_context()
 
-        driver.execute_script.assert_not_called()
+        svc._execute_actions(ctx, [])
+
+        ctx.execute_script.assert_not_called()
 
     def test_multiple_actions_execute_in_order(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
+
         slept = []
         monkeypatch.setattr(svc.time, "sleep", lambda s: slept.append(s))
 
@@ -337,35 +334,41 @@ class TestEdgeCases:
 class TestBuildChallengeResultIntegration:
     def test_actions_invoked_when_present(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
+
         driver = _make_driver()
+        ctx = svc.get_browser_context(driver)
         called_with = []
-        monkeypatch.setattr(svc, "_execute_actions", lambda d, a: called_with.append(a))
+        monkeypatch.setattr(svc, "_execute_actions", lambda c, a: called_with.append(a))
         monkeypatch.setattr(svc.utils, "get_user_agent", lambda _: "Chrome/1")
 
         actions = [{"type": "wait", "seconds": 1}]
         req = V1RequestBase({"cmd": "request.get", "url": "https://x.com", "actions": actions})
 
-        svc._build_challenge_result(req, driver, None)
+        svc._build_challenge_result(req, ctx, None)
 
         assert called_with == [actions]
 
     def test_actions_not_invoked_when_absent(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
+
         driver = _make_driver()
+        ctx = svc.get_browser_context(driver)
         called = []
-        monkeypatch.setattr(svc, "_execute_actions", lambda d, a: called.append(True))
+        monkeypatch.setattr(svc, "_execute_actions", lambda c, a: called.append(True))
         monkeypatch.setattr(svc.utils, "get_user_agent", lambda _: "Chrome/1")
 
         req = V1RequestBase({"cmd": "request.get", "url": "https://x.com"})
-        svc._build_challenge_result(req, driver, None)
+        svc._build_challenge_result(req, ctx, None)
 
         assert called == []
 
     def test_actions_not_invoked_with_return_only_cookies(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
+
         driver = _make_driver()
+        ctx = svc.get_browser_context(driver)
         called = []
-        monkeypatch.setattr(svc, "_execute_actions", lambda d, a: called.append(True))
+        monkeypatch.setattr(svc, "_execute_actions", lambda c, a: called.append(True))
         monkeypatch.setattr(svc.utils, "get_user_agent", lambda _: "Chrome/1")
 
         req = V1RequestBase({
@@ -374,16 +377,18 @@ class TestBuildChallengeResultIntegration:
             "returnOnlyCookies": True,
             "actions": [{"type": "wait", "seconds": 1}],
         })
-        svc._build_challenge_result(req, driver, None)
+        svc._build_challenge_result(req, ctx, None)
 
         assert called == []
 
     def test_actions_run_before_page_source_capture(self, monkeypatch):
         from flaresolverr import flaresolverr_service as svc
+
         driver = _make_driver()
+        ctx = svc.get_browser_context(driver)
         sequence = []
 
-        def fake_actions(d, a):
+        def fake_actions(c, a):
             sequence.append("actions")
 
         monkeypatch.setattr(svc, "_execute_actions", fake_actions)
@@ -400,6 +405,6 @@ class TestBuildChallengeResultIntegration:
             "url": "https://x.com",
             "actions": [{"type": "wait", "seconds": 0}],
         })
-        svc._build_challenge_result(req, driver, None)
+        svc._build_challenge_result(req, ctx, None)
 
         assert sequence.index("actions") < sequence.index("page_source")

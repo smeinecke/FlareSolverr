@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from flaresolverr.backends import get_browser_context
 from flaresolverr.dtos import V1RequestBase
 
 
@@ -48,7 +49,7 @@ class TestSetCustomHeaders:
             "url": "https://example.com",
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         assert len(mock_driver._cdp_calls) == 0
         assert len(mock_driver._extra_headers) == 0
@@ -64,7 +65,7 @@ class TestSetCustomHeaders:
             "headers": [],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         assert len(mock_driver._cdp_calls) == 0
 
@@ -82,7 +83,7 @@ class TestSetCustomHeaders:
             ],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         assert len(mock_driver._cdp_calls) == 1
         cmd, params = mock_driver._cdp_calls[0]
@@ -104,7 +105,7 @@ class TestSetCustomHeaders:
             ],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         assert len(mock_driver._cdp_calls) == 1
         cmd, params = mock_driver._cdp_calls[0]
@@ -126,7 +127,7 @@ class TestSetCustomHeaders:
             ],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         cmd, params = mock_driver._cdp_calls[0]
         assert params["headers"]["X-From-Dict"] == "dict-value"
@@ -146,7 +147,7 @@ class TestSetCustomHeaders:
             ],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         # Should still work with valid header
         cmd, params = mock_driver._cdp_calls[0]
@@ -165,7 +166,7 @@ class TestSetCustomHeaders:
             ],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         cmd, params = mock_driver._cdp_calls[0]
         assert params["headers"]["Referer"] == "https://example.com"
@@ -183,7 +184,7 @@ class TestSetCustomHeaders:
             ],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         cmd, params = mock_driver._cdp_calls[0]
         assert params["headers"]["Authorization"] == "Bearer: token: with: colons"
@@ -207,7 +208,7 @@ class TestSetCustomHeaders:
         })
 
         with caplog.at_level(logging.WARNING):
-            service._set_custom_headers(req, mock_driver)
+            service._set_custom_headers(req, get_browser_context(mock_driver))
 
         assert "Failed to set custom headers" in caplog.text
 
@@ -264,7 +265,7 @@ class TestHeadersIntegration:
             "headers": [{"name": "X-API-Key", "value": "secret123"}],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         cmd, params = mock_driver._cdp_calls[0]
         assert params["headers"]["X-API-Key"] == "secret123"
@@ -318,7 +319,7 @@ class TestHeadersEdgeCases:
             ],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         # Should still work with valid header
         cmd, params = mock_driver._cdp_calls[0]
@@ -339,7 +340,7 @@ class TestHeadersEdgeCases:
             ],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         # Only complete dict should be used
         cmd, params = mock_driver._cdp_calls[0]
@@ -359,7 +360,7 @@ class TestHeadersEdgeCases:
             ],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         cmd, params = mock_driver._cdp_calls[0]
         assert "session=abc123; path=/; HttpOnly" in params["headers"]["Cookie"]
@@ -377,7 +378,7 @@ class TestHeadersEdgeCases:
             "headers": [{"name": "X-Long", "value": long_value}],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         cmd, params = mock_driver._cdp_calls[0]
         assert params["headers"]["X-Long"] == long_value
@@ -395,7 +396,7 @@ class TestHeadersEdgeCases:
             ],
         })
 
-        service._set_custom_headers(req, mock_driver)
+        service._set_custom_headers(req, get_browser_context(mock_driver))
 
         cmd, params = mock_driver._cdp_calls[0]
         assert params["headers"]["X-Unicode"] == "日本語テスト"

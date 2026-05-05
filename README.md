@@ -12,17 +12,40 @@ FlareSolverr is a proxy server to bypass Cloudflare and DDoS-GUARD protection.
 ## How it works
 
 FlareSolverr starts a proxy server, and it waits for user requests in an idle state using few resources.
-When some request arrives, it uses [Selenium](https://www.selenium.dev) with the
-[undetected-chromedriver](https://github.com/ultrafunkamsterdam/undetected-chromedriver)
-to create a web browser (Chrome). It opens the URL with user parameters and waits until the Cloudflare challenge
+When some request arrives, it launches a headless browser, opens the URL with user parameters and waits until the Cloudflare challenge
 is solved (or timeout). The HTML code and the cookies are sent back to the user, and those cookies can be used to
 bypass Cloudflare using other HTTP clients.
+
+By default FlareSolverr uses [Selenium](https://www.selenium.dev) with the
+[undetected-chromedriver](https://github.com/ultrafunkamsterdam/undetected-chromedriver)
+to create a Chrome browser. Alternative backends (e.g. [Camoufox](https://camoufox.com)) can be selected via
+the `DRIVER_BACKEND` environment variable.
 
 **NOTE**: Web browsers consume a lot of memory. If you are running FlareSolverr on a machine with few RAM, do not make
 many requests at once. With each request a new browser is launched.
 
 It is also possible to use a permanent session. However, if you use sessions, you should make sure to close them as
 soon as you are done using them.
+
+## Backends
+
+FlareSolverr supports multiple browser backends. The backend is selected via the `DRIVER_BACKEND` environment variable.
+
+| Backend | `DRIVER_BACKEND` value | Description | Installation |
+| ------- | ---------------------- | ----------- | ------------ |
+| undetected-chromedriver (default) | `undetected_chromedriver` | Chrome via Selenium + undetected-chromedriver | included by default |
+| SeleniumBase | `seleniumbase` | Chrome via SeleniumBase UC mode | `pip install flaresolverr[seleniumbase]` |
+| Camoufox | `camoufox` | Firefox via Playwright (Camoufox) | `pip install flaresolverr[camoufox]` |
+
+### Camoufox setup
+
+Camoufox is a stealth-focused Firefox build managed by Playwright. Before using it you must fetch the browser binaries:
+
+```bash
+python -m camoufox fetch
+```
+
+Then set `DRIVER_BACKEND=camoufox` and restart FlareSolverr.
 
 ## Installation
 
@@ -388,6 +411,7 @@ The **default solver** handles Cloudflare challenges through browser automation:
 | MINIMAL_FINGERPRINT | true                  | If `true`, avoids extra anti-detection Chrome flags (`--disable-blink-features=AutomationControlled` and site-isolation-disabling flags) to keep browser behavior closer to stock Chrome. |
 | STEALTH_MODE       | off                    | Global stealth mode. Supported values: `off`, `standard`, `csp-safe` (also accepts legacy `true/false`). `standard` does **not** enable blob-worker bypass by default. |
 | UC_HEADLESS_AUTO_UA_OVERRIDE | false      | Controls undetected_chromedriver automatic headless UA override. Default `false` means no automatic UA replacement. |
+| DRIVER_BACKEND     | undetected_chromedriver | Browser backend to use. Options: `undetected_chromedriver`, `seleniumbase`, `camoufox`.                                                  |
 | PORT               | 8191                   | Listening port. You don't need to change this if you are running on Docker.                                                              |
 | HOST               | 0.0.0.0                | Listening interface. You don't need to change this if you are running on Docker.                                                         |
 | PROMETHEUS_ENABLED | false                  | Enable Prometheus exporter. See the Prometheus section below.                                                                            |

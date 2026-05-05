@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.5.0 (Unreleased)
+* Add Camoufox backend support via optional `camoufox[geoip]` dependency (#47)
+* Introduce `BrowserContext` protocol facade to abstract Selenium and Playwright APIs
+* Refactor service layer to be backend-agnostic via `BrowserContext` facade
+* Add `DRIVER_BACKEND` environment variable to select browser backend (`undetected_chromedriver`, `seleniumbase`, `camoufox`)
+* Update captcha solver interface to accept `WebDriver | BrowserContext`
+
 ## v3.4.6 (2025/11/29)
 * Add disable image, css, fonts option with CDP. Thanks @Ananto30
 

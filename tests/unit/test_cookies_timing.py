@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from flaresolverr.backends import get_browser_context
 from flaresolverr.dtos import V1RequestBase
 
 
@@ -82,7 +83,7 @@ the waitInSeconds delay, missing challenge cookies.
             return original_sleep(min(seconds, 0.01))
 
         with patch.object(time, 'sleep', side_effect=simulate_challenge_cookies_added):
-            result = service._build_challenge_result(req, mock_driver, None)
+            result = service._build_challenge_result(req, get_browser_context(mock_driver), None)
 
         # Cookies should include the challenge cookie
         assert result.cookies is not None
@@ -124,7 +125,7 @@ the waitInSeconds delay, missing challenge cookies.
         _orig_sleep = time.sleep
         with patch.object(time, 'sleep', side_effect=lambda s: _orig_sleep(min(s, 0.01))):
             thread.start()
-            result = service._build_challenge_result(req, mock_driver, None)
+            result = service._build_challenge_result(req, get_browser_context(mock_driver), None)
             thread.join()
 
         # Should have captured cookies (at least once)
@@ -157,7 +158,7 @@ the waitInSeconds delay, missing challenge cookies.
         # Store original sleep before patching to avoid recursion
         _orig_sleep = time.sleep
         with patch.object(time, 'sleep', side_effect=lambda s: _orig_sleep(min(s, 0.05))):
-            result = service._build_challenge_result(req, mock_driver, None)
+            result = service._build_challenge_result(req, get_browser_context(mock_driver), None)
 
         thread.join()
 
@@ -181,7 +182,7 @@ the waitInSeconds delay, missing challenge cookies.
         })
 
         with patch.object(time, 'sleep', side_effect=lambda s: None):
-            result = service._build_challenge_result(req, mock_driver, None)
+            result = service._build_challenge_result(req, get_browser_context(mock_driver), None)
 
         assert result.cookies is not None
         assert len(result.cookies) == 1
@@ -238,7 +239,7 @@ challenge that the browser solves, and cookies are set during the wait period.
         })
 
         with patch.object(time, 'sleep', side_effect=challenge_solving_sleep):
-            result = service._build_challenge_result(req, mock_driver, None)
+            result = service._build_challenge_result(req, get_browser_context(mock_driver), None)
 
         # Should capture the challenge cookie
         cookie_names = {c.get("name") for c in result.cookies}
@@ -263,7 +264,7 @@ class TestCookiesEdgeCases:
         })
 
         with patch.object(time, 'sleep', side_effect=lambda s: None):
-            result = service._build_challenge_result(req, mock_driver, None)
+            result = service._build_challenge_result(req, get_browser_context(mock_driver), None)
 
         assert result.cookies == []
 
@@ -279,7 +280,7 @@ class TestCookiesEdgeCases:
             "url": "https://example.com",
         })
 
-        result = service._build_challenge_result(req, mock_driver, None)
+        result = service._build_challenge_result(req, get_browser_context(mock_driver), None)
 
         assert result.cookies is not None
         assert len(result.cookies) == 1

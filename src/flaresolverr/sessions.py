@@ -8,19 +8,20 @@ from uuid import uuid1
 from selenium.webdriver.chrome.webdriver import WebDriver
 
 from flaresolverr import utils
+from flaresolverr.backends import BrowserContext
 
 
 @dataclass
 class Session:
     session_id: str
-    driver: WebDriver
+    driver: WebDriver | BrowserContext
     created_at: datetime
     stealth_mode: str
     user_agent_override: str | None
     request_count: int
     lock: threading.Lock  # noqa
 
-    def __init__(self, session_id: str, driver: WebDriver, created_at: datetime, stealth_mode: str, user_agent_override: str | None = None):
+    def __init__(self, session_id: str, driver: WebDriver | BrowserContext, created_at: datetime, stealth_mode: str, user_agent_override: str | None = None):
         self.session_id = session_id
         self.driver = driver
         self.created_at = created_at

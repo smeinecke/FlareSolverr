@@ -13,11 +13,9 @@ from selenium.common import TimeoutException, UnexpectedAlertPresentException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.expected_conditions import presence_of_element_located, staleness_of, title_is, visibility_of_element_located
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.support.wait import WebDriverWait
 
 from flaresolverr import utils
+from flaresolverr.backends import BrowserContext, get_browser_context
 from flaresolverr.captcha_solvers import SOLVER_MANAGER, get_available_solvers, get_config_captcha_solver
 from flaresolverr.dtos import (
     STATUS_ERROR,
@@ -336,10 +334,10 @@ def _resolve_request_stealth_mode(req: V1RequestBase) -> str | None:
     return None
 
 
-def click_verify(driver: WebDriver, num_tabs: int = 1) -> None:
+def click_verify(ctx: BrowserContext, num_tabs: int = 1) -> None:
     try:
         logging.debug("Try to find the Cloudflare verify checkbox...")
-        actions = ActionChains(driver)
+        actions = ctx.action_chain()
         actions.pause(_random_delay(4.0, 6.0))
         for _ in range(num_tabs):
             actions.send_keys(Keys.TAB).pause(_random_delay(0.08, 0.15))
@@ -350,16 +348,16 @@ def click_verify(driver: WebDriver, num_tabs: int = 1) -> None:
     except Exception:
         logging.debug("Cloudflare verify checkbox not found on the page.")
     finally:
-        driver.switch_to.default_content()
+        ctx.switch_to_default_content()
 
     try:
         logging.debug("Try to find the Cloudflare 'Verify you are human' button...")
-        button = driver.find_element(
+        button = ctx.find_element(
             by=By.XPATH,
             value="//input[@type='button' and @value='Verify you are human']",
         )
         if button:
-            _human_like_click(driver, button)
+            _human_like_click(ctx, button)
             logging.debug("The Cloudflare 'Verify you are human' button found and clicked!")
     except Exception:
         logging.debug("The Cloudflare 'Verify you are human' button not found on the page.")
@@ -367,14 +365,14 @@ def click_verify(driver: WebDriver, num_tabs: int = 1) -> None:
     time.sleep(_random_delay(1.5, 2.5))
 
 
-def _should_attempt_verify_click(driver: WebDriver) -> bool:
+def _should_attempt_verify_click(ctx: BrowserContext) -> bool:
     """Only click when challenge UI appears interactive and likely needs user action."""
     try:
         # Explicit interactive button variant.
-        if driver.find_elements(By.XPATH, "//input[@type='button' and @value='Verify you are human']"):
+        if ctx.find_elements(By.XPATH, "//input[@type='button' and @value='Verify you are human']"):
             return True
 
-        src = driver.page_source
+        src = ctx.page_source
         # Automatic verification states: extra clicks can reset/restart the loop.
         if "Verifying you are human. This may take a few seconds." in src:
             return False
@@ -382,7 +380,7 @@ def _should_attempt_verify_click(driver: WebDriver) -> bool:
             return False
 
         # Fallback markers for embedded turnstile/challenge widgets.
-        markers = driver.find_elements(
+        markers = ctx.find_elements(
             By.CSS_SELECTOR,
             "#turnstile-wrapper, iframe[src*='turnstile'], iframe[src*='challenges.cloudflare.com']",
         )
@@ -402,10 +400,9 @@ def _random_delay(min_sec: float, max_sec: float) -> float:
     return max(min_sec, min(max_sec, delay))
 
 
-def _human_like_click(driver: WebDriver, element) -> None:
+def _human_like_click(ctx: BrowserContext, element) -> None:
     """Perform a human-like mouse movement and click with bezier curves and randomness."""
     import random
-    from selenium.webdriver.common.action_chains import ActionChains
 
     # Get element location and size
     location = element.location
@@ -421,8 +418,8 @@ def _human_like_click(driver: WebDriver, element) -> None:
 
     # Get current mouse position or start from random screen edge
     # Start from a random position near the viewport edges (common human pattern)
-    viewport_width = driver.execute_script("return window.innerWidth")
-    viewport_height = driver.execute_script("return window.innerHeight")
+    viewport_width = ctx.execute_script("return window.innerWidth")
+    viewport_height = ctx.execute_script("return window.innerHeight")
 
     start_edge = random.choice(["top", "bottom", "left", "right"])  # nosec B311
     if start_edge == "top":
@@ -442,7 +439,7 @@ def _human_like_click(driver: WebDriver, element) -> None:
     points = _generate_bezier_curve((start_x, start_y), (target_x, target_y), control_points=random.randint(1, 2))  # nosec B311
 
     # Execute movement through points with variable speed
-    actions = ActionChains(driver)
+    actions = ctx.action_chain()
     for i, (x, y) in enumerate(points):
         if i == 0:
             actions.move_by_offset(int(x - viewport_width / 2), int(y - viewport_height / 2))
@@ -505,11 +502,11 @@ def _generate_bezier_curve(start: tuple[float, float], end: tuple[float, float],
     return curve_points
 
 
-def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
-    token_input = driver.find_element(By.CSS_SELECTOR, "input[name='cf-turnstile-response']")
+def _get_turnstile_token(ctx: BrowserContext, tabs: int) -> str | None:
+    token_input = ctx.find_element(By.CSS_SELECTOR, "input[name='cf-turnstile-response']")
     current_value = token_input.get_attribute("value")
     while True:
-        click_verify(driver, num_tabs=tabs)
+        click_verify(ctx, num_tabs=tabs)
         turnstile_token = token_input.get_attribute("value")
         if turnstile_token:
             if turnstile_token != current_value:
@@ -518,7 +515,7 @@ def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
         logging.debug("Failed to extract token possibly click failed")
 
         # reset focus
-        driver.execute_script("""
+        ctx.execute_script("""
             let old = document.getElementById('__focus_helper');
             if (old) old.remove();
 
@@ -535,29 +532,29 @@ def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
         time.sleep(1)
 
 
-def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver) -> str | None:
+def _resolve_turnstile_captcha(req: V1RequestBase, ctx: BrowserContext) -> str | None:
     turnstile_token = None
     if req.tabs_till_verify is not None:
         if req.url is None:
             raise Exception("Request parameter 'url' is mandatory in request commands.")
         logging.debug(f"Navigating to... {req.url} in order to pass the turnstile challenge")
-        driver.get(req.url)
+        ctx.get(req.url)
 
         turnstile_challenge_found = False
         for selector in TURNSTILE_SELECTORS:
-            found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            found_elements = ctx.find_elements(By.CSS_SELECTOR, selector)
             if len(found_elements) > 0:
                 turnstile_challenge_found = True
                 logging.info("Turnstile challenge detected. Selector found: " + selector)
                 break
         if turnstile_challenge_found:
-            turnstile_token = _get_turnstile_token(driver=driver, tabs=req.tabs_till_verify)
+            turnstile_token = _get_turnstile_token(ctx=ctx, tabs=req.tabs_till_verify)
         else:
             logging.debug("Turnstile challenge not found")
     return turnstile_token
 
 
-def _configure_blocked_media(req: V1RequestBase, driver: WebDriver) -> None:
+def _configure_blocked_media(req: V1RequestBase, ctx: BrowserContext) -> None:
     disable_media = utils.get_config_disable_media()
     if req.disableMedia is not None:
         disable_media = req.disableMedia
@@ -565,14 +562,14 @@ def _configure_blocked_media(req: V1RequestBase, driver: WebDriver) -> None:
         return
     try:
         logging.debug("Network.setBlockedURLs: %s", BLOCK_MEDIA_URL_PATTERNS)
-        driver.execute_cdp_cmd("Network.enable", {})
-        driver.execute_cdp_cmd("Network.setBlockedURLs", {"urls": BLOCK_MEDIA_URL_PATTERNS})
+        ctx.execute_cdp_cmd("Network.enable", {})
+        ctx.execute_cdp_cmd("Network.setBlockedURLs", {"urls": BLOCK_MEDIA_URL_PATTERNS})
     except Exception:
         # if CDP commands are not available or fail, ignore and continue
         logging.debug("Network.setBlockedURLs failed or unsupported on this webdriver")
 
 
-def _set_custom_headers(req: V1RequestBase, driver: WebDriver) -> None:
+def _set_custom_headers(req: V1RequestBase, ctx: BrowserContext) -> None:
     if req.headers is None or len(req.headers) == 0:
         return
     try:
@@ -587,56 +584,56 @@ def _set_custom_headers(req: V1RequestBase, driver: WebDriver) -> None:
                 name, value = header.split(":", 1)
                 headers_dict[name.strip()] = value.strip()
         if headers_dict:
-            driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": headers_dict})
+            ctx.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": headers_dict})
             logging.debug(f"Custom headers set: {headers_dict}")
     except Exception as e:
         logging.warning(f"Failed to set custom headers: {e}")
 
 
-def _navigate_request(req: V1RequestBase, driver: WebDriver, method: str, target_url: str) -> str | None:
+def _navigate_request(req: V1RequestBase, ctx: BrowserContext, method: str, target_url: str) -> str | None:
     logging.debug(f"Navigating to... {req.url}")
     if method == "POST":
-        _post_request(req, driver)
+        _post_request(req, ctx)
         return None
     if req.tabs_till_verify is None:
-        driver.get(target_url)
+        ctx.get(target_url)
         return None
-    return _resolve_turnstile_captcha(req, driver)
+    return _resolve_turnstile_captcha(req, ctx)
 
 
-def _set_request_cookies(req: V1RequestBase, driver: WebDriver, method: str, target_url: str) -> None:
+def _set_request_cookies(req: V1RequestBase, ctx: BrowserContext, method: str, target_url: str) -> None:
     if req.cookies is None or len(req.cookies) == 0:
         return
     logging.debug("Setting cookies...")
     for cookie in req.cookies:
-        driver.delete_cookie(cookie["name"])
-        driver.add_cookie(cookie)
+        ctx.delete_cookie(cookie["name"])
+        ctx.add_cookie(cookie)
     if method == "POST":
-        _post_request(req, driver)
+        _post_request(req, ctx)
     else:
-        driver.get(target_url)
+        ctx.get(target_url)
 
 
-def _raise_if_access_denied(driver: WebDriver, page_title: str) -> None:
+def _raise_if_access_denied(ctx: BrowserContext, page_title: str) -> None:
     for title in ACCESS_DENIED_TITLES:
         if page_title.startswith(title):
             raise Exception("Cloudflare has blocked this request. Probably your IP is banned for this site, check in your web browser.")
     for selector in ACCESS_DENIED_SELECTORS:
-        found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+        found_elements = ctx.find_elements(By.CSS_SELECTOR, selector)
         if len(found_elements) > 0:
             raise Exception("Cloudflare has blocked this request. Probably your IP is banned for this site, check in your web browser.")
 
 
-def _raise_if_navigation_error(driver: WebDriver) -> None:
+def _raise_if_navigation_error(ctx: BrowserContext) -> None:
     """Raise a Selenium-like network error for Chromium net error pages.
 
     Chrome 147 can render `chrome-error://chromewebdata/` pages instead of
     raising WebDriver exceptions on navigation failures. Integration tests and
     API compatibility expect the legacy net::ERR_* error path.
     """
-    current_url = (driver.current_url or "").lower()
-    page_title = (driver.title or "").strip()
-    page_source = driver.page_source or ""
+    current_url = (ctx.current_url or "").lower()
+    page_title = (ctx.title or "").strip()
+    page_source = ctx.page_source or ""
 
     has_browser_error_markers = (
         current_url.startswith("chrome-error://")
@@ -653,20 +650,20 @@ def _raise_if_navigation_error(driver: WebDriver) -> None:
     raise Exception("Message: unknown error: net::ERR_FAILED")
 
 
-def _challenge_found(driver: WebDriver, page_title: str) -> bool:
+def _challenge_found(ctx: BrowserContext, page_title: str) -> bool:
     for title in CHALLENGE_TITLES:
         if title.lower() == page_title.lower():
             logging.info("Challenge detected. Title found: " + page_title)
             return True
     for selector in CHALLENGE_SELECTORS:
-        found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+        found_elements = ctx.find_elements(By.CSS_SELECTOR, selector)
         if len(found_elements) > 0:
             logging.info("Challenge detected. Selector found: " + selector)
             return True
     return False
 
 
-def _wait_for_challenge(driver: WebDriver, html_element) -> None:
+def _wait_for_challenge(ctx: BrowserContext, html_element) -> None:
     attempt = 0
     last_verify_click_ts = 0.0
     click_cooldown_seconds = 10.0
@@ -675,17 +672,17 @@ def _wait_for_challenge(driver: WebDriver, html_element) -> None:
             attempt += 1
             for title in CHALLENGE_TITLES:
                 logging.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
-                WebDriverWait(driver, SHORT_TIMEOUT).until_not(title_is(title))
+                ctx.wait_for_title_not(title, SHORT_TIMEOUT)
             for selector in CHALLENGE_SELECTORS:
                 logging.debug("Waiting for selector (attempt " + str(attempt) + "): " + selector)
-                WebDriverWait(driver, SHORT_TIMEOUT).until_not(presence_of_element_located((By.CSS_SELECTOR, selector)))
+                ctx.wait_for_absence(By.CSS_SELECTOR, selector, SHORT_TIMEOUT)
             break
         except TimeoutException:
             logging.debug("Timeout waiting for selector")
             now = time.time()
-            if _should_attempt_verify_click(driver):
+            if _should_attempt_verify_click(ctx):
                 if now - last_verify_click_ts >= click_cooldown_seconds:
-                    click_verify(driver)
+                    click_verify(ctx)
                     last_verify_click_ts = now
                 else:
                     remaining = click_cooldown_seconds - (now - last_verify_click_ts)
@@ -693,17 +690,17 @@ def _wait_for_challenge(driver: WebDriver, html_element) -> None:
             else:
                 logging.debug("Skipping verify click: challenge appears to be in automatic verification mode")
             # update the html (cloudflare reloads the page every 5 s)
-            html_element = driver.find_element(By.TAG_NAME, "html")
+            html_element = ctx.find_element(By.TAG_NAME, "html")
 
     logging.debug("Waiting for redirect")
     # noinspection PyBroadException
     try:
-        WebDriverWait(driver, SHORT_TIMEOUT).until(staleness_of(html_element))
+        ctx.wait_for_staleness(html_element, SHORT_TIMEOUT)
     except Exception:
         logging.debug("Timeout waiting for redirect")
 
 
-def _execute_actions(driver: WebDriver, actions: list) -> None:
+def _execute_actions(ctx: BrowserContext, actions: list) -> None:
     """Execute a list of browser actions after page load (fill forms, click, wait)."""
     default_action_timeout = 15
     for action in actions:
@@ -712,10 +709,10 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
         if action_type == "fill":
             import random
 
-            el = WebDriverWait(driver, default_action_timeout).until(presence_of_element_located((By.XPATH, selector)))
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+            el = ctx.wait_for_presence(By.XPATH, selector, default_action_timeout)
+            ctx.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
             time.sleep(_random_delay(0.3, 0.6))
-            ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.1)).click().perform()
+            ctx.action_chain().move_to_element(el).pause(_random_delay(0.05, 0.1)).click().perform()
             time.sleep(_random_delay(0.1, 0.2))
             el.clear()
             # Type character-by-character with realistic inter-key delays
@@ -725,21 +722,21 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
             logging.debug(f"Action fill: selector={selector}")
         elif action_type == "click":
             logging.debug(f"Action click: waiting for selector={selector}")
-            el = WebDriverWait(driver, default_action_timeout).until(presence_of_element_located((By.XPATH, selector)))
+            el = ctx.wait_for_presence(By.XPATH, selector, default_action_timeout)
             logging.debug("Action click: element found, scrolling")
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+            ctx.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
             time.sleep(_random_delay(0.2, 0.4))
             if action.get("humanLike"):
-                _human_like_click(driver, el)
+                _human_like_click(ctx, el)
             else:
                 logging.debug("Action click: calling ActionChains.perform()")
                 try:
-                    ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.15)).click().perform()
+                    ctx.action_chain().move_to_element(el).pause(_random_delay(0.05, 0.15)).click().perform()
                 except UnexpectedAlertPresentException:
                     try:
-                        alert_text = driver.switch_to.alert.text
+                        alert_text = ctx.get_alert_text()
                         logging.debug(f"Action click: dismissing alert: {alert_text!r}")
-                        driver.switch_to.alert.dismiss()
+                        ctx.dismiss_alert()
                     except Exception as alert_err:  # noqa: BLE001
                         logging.debug(f"Action click: alert already gone: {alert_err}")
             logging.debug(f"Action click: done selector={selector}")
@@ -747,7 +744,7 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
             timeout_ms = action.get("timeout")
             wait_timeout = timeout_ms / 1000.0 if timeout_ms is not None else default_action_timeout
             logging.debug(f"Action wait_for: selector={selector}, timeout={wait_timeout}s")
-            WebDriverWait(driver, wait_timeout).until(visibility_of_element_located((By.XPATH, selector)))
+            ctx.wait_for_visibility(By.XPATH, selector, wait_timeout)
             logging.debug(f"Action wait_for done: selector={selector}")
         elif action_type == "wait":
             seconds = float(action.get("seconds", 1))
@@ -757,35 +754,36 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
             logging.warning(f"Unknown action type: {action_type!r}")
 
 
-def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_token: str | None) -> ChallengeResolutionResultT:
+def _build_challenge_result(req: V1RequestBase, ctx: BrowserContext, turnstile_token: str | None) -> ChallengeResolutionResultT:
     challenge_res = ChallengeResolutionResultT({})
-    challenge_res.url = driver.current_url
+    challenge_res.url = ctx.current_url
     challenge_res.status = 200  # todo: fix, selenium not provides this info
-    challenge_res.userAgent = utils.get_user_agent(driver)
+    challenge_res.userAgent = utils.get_user_agent(ctx)
     challenge_res.turnstile_token = turnstile_token
 
     if not req.returnOnlyCookies:
         challenge_res.headers = {}  # todo: fix, selenium not provides this info
 
         if req.actions:
-            _execute_actions(driver, req.actions)
+            _execute_actions(ctx, req.actions)
 
         if req.waitInSeconds and req.waitInSeconds > 0:
             logging.info("Waiting " + str(req.waitInSeconds) + " seconds before returning the response...")
             time.sleep(req.waitInSeconds)
 
-        challenge_res.response = driver.page_source
+        challenge_res.response = ctx.page_source
 
     # Get cookies after waiting to ensure all challenge cookies are captured
-    challenge_res.cookies = driver.get_cookies()
+    challenge_res.cookies = ctx.get_cookies()
 
     if req.returnScreenshot:
-        challenge_res.screenshot = driver.get_screenshot_as_base64()  # noqa
+        challenge_res.screenshot = ctx.get_screenshot_as_base64()  # noqa
 
     return challenge_res
 
 
-def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> ChallengeResolutionT:
+def _evil_logic(req: V1RequestBase, driver: WebDriver | BrowserContext, method: str) -> ChallengeResolutionT:
+    ctx = get_browser_context(driver)
     if req.url is None:
         raise Exception("Request parameter 'url' is mandatory in request commands.")
     target_url = req.url
@@ -794,35 +792,35 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     res.status = STATUS_OK
     res.message = ""
 
-    _configure_blocked_media(req, driver)
-    _set_custom_headers(req, driver)
-    turnstile_token = _navigate_request(req, driver, method, target_url)
-    _set_request_cookies(req, driver, method, target_url)
+    _configure_blocked_media(req, ctx)
+    _set_custom_headers(req, ctx)
+    turnstile_token = _navigate_request(req, ctx, method, target_url)
+    _set_request_cookies(req, ctx, method, target_url)
 
     # wait for the page
     if utils.get_config_log_html():
-        logging.debug(f"Response HTML:\n{driver.page_source}")
-    html_element = driver.find_element(By.TAG_NAME, "html")
-    page_title = driver.title
+        logging.debug(f"Response HTML:\n{ctx.page_source}")
+    html_element = ctx.find_element(By.TAG_NAME, "html")
+    page_title = ctx.title
 
-    _raise_if_navigation_error(driver)
-    _raise_if_access_denied(driver, page_title)
-    challenge_found = _challenge_found(driver, page_title)
+    _raise_if_navigation_error(ctx)
+    _raise_if_access_denied(ctx, page_title)
+    challenge_found = _challenge_found(ctx, page_title)
     if challenge_found:
         # Try external captcha solver first if configured
         solver_used = False
         effective_solver = req.captchaSolver if req.captchaSolver is not None else get_config_captcha_solver()
         if effective_solver != "default":
-            solver_type = _detect_captcha_type(driver)
+            solver_type = _detect_captcha_type(ctx)
             if solver_type:
                 logging.info(f"Attempting to solve {solver_type} captcha with {effective_solver} solver")
-                solver_used = SOLVER_MANAGER.solve(driver, solver_type, effective_solver)
+                solver_used = SOLVER_MANAGER.solve(ctx, solver_type, effective_solver)
                 if solver_used:
                     logging.info(f"Captcha solved successfully with {effective_solver}")
 
         if not solver_used:
             # Fall back to default challenge resolution
-            _wait_for_challenge(driver, html_element)
+            _wait_for_challenge(ctx, html_element)
 
         logging.info("Challenge solved!")
         res.message = "Challenge solved!"
@@ -830,30 +828,30 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
         logging.info("Challenge not detected!")
         res.message = "Challenge not detected!"
 
-    res.result = _build_challenge_result(req, driver, turnstile_token)
+    res.result = _build_challenge_result(req, ctx, turnstile_token)
     return res
 
 
-def _detect_captcha_type(driver: WebDriver) -> str | None:
+def _detect_captcha_type(ctx: BrowserContext) -> str | None:
     """Detect the type of captcha present on the page.
 
     Returns:
         String identifying the captcha type, or None if not detected.
     """
     # Check for hCaptcha
-    hcaptcha_elements = driver.find_elements(By.CSS_SELECTOR, ".h-captcha, iframe[src*='hcaptcha.com']")
+    hcaptcha_elements = ctx.find_elements(By.CSS_SELECTOR, ".h-captcha, iframe[src*='hcaptcha.com']")
     if hcaptcha_elements:
         logging.debug("hCaptcha detected on page")
         return "hcaptcha"
 
     # Check for reCAPTCHA
-    recaptcha_elements = driver.find_elements(By.CSS_SELECTOR, ".g-recaptcha, iframe[src*='google.com/recaptcha']")
+    recaptcha_elements = ctx.find_elements(By.CSS_SELECTOR, ".g-recaptcha, iframe[src*='google.com/recaptcha']")
     if recaptcha_elements:
         logging.debug("reCAPTCHA detected on page")
         return "recaptcha"
 
     # Check for Turnstile (already handled separately, but for completeness)
-    turnstile_elements = driver.find_elements(By.CSS_SELECTOR, "input[name='cf-turnstile-response'], #turnstile-wrapper")
+    turnstile_elements = ctx.find_elements(By.CSS_SELECTOR, "input[name='cf-turnstile-response'], #turnstile-wrapper")
     if turnstile_elements:
         logging.debug("Turnstile detected on page")
         return "turnstile"
@@ -862,7 +860,7 @@ def _detect_captcha_type(driver: WebDriver) -> str | None:
     return None
 
 
-def _post_request(req: V1RequestBase, driver: WebDriver) -> None:
+def _post_request(req: V1RequestBase, ctx: BrowserContext) -> None:
     if req.url is None:
         raise Exception("Request parameter 'url' is mandatory in request commands.")
     post_form = f'<form id="hackForm" action="{req.url}" method="POST">'
@@ -894,4 +892,4 @@ def _post_request(req: V1RequestBase, driver: WebDriver) -> None:
             <script>document.getElementById('hackForm').submit();</script>
         </body>
         </html>"""
-    driver.get("data:text/html;charset=utf-8,{html_content}".format(html_content=html_content))
+    ctx.get("data:text/html;charset=utf-8,{html_content}".format(html_content=html_content))

@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from flaresolverr.backends import get_browser_context
 from flaresolverr.dtos import V1RequestBase
 
 
@@ -96,7 +97,7 @@ class TestTurnstileRetryFix:
         # Patch time.sleep to avoid delays
         with patch.object(time, 'sleep', side_effect=lambda s: None):
             # This should execute the focus reset script
-            result = service._get_turnstile_token(mock_driver, 3)
+            result = service._get_turnstile_token(get_browser_context(mock_driver), 3)
 
         # Verify scripts were executed
         assert len(mock_driver._executed_scripts) > 0
@@ -125,7 +126,7 @@ class TestTurnstileRetryFix:
         })
 
         with patch.object(time, 'sleep', side_effect=lambda s: None):
-            service._get_turnstile_token(mock_driver, 2)
+            service._get_turnstile_token(get_browser_context(mock_driver), 2)
 
         # Find the focus reset script
         focus_scripts = [s for s in mock_driver._executed_scripts
@@ -152,7 +153,7 @@ class TestTurnstileRetryFix:
         })
 
         with patch.object(time, 'sleep', side_effect=lambda s: None):
-            service._get_turnstile_token(mock_driver, 3)
+            service._get_turnstile_token(get_browser_context(mock_driver), 3)
 
         # Count how many times the focus reset script was executed
         focus_scripts = [s for s in mock_driver._executed_scripts
@@ -173,7 +174,7 @@ class TestTurnstileRetryFix:
         mock_driver = MockWebDriver()
 
         with patch.object(time, 'sleep', side_effect=lambda s: None):
-            token = service._get_turnstile_token(mock_driver, tabs=3)
+            token = service._get_turnstile_token(get_browser_context(mock_driver), tabs=3)
 
         # Should eventually get a valid token
         assert token is not None
@@ -203,7 +204,7 @@ class TestTurnstileIntegration:
                 return []
 
         driver = TurnstileWebDriver()
-        captcha_type = _detect_captcha_type(driver)
+        captcha_type = _detect_captcha_type(get_browser_context(driver))
 
         assert captcha_type == "turnstile"
 
@@ -252,7 +253,7 @@ class TestTurnstileIntegration:
         })
 
         with patch.object(time, 'sleep', side_effect=lambda s: None):
-            token = service._resolve_turnstile_captcha(req, driver)
+            token = service._resolve_turnstile_captcha(req, get_browser_context(driver))
 
         assert token is not None
         assert token == "token_abc123"
@@ -283,7 +284,7 @@ class TestTurnstileEdgeCases:
             "tabs_till_verify": 3,
         })
 
-        token = service._resolve_turnstile_captcha(req, driver)
+        token = service._resolve_turnstile_captcha(req, get_browser_context(driver))
         assert token is None
 
     def test_no_tabs_till_verify_skips_turnstile(self):
@@ -301,5 +302,5 @@ class TestTurnstileEdgeCases:
             "url": "https://example.com",
         })
 
-        token = service._resolve_turnstile_captcha(req, driver)
+        token = service._resolve_turnstile_captcha(req, get_browser_context(driver))
         assert token is None

@@ -129,6 +129,7 @@ The solver interface is designed for extension. To add a custom solver:
 ```python
 from captcha_solvers import CaptchaSolver, SOLVER_MANAGER
 from selenium.webdriver.chrome.webdriver import WebDriver
+from flaresolverr.backends import BrowserContext
 
 class MySolver(CaptchaSolver):
     name = "my-solver"
@@ -136,8 +137,8 @@ class MySolver(CaptchaSolver):
     def is_available(self) -> bool:
         return True  # or check for optional dependency
 
-    def solve(self, driver: WebDriver, captcha_type: str) -> bool:
-        # drive the already-open Selenium session to solve the captcha
+    def solve(self, driver: WebDriver | BrowserContext, captcha_type: str) -> bool:
+        # drive the already-open browser session to solve the captcha
         # return True on success, False otherwise
         return False
 
