@@ -98,16 +98,18 @@ This is the recommended way for Windows users.
 - Install [Chrome](https://www.google.com/intl/en_us/chrome/) (all OS) or [Chromium](https://www.chromium.org/getting-involved/download-chromium/) (just Linux, it doesn't work in Windows) web browser.
 - (Only in Linux) Install [Xvfb](https://en.wikipedia.org/wiki/Xvfb) package.
 - (Only in macOS) Install [XQuartz](https://www.xquartz.org/) package.
+- Install [uv](https://github.com/astral-sh/uv) (a fast Python package installer).
 - Clone this repository and open a shell in that path.
-- Run `pip install -r requirements.txt` command to install FlareSolverr dependencies.
-- Run `python src/flaresolverr.py` command to start FlareSolverr.
+- Run `uv sync` command to install FlareSolverr dependencies.
+- Run `uv run python src/flaresolverr.py` command to start FlareSolverr.
 
 ### From source code (FreeBSD/TrueNAS CORE)
 
 - Run `pkg install chromium python313 py313-pip xorg-vfbserver` command to install the required dependencies.
+- Install [uv](https://github.com/astral-sh/uv) (a fast Python package installer).
 - Clone this repository and open a shell in that path.
-- Run `python3.13 -m pip install -r requirements.txt` command to install FlareSolverr dependencies.
-- Run `python3.13 src/flaresolverr.py` command to start FlareSolverr.
+- Run `uv sync` command to install FlareSolverr dependencies.
+- Run `uv run python src/flaresolverr.py` command to start FlareSolverr.
 
 ### Systemd service
 
