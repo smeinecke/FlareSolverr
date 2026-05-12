@@ -441,19 +441,58 @@ def _human_like_click(driver: WebDriver, element) -> None:
     # Generate bezier curve points for natural movement
     points = _generate_bezier_curve((start_x, start_y), (target_x, target_y), control_points=random.randint(1, 2))  # nosec B311
 
-    # Execute movement through points with variable speed
+
+    # move the cursor at the first bezier point
     actions = ActionChains(driver)
-    for i, (x, y) in enumerate(points):
-        if i == 0:
-            actions.move_by_offset(int(x - viewport_width / 2), int(y - viewport_height / 2))
-        else:
-            actions.move_by_offset(int(x - points[i - 1][0]), int(y - points[i - 1][1]))
+    first_x, first_y = points[0]
+    anchor_dx = round(first_x - element_center_x)
+    anchor_dy = round(first_y - element_center_y)
+    actions.move_to_element_with_offset(element, anchor_dx, anchor_dy)
+    actions.pause(_random_delay(0.02, 0.06))
+
+    # Cursor is now at (element_center + anchor_offset) — known position.
+    actual_x = round(element_center_x) + anchor_dx
+    actual_y = round(element_center_y) + anchor_dy
+    prev_x = float(actual_x)
+    prev_y = float(actual_y)
+
+    # Fractional residue carried between hops by round() truncation
+    acc_x = 0.0
+    acc_y = 0.0
+
+    # Walk the remaining bezier points with relative move_by_offset
+    for i, (x, y) in enumerate(points[1:], start=1):
+        desired_dx = (x - prev_x) + acc_x
+        desired_dy = (y - prev_y) + acc_y
+
+        int_dx = round(desired_dx)
+        int_dy = round(desired_dy)
+
+        # Whatever fraction we didn't move, carry into the next hop.
+        acc_x = desired_dx - int_dx
+        acc_y = desired_dy - int_dy
+
+        actions.move_by_offset(int_dx, int_dy)
+        actual_x += int_dx
+        actual_y += int_dy
+        prev_x, prev_y = x, y
+
         # Variable delay between movements (faster in middle, slower at start/end)
         progress = i / len(points)
         delay = 0.01 + 0.03 * (1 - abs(progress - 0.5) * 2)  # 0.01 to 0.04
         actions.pause(delay)
 
-    # Slight hesitation before clicking
+    # if the cursor still isn't exactly on the integer target (a leftover sub-pixel pushed us 1 px off), move to it.
+    target_int_x = round(target_x)
+    target_int_y = round(target_y)
+    if actual_x != target_int_x or actual_y != target_int_y:
+        fix_dx = target_int_x - actual_x
+        fix_dy = target_int_y - actual_y
+        actions.move_by_offset(fix_dx, fix_dy)
+        actual_x = target_int_x
+        actual_y = target_int_y
+
+
     actions.pause(_random_delay(0.05, 0.15))
 
     # Click with slight movement during press (human hand tremor)
