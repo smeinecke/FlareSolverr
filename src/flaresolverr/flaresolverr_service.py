@@ -441,7 +441,6 @@ def _human_like_click(driver: WebDriver, element) -> None:
     # Generate bezier curve points for natural movement
     points = _generate_bezier_curve((start_x, start_y), (target_x, target_y), control_points=random.randint(1, 2))  # nosec B311
 
-
     # move the cursor at the first bezier point
     actions = ActionChains(driver)
     first_x, first_y = points[0]
@@ -491,7 +490,6 @@ def _human_like_click(driver: WebDriver, element) -> None:
         actions.move_by_offset(fix_dx, fix_dy)
         actual_x = target_int_x
         actual_y = target_int_y
-
 
     actions.pause(_random_delay(0.05, 0.15))
 
