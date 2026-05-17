@@ -81,6 +81,7 @@ jobs:
         env:
           CHROMIUM_VERSION: ${{ steps.resolve.outputs.chromium_version }}
           PATH: /data/depot_tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          GIT_TERMINAL_PROMPT: 0
         run: |
           git config --global http.lowSpeedLimit 0
           git config --global http.lowSpeedTime 999999
@@ -97,11 +98,14 @@ jobs:
             cd "${{ env.CHROMIUM_ROOT }}/src"
             # Clean any local modifications left by previous builds (e.g. applied patches)
             git reset --hard HEAD
+            # Preserve .version so next run can detect current state even if this run fails later
+            [ -f .version ] && cp .version /tmp/chromium_version_backup
             git clean -fd || true
+            [ -f /tmp/chromium_version_backup ] && cp /tmp/chromium_version_backup .version
             git fetch origin "refs/tags/$CHROMIUM_VERSION:refs/tags/$CHROMIUM_VERSION" --no-tags --depth=1 || true
             git checkout -f "$CHROMIUM_VERSION" || git checkout -f "tags/$CHROMIUM_VERSION"
             gclient revert
-            gclient sync --with_tags --no-history -D -j$(nproc)
+            gclient sync --with_tags --no-history -D -j$(nproc) --verbose
             gclient runhooks
             find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
             echo "$CHROMIUM_VERSION" > .version
