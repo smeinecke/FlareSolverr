@@ -100,6 +100,7 @@ jobs:
             git clean -fd || true
             git fetch origin "refs/tags/$CHROMIUM_VERSION:refs/tags/$CHROMIUM_VERSION" --no-tags --depth=1 || true
             git checkout -f "$CHROMIUM_VERSION" || git checkout -f "tags/$CHROMIUM_VERSION"
+            gclient revert
             gclient sync --with_tags --no-history -D -j$(nproc)
             gclient runhooks
             find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
