@@ -104,7 +104,13 @@ jobs:
             [ -f /tmp/chromium_version_backup ] && cp /tmp/chromium_version_backup .version
             git fetch origin "refs/tags/$CHROMIUM_VERSION:refs/tags/$CHROMIUM_VERSION" --no-tags --depth=1 || true
             git checkout -f "$CHROMIUM_VERSION" || git checkout -f "tags/$CHROMIUM_VERSION"
-            gclient revert
+            # Fast reset of all DEPS sub-repos to avoid gclient sync failing on uncommitted changes.
+            # gclient revert is too slow because it evaluates DEPS and can trigger large fetches.
+            find . -type d -name .git | while read gitdir; do
+              dir=$(dirname "$gitdir")
+              [ "$dir" = "." ] && continue
+              (cd "$dir" && git reset --hard HEAD && git clean -fd) || true
+            done
             gclient sync --with_tags --no-history -D -j$(nproc) --verbose
             gclient runhooks
             find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
@@ -120,7 +126,7 @@ jobs:
             git fetch origin "refs/tags/$CHROMIUM_VERSION:refs/tags/$CHROMIUM_VERSION" --no-tags --depth=1 || true
             git checkout "$CHROMIUM_VERSION" || git checkout "tags/$CHROMIUM_VERSION"
             for i in {1..5}; do
-              gclient sync --with_tags --no-history -D -j$(nproc) && break || sleep 60
+              gclient sync --with_tags --no-history -D -j$(nproc) --verbose && break || sleep 60
             done
             gclient runhooks
             find third_party -type f -name "node" -exec chmod +x {} \; 2>/dev/null || true
