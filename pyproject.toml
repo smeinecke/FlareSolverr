@@ -30,7 +30,7 @@ dependencies = [
     "pefile==2024.8.26; platform_system == 'Windows'",
     "prometheus-client==0.25.0",
     "requests==2.33.0",
-    "selenium==4.43.0",
+    "selenium==4.44.0",
     "tomli>=1.1.0; python_version < '3.11'",
     "waitress==3.0.2",
     "websockets==16.0",
