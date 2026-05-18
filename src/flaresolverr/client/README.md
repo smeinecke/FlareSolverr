@@ -54,7 +54,7 @@ client = FlareSolverrClient(base_url="http://localhost:8191", timeout=120.0)
 
 ```python
 # Create a persistent session
-response = client.sessions.create(session_id="my_session", stealth_mode="standard", user_agent="Mozilla/5.0 ...")
+response = client.sessions.create(session_id="my_session", stealth_mode="standard", user_agent="Mozilla/5.0 ...", accept_language="de-DE,de")
 session_id = response.session  # Auto-generated if not provided
 
 # Use session for requests
@@ -82,6 +82,7 @@ response = client.request.get(
     disable_media=False,            # Block images/CSS/fonts
     stealth_mode="standard",        # Optional stealth mode: off|standard|csp-safe
     user_agent="Mozilla/5.0 ...",   # Optional per-request user-agent override
+    accept_language="fr-FR,fr",     # Optional per-request Accept-Language override
     wait_in_seconds=2,              # Wait after page load
     proxy=ProxyConfig(url="http://proxy:8080"),
     cookies=[Cookie(name="session", value="abc", domain=".example.com", path="/")],
@@ -102,6 +103,7 @@ response = client.request.post(
     post_data="username=user&password=secret",
     stealth_mode="standard",  # Same options as GET
     user_agent="Mozilla/5.0 ...",
+    accept_language="en-GB,en",
 )
 ```
 

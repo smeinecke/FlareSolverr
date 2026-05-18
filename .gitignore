@@ -134,3 +134,4 @@ node_modules/
 .vscode/
 
 src/flaresolverr/chrome
+debug/*

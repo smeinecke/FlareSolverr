@@ -475,12 +475,11 @@ class PatchApplier:
             "  }\n"
         )
 
-        self.patch(
-            "content/renderer/render_frame_impl.cc",
-            "  for (auto& observer : observers_)\n    observer.DidCreateDocumentElement();\n}",
-            _PRELOAD_INJECTION + "  for (auto& observer : observers_)\n    observer.DidCreateDocumentElement();\n}",
-            "inject preload script at DidCreateDocumentElement (safe, after V8 init)",
-        )
+        # Main-frame preload injection is disabled: running v8::Script from
+        # DidCreateDocumentElement causes 100% CPU spin (same as DidCreateScriptContext).
+        # kDoNotRunMicrotasks does not fix it. Main frame uses CDP
+        # Page.addScriptToEvaluateOnNewDocument instead — see utils.py.
+        # _PRELOAD_INJECTION is kept above for future investigation.
 
         # ──────────────────────────────────────────────────────────────────────────────
         # Patch 5: Inject preload script into DedicatedWorkerGlobalScope at C++ level
@@ -551,21 +550,11 @@ class PatchApplier:
             "  }\n"
         )
 
-        # Chrome 112+: inject before EvaluateClassicScript() in DidFetchClassicScript
-        self.patch(
-            "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
-            "  EvaluateClassicScript(\n"
-            "      classic_script_loader->ResponseURL(), classic_script_loader->SourceText(),\n"
-            "      classic_script_loader->ReleaseCachedMetadata(), stack_id);",
-            _WORKER_PRELOAD + "  EvaluateClassicScript(\n"
-            "      classic_script_loader->ResponseURL(), classic_script_loader->SourceText(),\n"
-            "      classic_script_loader->ReleaseCachedMetadata(), stack_id);",
-            "evaluate preload script before user code",
-            fallbacks=[
-                # Older hook point: before WorkerGlobalScope::Initialize call
-                "  WorkerGlobalScope::Initialize(user_agent,",
-            ],
-        )
+        # Worker prelude injection is disabled: running v8::Script from
+        # DidFetchClassicScript causes 100% CPU spin regardless of MicrotasksScope
+        # suppression. C++ Patches 2/3/8 already cover all signals that
+        # hasInconsistentWorkerValues checks (webdriver, languages, WebGL).
+        # _WORKER_PRELOAD is kept above for future investigation.
 
         # ──────────────────────────────────────────────────────────────────────────────
         # Patch 6: Remove "HeadlessChrome" product name token from UA string and

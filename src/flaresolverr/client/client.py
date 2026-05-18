@@ -40,6 +40,7 @@ class _SessionManager:
         stealth: bool | None = None,
         stealth_mode: str | None = None,
         user_agent: str | None = None,
+        accept_language: str | None = None,
     ) -> V1Response:
         """Create a new browser session.
 
@@ -53,6 +54,7 @@ class _SessionManager:
             stealth: Optional boolean stealth toggle (legacy shorthand).
             stealth_mode: Optional stealth mode enum (off|standard|csp-safe).
             user_agent: Optional custom browser user agent for the session.
+            accept_language: Optional Accept-Language override for the session.
 
         Returns:
             V1Response containing the session ID on success.
@@ -71,6 +73,8 @@ class _SessionManager:
             payload["stealthMode"] = stealth_mode
         if user_agent is not None:
             payload["userAgent"] = user_agent
+        if accept_language is not None:
+            payload["acceptLanguage"] = accept_language
 
         return self._client._post_v1(payload)
 
@@ -128,6 +132,7 @@ class _RequestManager:
         stealth: bool | None = None,
         stealth_mode: str | None = None,
         user_agent: str | None = None,
+        accept_language: str | None = None,
     ) -> V1Response:
         """Send a GET request through FlareSolverr.
 
@@ -149,6 +154,7 @@ class _RequestManager:
             stealth: Optional per-request stealth mode override.
             stealth_mode: Optional stealth mode enum override (off|standard|csp-safe).
             user_agent: Optional custom browser user agent override.
+            accept_language: Optional Accept-Language override for this request.
 
         Returns:
             V1Response containing the solution.
@@ -175,6 +181,7 @@ class _RequestManager:
             stealth=stealth,
             stealth_mode=stealth_mode,
             user_agent=user_agent,
+            accept_language=accept_language,
         )
         return self._client._post_v1(payload)
 
@@ -199,6 +206,7 @@ class _RequestManager:
         stealth: bool | None = None,
         stealth_mode: str | None = None,
         user_agent: str | None = None,
+        accept_language: str | None = None,
     ) -> V1Response:
         """Send a POST request through FlareSolverr.
 
@@ -220,6 +228,7 @@ class _RequestManager:
             stealth: Optional per-request stealth mode override.
             stealth_mode: Optional stealth mode enum override (off|standard|csp-safe).
             user_agent: Optional custom browser user agent override.
+            accept_language: Optional Accept-Language override for this request.
 
         Returns:
             V1Response containing the solution.
@@ -247,6 +256,7 @@ class _RequestManager:
             stealth=stealth,
             stealth_mode=stealth_mode,
             user_agent=user_agent,
+            accept_language=accept_language,
         )
         return self._client._post_v1(payload)
 
@@ -272,6 +282,7 @@ class _RequestManager:
         stealth: bool | None = None,
         stealth_mode: str | None = None,
         user_agent: str | None = None,
+        accept_language: str | None = None,
     ) -> dict[str, Any]:
         """Build the API request payload."""
         payload: dict[str, Any] = {
@@ -312,6 +323,8 @@ class _RequestManager:
             payload["stealthMode"] = stealth_mode
         if user_agent is not None:
             payload["userAgent"] = user_agent
+        if accept_language is not None:
+            payload["acceptLanguage"] = accept_language
 
         return payload
 

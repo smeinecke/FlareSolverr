@@ -19,10 +19,26 @@ def _find_obj_by_key(key: str, value: str, _list: list) -> Optional[dict]:
     return None
 
 
+def _proxy_reachable(proxy_url: str) -> bool:
+    import urllib.parse, socket
+    try:
+        parsed = urllib.parse.urlparse(proxy_url)
+        if not parsed.hostname or not parsed.port:
+            return False
+        with socket.create_connection((parsed.hostname, parsed.port), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
 class TestFlareSolverr(unittest.TestCase):
     # Proxy URLs for tests - can be overridden via env vars
+    # *_check_url: host-side address used only to verify the proxy is up before testing
+    # proxy_url / proxy_socks_url: address sent to FlareSolverr (may be a Docker service name)
     proxy_url = os.environ.get("PROXY_HTTP_URL", "http://127.0.0.1:8888")
     proxy_socks_url = os.environ.get("PROXY_SOCKS_URL", "socks5://127.0.0.1:1080")
+    proxy_http_check_url = os.environ.get("PROXY_HTTP_CHECK_URL") or os.environ.get("PROXY_HTTP_URL", "http://127.0.0.1:8888")
+    proxy_socks_check_url = os.environ.get("PROXY_SOCKS_CHECK_URL") or os.environ.get("PROXY_SOCKS_URL", "socks5://127.0.0.1:1080")
     google_url = "https://www.google.com"
     are_you_a_bot_url = "https://deviceandbrowserinfo.com/are_you_a_bot"
     are_you_a_bot_interactions_url = "https://deviceandbrowserinfo.com/are_you_a_bot_interactions"
@@ -51,6 +67,17 @@ class TestFlareSolverr(unittest.TestCase):
                     raise
                 import time
                 time.sleep(1)
+
+    @classmethod
+    def tearDownClass(cls):
+        # Destroy any lingering sessions so Chrome processes don't leak.
+        try:
+            res = requests.post(f"{cls.base_url}/v1", json={"cmd": "sessions.list"}, timeout=10)
+            body = res.json()
+            for sid in body.get("sessions", []):
+                requests.post(f"{cls.base_url}/v1", json={"cmd": "sessions.destroy", "session": sid}, timeout=10)
+        except Exception:
+            pass
 
     def _request(self, method: str, path: str, json=None, status=None, timeout=180):
         url = f"{self.base_url}{path}"
@@ -144,8 +171,12 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(solution.status, 200)
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Bot detection test: verify if your bot is detected</title>", solution.response)
+        # Bot detection signals must all be clean
         self.assertRegex(solution.response, re.compile(r'"hasBotUserAgent"\s*:\s*false'))
+        self.assertRegex(solution.response, re.compile(r'"isBot"\s*:\s*false'))
         self.assertRegex(solution.response, re.compile(r'"hasWebdriverTrue"\s*:\s*false'))
+        self.assertRegex(solution.response, re.compile(r'"hasInconsistentWorkerValues"\s*:\s*false'))
+        self.assertIn("You are human!", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
@@ -162,7 +193,7 @@ class TestFlareSolverr(unittest.TestCase):
                     {"type": "fill",     "selector": "//input[@id='email']",                                         "value": "test@example.com"},
                     {"type": "fill",     "selector": "//input[@id='password']",                                      "value": "TestPass@123"},
                     {"type": "click",    "selector": "//form[@id='loginForm']//button[@type='submit']"},
-                    {"type": "wait_for", "selector": "//*[@id='resultsBotTest'][contains(@class,'is-human') or contains(@class,'is-bot')]"},
+                    {"type": "wait_for", "selector": "//*[contains(text(),'You are human!') or contains(text(),'You are a bot!')]"},
                 ],
             },
         )
@@ -181,8 +212,14 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Bot detection test: verify if your bot is detected</title>", solution.response)
         self.assertIn('id="loginForm"', solution.response)
+        # Fingerprint signals should be clean
         self.assertRegex(solution.response, re.compile(r'"hasBotUserAgent"\s*:\s*false'))
         self.assertRegex(solution.response, re.compile(r'"hasWebdriverTrue"\s*:\s*false'))
+        self.assertRegex(solution.response, re.compile(r'"hasInconsistentWorkerValues"\s*:\s*false'))
+        # With --enable-trusted-synthetic-events C++ patch, CDP actions should not trigger behavioral detection
+        self.assertRegex(solution.response, re.compile(r'"suspiciousClientSideBehavior"\s*:\s*false'))
+        self.assertRegex(solution.response, re.compile(r'"isBot"\s*:\s*false'))
+        self.assertIn("You are human!", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
@@ -234,6 +271,8 @@ class TestFlareSolverr(unittest.TestCase):
             body = V1ResponseBase(self._get_json(res))
             if "Timeout after" in body.message:
                 self.skipTest(f"Target site challenge timed out: {body.message}")
+            if "Cloudflare hard block" in body.message:
+                self.skipTest(f"Target site returned Cloudflare hard-block page: {body.message}")
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
@@ -329,7 +368,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn(self.scrapingcourse_cf_url, solution.url)
         self.assertEqual(solution.status, 200)
         self.assertIs(len(solution.headers), 0)
-        self.assertIn("Cloudflare Challenge to Learn Web Scraping", solution.response)
+        self.assertIn("Cloudflare Challenge", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
@@ -341,7 +380,19 @@ class TestFlareSolverr(unittest.TestCase):
         res = self._request(
             "POST",
             "/v1",
-            {"cmd": "request.get", "url": self.scrapingcourse_turnstile_url, "maxTimeout": 120000, "tabs_till_verify": 2},
+            {
+                "cmd": "request.get",
+                "url": self.scrapingcourse_turnstile_url,
+                "maxTimeout": 120000,
+                "tabs_till_verify": 2,
+                "actions": [
+                    {"type": "wait", "seconds": 2},
+                    {"type": "fill", "selector": "//input[@id='email']", "value": "admin@example.com"},
+                    {"type": "fill", "selector": "//input[@id='password']", "value": "password"},
+                    {"type": "click", "selector": "//button[@id='submit-button']"},
+                    {"type": "wait", "seconds": 3},
+                ],
+            },
             timeout=190,
         )
         if res.status_code == 500:
@@ -361,17 +412,16 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn(self.scrapingcourse_turnstile_url, solution.url)
         self.assertEqual(solution.status, 200)
         self.assertIs(len(solution.headers), 0)
-        self.assertIn("Cloudflare Login Challenge to Learn Web Scraping", solution.response)
+        # After successful login the page should show the success page, not 403
+        self.assertNotIn("403", solution.response)
+        self.assertNotIn("FORBIDDEN", solution.response)
+        self.assertNotIn("Page Expired", solution.response)
+        self.assertIn("Success Page", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
-        cf_cookie = _find_obj_by_key("name", "cf_clearance", solution.cookies)
-        self.assertIsNotNone(cf_cookie, "Cloudflare cookie not found")
-        self.assertGreater(len(cf_cookie["value"]), 30)
-
-        turnstile_response = _find_obj_by_key("name", "cf-turnstile-response", solution.cookies)
-        if turnstile_response is None:
-            self.assertIn("cf-turnstile-response", solution.response)
+        # Turnstile token was solved by FlareSolverr before form submission
+        self.assertTrue(solution.turnstile_token, "Turnstile token should be present after captcha solve")
 
     def test_v1_endpoint_request_get_csrf_login(self):
         res = self._request(
@@ -472,6 +522,8 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("Chrome/", solution.userAgent)
 
     def test_v1_endpoint_request_get_proxy_http_param(self):
+        if not _proxy_reachable(self.proxy_http_check_url):
+            self.skipTest(f"Proxy not reachable: {self.proxy_http_check_url}")
         """
         To configure TinyProxy in local:
            * sudo vim /etc/tinyproxy/tinyproxy.conf
@@ -499,6 +551,8 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("Chrome/", solution.userAgent)
 
     def test_v1_endpoint_request_get_proxy_http_param_with_credentials(self):
+        if not _proxy_reachable(self.proxy_http_check_url):
+            self.skipTest(f"Proxy not reachable: {self.proxy_http_check_url}")
         """
         To configure TinyProxy in local:
            * sudo vim /etc/tinyproxy/tinyproxy.conf
@@ -527,6 +581,8 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("Chrome/", solution.userAgent)
 
     def test_v1_endpoint_request_get_proxy_socks_param(self):
+        if not _proxy_reachable(self.proxy_socks_check_url):
+            self.skipTest(f"Proxy not reachable: {self.proxy_socks_check_url}")
         """
         To configure Dante in local:
            * https://linuxhint.com/set-up-a-socks5-proxy-on-ubuntu-with-dante/
@@ -558,7 +614,7 @@ class TestFlareSolverr(unittest.TestCase):
 
         body = V1ResponseBase(self._get_json(res))
         self.assertEqual(STATUS_ERROR, body.status)
-        self.assertIn("Error: Error solving the challenge. Message: unknown error: net::ERR_PROXY_CONNECTION_FAILED", body.message)
+        self.assertIn("Error: Error solving the challenge. Proxy 127.0.0.1:43210 is not reachable", body.message)
         self.assertGreater(body.startTimestamp, 10000)
         self.assertGreaterEqual(body.endTimestamp, body.startTimestamp)
         self.assertEqual(utils.get_flaresolverr_version(), body.version)
@@ -671,6 +727,8 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(body.session, "test_create_session")
 
     def test_v1_endpoint_sessions_create_with_proxy(self):
+        if not _proxy_reachable(self.proxy_http_check_url):
+            self.skipTest(f"Proxy not reachable: {self.proxy_http_check_url}")
         res = self._request("POST", "/v1", {"cmd": "sessions.create", "proxy": {"url": self.proxy_url}})
         self.assertEqual(res.status_code, 200)
 

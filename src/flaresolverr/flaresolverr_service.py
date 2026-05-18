@@ -6,15 +6,15 @@ import time
 from datetime import timedelta
 from html import escape
 from typing import cast
-from urllib.parse import unquote, quote
+from urllib.parse import quote, unquote
 
 from func_timeout import FunctionTimedOut, func_timeout
 from selenium.common import TimeoutException, UnexpectedAlertPresentException
 from selenium.webdriver.chrome.webdriver import WebDriver
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.expected_conditions import presence_of_element_located, staleness_of, title_is, visibility_of_element_located
-from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.wait import WebDriverWait
 
 from flaresolverr import utils
@@ -46,6 +46,7 @@ ACCESS_DENIED_SELECTORS = [
 CHALLENGE_TITLES = [
     # Cloudflare
     "Just a moment...",
+    "Nur einen Moment…",
     # DDoS-GUARD
     "DDoS-Guard",
 ]
@@ -118,6 +119,8 @@ BLOCK_MEDIA_URL_PATTERNS = [
 SHORT_TIMEOUT = 1
 SESSIONS_STORAGE = SessionsStorage()
 _NET_ERROR_CODE_RE = re.compile(r"\bERR_[A-Z0-9_]+\b")
+
+HARD_BLOCK_TEXT = "Incompatible browser extension or network configuration"
 
 
 def test_browser_installation() -> None:
@@ -254,7 +257,9 @@ def _cmd_sessions_create(req: V1RequestBase) -> V1ResponseBase:
     logging.debug("Creating new session...")
     req_stealth_mode = _resolve_request_stealth_mode(req)
 
-    session, fresh = SESSIONS_STORAGE.create(session_id=req.session, proxy=req.proxy, stealth_mode=req_stealth_mode, user_agent=req.userAgent)
+    session, fresh = SESSIONS_STORAGE.create(
+        session_id=req.session, proxy=req.proxy, stealth_mode=req_stealth_mode, user_agent=req.userAgent, accept_language=req.acceptLanguage
+    )
     session_id = session.session_id
 
     if not fresh:
@@ -291,7 +296,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         if req.session:
             session_id = req.session
             ttl = timedelta(minutes=req.session_ttl_minutes) if req.session_ttl_minutes else None
-            session, fresh = SESSIONS_STORAGE.get(session_id, ttl, stealth_mode=req_stealth_mode, user_agent=req.userAgent)
+            session, fresh = SESSIONS_STORAGE.get(session_id, ttl, stealth_mode=req_stealth_mode, user_agent=req.userAgent, accept_language=req.acceptLanguage)
 
             if fresh:
                 logging.debug(f"new session created to perform the request (session_id={session_id})")
@@ -306,7 +311,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         else:
             driver = utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode)
             if req.userAgent is not None:
-                utils.apply_user_agent_override(driver, req.userAgent)
+                utils.apply_user_agent_override(driver, req.userAgent, req.acceptLanguage or utils.get_config_accept_language())
             logging.debug("New instance of webdriver has been created to perform the request")
         challenge_result = func_timeout(timeout, _evil_logic, (req, driver, method))
         if session is not None:
@@ -321,11 +326,15 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         if session is not None and session.lock.locked():
             session.lock.release()
             logging.debug(f"session lock released (session_id={session.session_id})")
-        if not req.session and driver is not None:
-            if utils.PLATFORM_VERSION == "nt":
-                driver.close()
-            driver.quit()
-            logging.debug("A used instance of webdriver has been destroyed")
+        # Quit one-off webdriver instances created for non-session requests
+        if session is None and driver is not None:
+            try:
+                if utils.PLATFORM_VERSION == "nt":
+                    driver.close()
+                driver.quit()
+                logging.debug("A used instance of webdriver has been destroyed")
+            except Exception:
+                pass
 
 
 def _resolve_request_stealth_mode(req: V1RequestBase) -> str | None:
@@ -405,6 +414,7 @@ def _random_delay(min_sec: float, max_sec: float) -> float:
 def _human_like_click(driver: WebDriver, element) -> None:
     """Perform a human-like mouse movement and click with bezier curves and randomness."""
     import random
+
     from selenium.webdriver.common.action_chains import ActionChains
 
     # Get element location and size
@@ -719,6 +729,9 @@ def _wait_for_challenge(driver: WebDriver, html_element) -> None:
             break
         except TimeoutException:
             logging.debug("Timeout waiting for selector")
+            # Check for hard block page (title stays "Just a moment..." but body changes)
+            if HARD_BLOCK_TEXT in driver.page_source:
+                raise Exception("Cloudflare hard block: Incompatible browser extension or network configuration")
             now = time.time()
             if _should_attempt_verify_click(driver):
                 if now - last_verify_click_ts >= click_cooldown_seconds:
@@ -785,6 +798,9 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
             wait_timeout = timeout_ms / 1000.0 if timeout_ms is not None else default_action_timeout
             logging.debug(f"Action wait_for: selector={selector}, timeout={wait_timeout}s")
             WebDriverWait(driver, wait_timeout).until(visibility_of_element_located((By.XPATH, selector)))
+            # Brief grace period: the element is visible but sibling JS signals may
+            # still be writing their final values into the DOM.
+            time.sleep(0.5)
             logging.debug(f"Action wait_for done: selector={selector}")
         elif action_type == "wait":
             seconds = float(action.get("seconds", 1))
