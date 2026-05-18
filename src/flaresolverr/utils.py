@@ -4,7 +4,10 @@ import os
 import platform
 import re
 import shutil
+import socket
+import subprocess
 import tempfile
+import time
 import urllib.parse
 from typing import Any
 
@@ -13,7 +16,10 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore[no-redef]
 
+from selenium import webdriver
 from selenium.webdriver.chrome.webdriver import WebDriver
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.chrome.service import Service as ChromeService
 from flaresolverr import undetected_chromedriver as uc  # type: ignore[import-untyped]
 
 FLARESOLVERR_VERSION: str | None = None
@@ -61,7 +67,12 @@ def _is_custom_chromium() -> bool:
     # The chromium-patches Dockerfile writes this sentinel to /opt/chromium/
     # and the main Dockerfile copies it alongside the binary to /usr/bin/.
     # Checking for it avoids spawning a Chrome subprocess and is reliable.
-    _CUSTOM_CHROMIUM = os.path.exists("/opt/chromium/.stealth-patched")
+    # Also accept a sentinel next to the extracted local chrome binary.
+    chrome_dir = os.path.dirname(get_chrome_exe_path() or "")
+    _CUSTOM_CHROMIUM = (
+        os.path.exists("/opt/chromium/.stealth-patched")
+        or (chrome_dir and os.path.exists(os.path.join(chrome_dir, ".stealth-patched")))
+    )
     return _CUSTOM_CHROMIUM
 
 
@@ -105,6 +116,10 @@ def get_config_stealth_mode() -> str:
     return normalize_stealth_mode(os.environ.get("STEALTH_MODE", STEALTH_MODE_OFF))
 
 
+def get_config_accept_language() -> str:
+    return os.environ.get("ACCEPT_LANGUAGE", "en-US,en")
+
+
 def _apply_stealth_patches(driver: WebDriver, stealth_mode: str) -> None:
     # standard mode: enable WebGL spoofing — the worker wrapper also patches workers
     # so main/worker WebGL values stay consistent.
@@ -120,7 +135,7 @@ def _apply_stealth_patches(driver: WebDriver, stealth_mode: str) -> None:
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": prelude + _load_stealth_script(fallback=True)})
 
 
-def apply_user_agent_override(driver: WebDriver, user_agent: str) -> None:
+def apply_user_agent_override(driver: WebDriver, user_agent: str, accept_language: str | None = None) -> None:
     """Apply a custom user agent string at the CDP level with full metadata.
 
     Uses Emulation.setUserAgentOverride with userAgentMetadata to ensure
@@ -164,6 +179,7 @@ def apply_user_agent_override(driver: WebDriver, user_agent: str) -> None:
         "Emulation.setUserAgentOverride",
         {
             "userAgent": user_agent,
+            "acceptLanguage": accept_language if accept_language is not None else get_config_accept_language(),
             "userAgentMetadata": {
                 "platform": platform,
                 "platformVersion": platform_version,
@@ -296,9 +312,9 @@ def create_proxy_extension(proxy: dict[str, Any]) -> str:
     return proxy_extension_dir
 
 
-def _build_chrome_options(effective_stealth_mode: str) -> uc.ChromeOptions:
+def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
     """Build and configure ChromeOptions based on settings."""
-    options = uc.ChromeOptions()
+    options = ChromeOptions()
     options.add_argument("--no-sandbox")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-search-engine-choice-screen")
@@ -330,14 +346,9 @@ def _build_chrome_options(effective_stealth_mode: str) -> uc.ChromeOptions:
     if not minimal_fingerprint:
         options.add_argument("--disable-blink-features=AutomationControlled")
 
-    language = os.environ.get("LANG", None)
-    if language is not None:
-        options.add_argument("--accept-lang=%s" % language)
-
     if effective_stealth_mode != STEALTH_MODE_OFF and _is_custom_chromium():
         options.add_argument("--enable-trusted-synthetic-events")
-        # --preload-script causes renderer CPU spin (GetWebFrame()->ExecuteScript from
-        # DidCreateDocumentElement appears unsafe); use CDP injection instead.
+        # --preload-script causes renderer crash; use CDP injection instead.
         options.add_argument("--webgl-unmasked-vendor=Intel Inc.")
         options.add_argument("--webgl-unmasked-renderer=Intel(R) Iris(TM) Graphics 6100")
         options.add_argument("--stealth-navigator-languages")
@@ -347,12 +358,34 @@ def _build_chrome_options(effective_stealth_mode: str) -> uc.ChromeOptions:
     return options
 
 
-def _handle_proxy_setup(options: uc.ChromeOptions, proxy: dict[str, Any] | None) -> str | None:
+def _check_proxy_reachable(proxy_url: str) -> None:
+    """Raise RuntimeError if the proxy host:port is not reachable.
+
+    Chrome silently falls back to direct when a proxy is unreachable — its
+    internal background requests (telemetry, safe browsing) fail first,
+    poisoning the bad-proxy cache, so the user's actual requests use DIRECT
+    without any visible error.  Checking upfront gives a fast, clear failure
+    instead of a silent privacy bypass.
+    """
+    parsed = urllib.parse.urlparse(proxy_url)
+    host = parsed.hostname
+    port = parsed.port
+    if not host or not port:
+        raise RuntimeError(f"Invalid proxy URL (cannot parse host/port): {proxy_url!r}")
+    try:
+        with socket.create_connection((host, port), timeout=5):
+            pass
+    except OSError as e:
+        raise RuntimeError(f"Proxy {host}:{port} is not reachable: {e}") from e
+
+
+def _handle_proxy_setup(options: ChromeOptions, proxy: dict[str, Any] | None) -> str | None:
     """Configure proxy settings and return extension directory if created."""
     if proxy is None:
         return None
 
     if all(key in proxy for key in ["url", "username", "password"]):
+        _check_proxy_reachable(proxy["url"])
         proxy_extension_dir = create_proxy_extension(proxy)
         options.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
         options.add_argument("--load-extension=%s" % os.path.abspath(proxy_extension_dir))
@@ -360,8 +393,11 @@ def _handle_proxy_setup(options: uc.ChromeOptions, proxy: dict[str, Any] | None)
 
     if "url" in proxy:
         proxy_url = proxy["url"]
+        _check_proxy_reachable(proxy_url)
         logging.debug("Using webdriver proxy: %s", proxy_url)
         options.add_argument("--proxy-server=%s" % proxy_url)
+        # Explicitly disable proxy bypass so Chrome uses the proxy for all hosts
+        options.add_argument("--proxy-bypass-list=")
 
     return None
 
@@ -373,12 +409,20 @@ def _resolve_driver_paths() -> tuple[str | None, str | None]:
     if os.path.exists("/app/chromedriver"):
         return "/app/chromedriver", None
 
+    # Local dev: custom chromedriver sits next to the custom chrome binary.
+    if _is_custom_chromium():
+        chrome_path = get_chrome_exe_path()
+        if chrome_path:
+            local_cd = os.path.join(os.path.dirname(chrome_path), "chromedriver")
+            if os.path.exists(local_cd):
+                return local_cd, None
+
     version_main = get_chrome_major_version()
     driver_exe_path = PATCHED_DRIVER_PATH if PATCHED_DRIVER_PATH is not None else None
     return driver_exe_path, version_main
 
 
-def _configure_headless() -> bool:
+def _configure_headless(options: "uc.ChromeOptions | None" = None) -> bool:
     """Configure headless mode and return windows_headless flag."""
     if not get_config_headless():
         return False
@@ -401,7 +445,7 @@ def _maybe_normalize_user_agent(driver: WebDriver, effective_stealth_mode: str) 
         ua_changed = normalized_ua != default_ua
 
         if ua_changed or effective_stealth_mode != STEALTH_MODE_OFF:
-            apply_user_agent_override(driver, normalized_ua)
+            apply_user_agent_override(driver, normalized_ua, get_config_accept_language())
             if ua_changed:
                 logging.info("Normalized default user-agent by removing HeadlessChrome token.")
     except Exception as e:
@@ -471,6 +515,35 @@ def _save_patched_driver(driver: WebDriver, driver_exe_path: str | None) -> None
         shutil.copy(patcher.executable_path, PATCHED_DRIVER_PATH)
 
 
+def _build_chrome_env() -> dict[str, str]:
+    """Build environment for the Chrome subprocess.
+
+    Accept-Language is controlled via CDP Emulation.setUserAgentOverride
+    (acceptLanguage parameter), so no locale manipulation is needed here.
+    We simply inherit the parent environment unchanged.
+    """
+    return os.environ.copy()
+
+
+def _find_free_port() -> int:
+    """Find an available TCP port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def _wait_for_debug_port(port: int, timeout: int = 15) -> None:
+    """Poll until Chrome's remote-debugging port is accepting connections."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                return
+        except (ConnectionRefusedError, OSError):
+            time.sleep(0.2)
+    raise RuntimeError(f"Chrome debug port {port} did not become ready within {timeout}s")
+
+
 def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None) -> WebDriver:
     global PATCHED_DRIVER_PATH
 
@@ -483,34 +556,89 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
     windows_headless = _configure_headless()
     driver_exe_path, version_main = _resolve_driver_paths()
     browser_executable_path = get_chrome_exe_path()
+    custom_chromium = _is_custom_chromium()
+
+    if browser_executable_path:
+        options.binary_location = browser_executable_path
 
     try:
-        driver = uc.Chrome(
-            options=options,
-            browser_executable_path=browser_executable_path,
-            driver_executable_path=driver_exe_path,
-            version_main=version_main,
-            windows_headless=windows_headless,
-            headless=get_config_headless(),
-        )
+        if custom_chromium:
+            # Custom stealth-patched Chromium: start Chrome manually and
+            # connect via debugger address to avoid chromedriver injecting
+            # detection-prone default flags like --enable-automation.
+            debug_port = _find_free_port()
+            user_data_dir = tempfile.mkdtemp(prefix="flaresolverr-chrome-")
+            cmd = [browser_executable_path] + list(options.arguments) + [
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--homepage=about:blank",
+                f"--user-data-dir={user_data_dir}",
+                "--remote-debugging-host=127.0.0.1",
+                f"--remote-debugging-port={debug_port}",
+            ]
+            if get_config_headless():
+                cmd.append("--headless=new")
+            else:
+                # Prevent Chrome from opening a blank startup window before
+                # ChromeDriver creates its own session window.
+                cmd.append("--no-startup-window")
+            chrome_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=_build_chrome_env(), start_new_session=True)
+            logging.debug("Started custom Chromium manually (PID %d, debug port %d)", chrome_proc.pid, debug_port)
+
+            # Wait for Chrome to open the debug port
+            _wait_for_debug_port(debug_port, timeout=15)
+
+            opts = ChromeOptions()
+            opts.add_experimental_option("debuggerAddress", f"127.0.0.1:{debug_port}")
+            if driver_exe_path:
+                service = ChromeService(executable_path=driver_exe_path)
+            else:
+                service = ChromeService()
+                logging.warning("Custom chromium chromedriver not found at expected path, using system chromedriver.")
+            driver = webdriver.Chrome(options=opts, service=service)
+
+            # Store subprocess so it can be terminated on quit
+            driver._chrome_proc = chrome_proc  # type: ignore[attr-defined]
+            driver._chrome_user_data_dir = user_data_dir  # type: ignore[attr-defined]
+            _orig_quit = driver.quit
+            def _quit_with_cleanup() -> None:
+                try:
+                    _orig_quit()
+                finally:
+                    proc = getattr(driver, "_chrome_proc", None)
+                    if proc is not None and proc.poll() is None:
+                        try:
+                            os.killpg(os.getpgid(proc.pid), 9)
+                        except (ProcessLookupError, OSError):
+                            proc.kill()
+                            proc.wait()
+                        time.sleep(0.5)
+                    udd = getattr(driver, "_chrome_user_data_dir", None)
+                    if udd and os.path.isdir(udd):
+                        shutil.rmtree(udd, ignore_errors=True)
+            driver.quit = _quit_with_cleanup  # type: ignore[method-assign]
+        else:
+            # Stock Chromium: use undetected_chromedriver for patcher benefits.
+            driver = uc.Chrome(
+                options=options,
+                browser_executable_path=browser_executable_path,
+                driver_executable_path=driver_exe_path,
+                version_main=version_main,
+                windows_headless=windows_headless,
+                headless=get_config_headless(),
+            )
     except Exception as e:
         logging.error("Error starting Chrome: %s", e)
         raise e
 
     _maybe_normalize_user_agent(driver, effective_stealth_mode)
     _maybe_apply_stealth(driver, effective_stealth_mode)
-    _save_patched_driver(driver, driver_exe_path)
+
+    if not custom_chromium:
+        _save_patched_driver(driver, driver_exe_path)
 
     if proxy_extension_dir is not None:
         shutil.rmtree(proxy_extension_dir)
-
-    # selenium vanilla
-    # options = webdriver.ChromeOptions()
-    # options.add_argument('--no-sandbox')
-    # options.add_argument('--window-size=1920,1080')
-    # options.add_argument('--disable-setuid-sandbox')
-    # options.add_argument('--disable-dev-shm-usage')
-    # driver = webdriver.Chrome(options=options)
 
     return driver
 

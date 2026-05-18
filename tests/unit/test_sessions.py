@@ -144,7 +144,7 @@ def test_create_rejects_stealth_mismatch_for_existing_session(monkeypatch) -> No
 def test_create_rejects_user_agent_mismatch_for_existing_session(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
     monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None: DummyDriver())
-    monkeypatch.setattr(sessions.utils, "apply_user_agent_override", lambda _driver, _ua: None)
+    monkeypatch.setattr(sessions.utils, "apply_user_agent_override", lambda _driver, _ua, _al=None: None)
 
     storage.create("ua-session", user_agent="UA-1")
 

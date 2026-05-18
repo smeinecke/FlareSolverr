@@ -101,8 +101,57 @@
         Object.defineProperty(screen, 'width',       { get: () => ow,      configurable: true });
         Object.defineProperty(screen, 'height',      { get: () => oh + 40, configurable: true });
         Object.defineProperty(screen, 'availWidth',  { get: () => ow,      configurable: true });
-        Object.defineProperty(screen, 'availHeight', { get: () => oh,      configurable: true });
+        Object.defineProperty(screen, 'availHeight', { get: () => oh + 40, configurable: true });
       } catch (_) {}
+    }
+  } catch (_) {}
+
+  // ── Web Worker consistency prelude ────────────────────────────────────────────
+  // C++ patches (webdriver, languages, WebGL) apply at the binary level but may
+  // not reach dedicated workers on all code paths. Prepend a minimal prelude so
+  // hasInconsistentWorkerValues stays clean.
+  try {
+    const _NW = window.Worker;
+    if (_NW) {
+      const WORKER_PRELUDE = `
+        (() => {
+          try {
+            const langs = Object.freeze(['en-US', 'en']);
+            Object.defineProperty(navigator, 'languages', { get: () => langs, configurable: true });
+            Object.defineProperty(navigator, 'language',  { get: () => 'en-US', configurable: true });
+          } catch (_) {}
+          try {
+            const ua = navigator.userAgent;
+            if (typeof ua === 'string' && ua.includes('HeadlessChrome')) {
+              const p = ua.replace(/HeadlessChrome\\//g, 'Chrome/');
+              Object.defineProperty(Navigator.prototype, 'userAgent', { get: () => p, configurable: true });
+            }
+            const av = navigator.appVersion;
+            if (typeof av === 'string' && av.includes('HeadlessChrome')) {
+              const q = av.replace(/HeadlessChrome\\//g, 'Chrome/');
+              Object.defineProperty(Navigator.prototype, 'appVersion', { get: () => q, configurable: true });
+            }
+          } catch (_) {}
+        })();
+      `;
+      const _WW = function(url, opts) {
+        try {
+          const urlStr = String(url);
+          let src;
+          if (urlStr.startsWith('blob:')) {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', urlStr, false);
+            xhr.send();
+            src = WORKER_PRELUDE + '\\n' + xhr.responseText;
+          } else {
+            src = WORKER_PRELUDE + '\\nimportScripts(' + JSON.stringify(urlStr) + ');';
+          }
+          const blob = new Blob([src], { type: 'application/javascript' });
+          return new _NW(URL.createObjectURL(blob), opts);
+        } catch (_) { return new _NW(url, opts); }
+      };
+      _WW.prototype = _NW.prototype;
+      Object.defineProperty(window, 'Worker', { value: _WW, configurable: true, writable: true });
     }
   } catch (_) {}
 

@@ -174,6 +174,7 @@ This also speeds up the requests since it won't have to launch a new browser ins
 | stealth   | Optional, default uses `STEALTH_MODE`. Enables/disables stealth patches for this session. If a session already exists, this value must match the session's existing stealth mode. |
 | stealthMode | Optional enum override: `"off"`, `"standard"`, `"csp-safe"`. Preferred over `stealth` for explicit behavior. |
 | userAgent | Optional. Custom browser user agent for the session. If a session already exists, this must match the existing configured value. |
+| acceptLanguage | Optional. Overrides the global `ACCEPT_LANGUAGE` for this session. Example: `"acceptLanguage": "de-DE,de"`. Once set on a session it cannot be changed without destroying and recreating the session. |
 
 #### + `sessions.list`
 
@@ -219,6 +220,7 @@ session. When you no longer need to use a session you should make sure to close 
 | stealth             | Optional, default uses `STEALTH_MODE`. Enables/disables stealth patches for this request. With `session`, this must match the session's configured stealth mode. |
 | stealthMode         | Optional enum override: `"off"`, `"standard"`, `"csp-safe"`. Preferred over `stealth` for explicit behavior. |
 | userAgent           | Optional. Custom browser user agent override. For `session` requests, this can only be set on session initialization and must stay consistent afterwards. |
+| acceptLanguage      | Optional. Overrides the browser `Accept-Language` header for this request (or session initialization). Uses the global `ACCEPT_LANGUAGE` env var when omitted. Example: `"acceptLanguage": "fr-FR,fr"`. |
 
 > **Warning**
 > If you want to use Cloudflare clearance cookie in your scripts, make sure you use the FlareSolverr User-Agent too. If they don't match you will see the challenge.
@@ -384,6 +386,7 @@ The **default solver** handles Cloudflare challenges through browser automation:
 | CAPTCHA_SOLVER     | default                | Captcha solving method. It is used when a captcha is encountered. See the Captcha Solvers section.                                       |
 | TZ                 | UTC                    | Timezone used in the logs and the web browser. Example: `TZ=Europe/London`.                                                              |
 | LANG               | none                   | Language used in the web browser. Example: `LANG=en_GB`.                                                                                 |
+| ACCEPT_LANGUAGE    | en-US,en               | Default `Accept-Language` header sent by the browser. Can be overridden per-request or per-session via the `acceptLanguage` parameter. Example: `ACCEPT_LANGUAGE=de-DE,de`. |
 | HEADLESS           | true                   | Only for debugging. To run the web browser in headless mode or visible.                                                                  |
 | DISABLE_MEDIA      | false                  | To disable loading images, CSS, and other media in the web browser to save network bandwidth.                                            |
 | DISABLE_QUIC       | true                   | Disables QUIC/HTTP3 in Chrome (`--disable-quic --disable-http3`) to avoid challenge transport instability on some networks/environments. |
