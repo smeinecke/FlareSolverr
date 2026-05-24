@@ -20,6 +20,33 @@
  * Each block is independently try-caught so one failure never breaks others.
  */
 (() => {
+  // ── ChromeDriver CDC variable cleanup ────────────────────────────────────────
+  // ChromeDriver injects window.cdc_adoQpoasnfa76pfcZLmcfl_* aliases via
+  // Page.addScriptToEvaluateOnNewDocument / Runtime.evaluate in SetUpDevTools.
+  // These are well-known automation fingerprints. Stealth.js always runs after
+  // ChromeDriver's own script (registered first), so deleting here is safe.
+  // The CDC aliases are only fallbacks in call_function.js; removing them does
+  // not affect ChromeDriver functionality (it falls back to native globals).
+  try {
+    const cdcProps = [
+      'cdc_adoQpoasnfa76pfcZLmcfl_Array',
+      'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
+      'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
+      'cdc_adoQpoasnfa76pfcZLmcfl_Window',
+      'cdc_adoQpoasnfa76pfcZLmcfl_JSON',
+      'cdc_adoQpoasnfa76pfcZLmcfl_Proxy',
+    ];
+    for (const p of cdcProps) {
+      if (p in window) {
+        try { delete window[p]; } catch (_) { window[p] = undefined; }
+      }
+    }
+    // Also clear the document-level artifact used by older ChromeDriver versions
+    if ('$cdc_asdjflasutopfhvcZLmcfl_' in document) {
+      try { delete document['$cdc_asdjflasutopfhvcZLmcfl_']; } catch (_) { document['$cdc_asdjflasutopfhvcZLmcfl_'] = undefined; }
+    }
+  } catch (_) {}
+
   // ── console guard ────────────────────────────────────────────────────────────
   try {
     const _log  = console.log.bind(console);

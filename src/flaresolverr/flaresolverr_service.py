@@ -765,7 +765,16 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
             el = WebDriverWait(driver, default_action_timeout).until(presence_of_element_located((By.XPATH, selector)))
             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
             time.sleep(_random_delay(0.3, 0.6))
-            ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.1)).click().perform()
+            # Click with a random non-zero offset from center so that
+            # hasClickedEmailFieldExactCenter / hasClickedFieldSmallMargin
+            # bot-detection checks don't flag the exact-center pattern.
+            size = el.size
+            max_dx = max(4, size.get("width", 30) // 4)
+            max_dy = max(4, size.get("height", 16) // 4)
+            # Ensure the offset is at least 2px in at least one direction.
+            dx = random.uniform(2, max_dx) * random.choice([-1, 1])  # nosec B311
+            dy = random.uniform(-max_dy, max_dy)  # nosec B311
+            ActionChains(driver).move_to_element_with_offset(el, int(dx), int(dy)).pause(_random_delay(0.05, 0.1)).click().perform()
             time.sleep(_random_delay(0.1, 0.2))
             el.clear()
             # Type character-by-character with realistic inter-key delays
@@ -784,7 +793,15 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
             else:
                 logging.debug("Action click: calling ActionChains.perform()")
                 try:
-                    ActionChains(driver).move_to_element(el).pause(_random_delay(0.05, 0.15)).click().perform()
+                    # Use a small non-zero offset to avoid exact-center click detection
+                    _s = el.size
+                    _max_dx = max(4, _s.get("width", 30) // 4)
+                    _max_dy = max(4, _s.get("height", 16) // 4)
+                    import random as _r
+
+                    _dx = _r.uniform(2, _max_dx) * _r.choice([-1, 1])  # nosec B311
+                    _dy = _r.uniform(-_max_dy, _max_dy)  # nosec B311
+                    ActionChains(driver).move_to_element_with_offset(el, int(_dx), int(_dy)).pause(_random_delay(0.05, 0.15)).click().perform()
                 except UnexpectedAlertPresentException:
                     try:
                         alert_text = driver.switch_to.alert.text
