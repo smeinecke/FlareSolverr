@@ -74,24 +74,30 @@ for i in {1..30}; do
     fi
 done
 
-echo "Running proxy tests with Docker internal network..."
-cd "$(dirname "$0")"
+echo "Running proxy tests..."
+# Always work from the repo root (where docker-compose.test.yml was created).
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
 
-# Run tests with Docker service names for proxy URLs
+# FlareSolverr runs inside Docker and reaches proxies via Docker service names.
+# The test runner runs on the host and reaches proxies via port-mapped addresses.
 export FLARESOLVERR_URL=http://127.0.0.1:8191
 export PROXY_HTTP_URL=http://proxy-http:8888
 export PROXY_SOCKS_URL=socks5://proxy-socks:1080
+# Check URLs: host-side addresses used only to verify proxies are up before testing.
+export PROXY_HTTP_CHECK_URL=http://127.0.0.1:8888
+export PROXY_SOCKS_CHECK_URL=socks5://127.0.0.1:1080
 
 # Install test deps if needed
 uv sync --group dev --extra test 2>/dev/null || true
 
 echo ""
 echo "Running: test_v1_endpoint_request_get_proxy_http_param"
-uv run pytest tests/integration/test_api.py::TestFlareSolverr::test_v1_endpoint_request_get_proxy_http_param -v || true
+uv run pytest tests/integration/test_api.py::TestFlareSolverr::test_v1_endpoint_request_get_proxy_http_param -v -m integration || true
 
 echo ""
 echo "Running: test_v1_endpoint_request_get_proxy_socks_param"
-uv run pytest tests/integration/test_api.py::TestFlareSolverr::test_v1_endpoint_request_get_proxy_socks_param -v || true
+uv run pytest tests/integration/test_api.py::TestFlareSolverr::test_v1_endpoint_request_get_proxy_socks_param -v -m integration || true
 
 echo ""
 echo "Cleaning up..."

@@ -39,6 +39,7 @@ class V1RequestBase(object):
     session_ttl_minutes: int | None = None
     headers: list[Any] | None = None  # custom headers to send with requests
     userAgent: str | None = None  # Optional per-request/session user agent override
+    acceptLanguage: str | None = None  # Optional per-request/session accept-language override
     stealth: bool | None = None  # Optional per-request/session stealth mode override
     stealthMode: str | None = None  # Optional stealth mode enum override: off|standard|csp-safe
 
