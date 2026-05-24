@@ -10,6 +10,26 @@
   const PATCH_WEBGL = globalThis.__FS_STEALTH_PATCH_WEBGL === true;
   const BLOB_BYPASS = globalThis.__FS_STEALTH_BLOB_BYPASS === true;
 
+  // ── ChromeDriver CDC variable cleanup ────────────────────────────────────────
+  try {
+    const cdcProps = [
+      'cdc_adoQpoasnfa76pfcZLmcfl_Array',
+      'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
+      'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
+      'cdc_adoQpoasnfa76pfcZLmcfl_Window',
+      'cdc_adoQpoasnfa76pfcZLmcfl_JSON',
+      'cdc_adoQpoasnfa76pfcZLmcfl_Proxy',
+    ];
+    for (const p of cdcProps) {
+      if (p in window) {
+        try { delete window[p]; } catch (_) { window[p] = undefined; }
+      }
+    }
+    if ('$cdc_asdjflasutopfhvcZLmcfl_' in document) {
+      try { delete document['$cdc_asdjflasutopfhvcZLmcfl_']; } catch (_) { document['$cdc_asdjflasutopfhvcZLmcfl_'] = undefined; }
+    }
+  } catch (_) {}
+
   // ── console guard ────────────────────────────────────────────────────────────
   try {
     const _log  = console.log.bind(console);

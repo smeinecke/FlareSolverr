@@ -53,6 +53,7 @@ def _patch_action_chains(monkeypatch):
     from flaresolverr import flaresolverr_service as svc
     chains = MagicMock()
     chains.return_value.move_to_element.return_value = chains.return_value
+    chains.return_value.move_to_element_with_offset.return_value = chains.return_value
     chains.return_value.pause.return_value = chains.return_value
     chains.return_value.click.return_value = chains.return_value
     monkeypatch.setattr(svc, "ActionChains", chains)
@@ -144,13 +145,15 @@ class TestClickAction:
         monkeypatch.setattr(svc, "_human_like_click", lambda d, e: human_called.append(True))
         chains = MagicMock()
         chains.return_value.move_to_element.return_value = chains.return_value
+        chains.return_value.move_to_element_with_offset.return_value = chains.return_value
         chains.return_value.pause.return_value = chains.return_value
         monkeypatch.setattr(svc, "ActionChains", chains)
 
         svc._execute_actions(driver, [{"type": "click", "selector": "//button"}])
 
         assert not human_called
-        chains.return_value.move_to_element.assert_called_once()
+        # Now uses move_to_element_with_offset for non-center clicks
+        chains.return_value.move_to_element_with_offset.assert_called_once()
         chains.return_value.click.assert_called_once()
 
     def test_human_like_true_calls_bezier(self, monkeypatch):
@@ -174,6 +177,7 @@ class TestClickAction:
         monkeypatch.setattr(svc, "_human_like_click", lambda d, e: human_called.append(True))
         chains = MagicMock()
         chains.return_value.move_to_element.return_value = chains.return_value
+        chains.return_value.move_to_element_with_offset.return_value = chains.return_value
         chains.return_value.pause.return_value = chains.return_value
         monkeypatch.setattr(svc, "ActionChains", chains)
 
@@ -205,6 +209,7 @@ class TestClickAction:
         monkeypatch.setattr(svc, "presence_of_element_located", lambda loc: captured.append(loc) or loc)
         chains = MagicMock()
         chains.return_value.move_to_element.return_value = chains.return_value
+        chains.return_value.move_to_element_with_offset.return_value = chains.return_value
         chains.return_value.pause.return_value = chains.return_value
         monkeypatch.setattr(svc, "ActionChains", chains)
 

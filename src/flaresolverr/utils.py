@@ -26,6 +26,7 @@ FLARESOLVERR_VERSION: str | None = None
 PLATFORM_VERSION: str | None = None
 CHROME_EXE_PATH: str | None = None
 CHROME_MAJOR_VERSION: str | None = None
+CHROME_FULL_VERSION: str | None = None
 USER_AGENT: str | None = None
 XVFB_DISPLAY = None
 PATCHED_DRIVER_PATH: str | None = None
@@ -69,10 +70,7 @@ def _is_custom_chromium() -> bool:
     # Checking for it avoids spawning a Chrome subprocess and is reliable.
     # Also accept a sentinel next to the extracted local chrome binary.
     chrome_dir = os.path.dirname(get_chrome_exe_path() or "")
-    _CUSTOM_CHROMIUM = (
-        os.path.exists("/opt/chromium/.stealth-patched")
-        or (chrome_dir and os.path.exists(os.path.join(chrome_dir, ".stealth-patched")))
-    )
+    _CUSTOM_CHROMIUM = os.path.exists("/opt/chromium/.stealth-patched") or (chrome_dir and os.path.exists(os.path.join(chrome_dir, ".stealth-patched")))
     return _CUSTOM_CHROMIUM
 
 
@@ -166,12 +164,15 @@ def apply_user_agent_override(driver: WebDriver, user_agent: str, accept_languag
 
     # Extract Chrome version
     chrome_match = re.search(r"Chrome/(\d+)\.", user_agent)
-    chrome_version = chrome_match.group(1) if chrome_match else "130"
+    chrome_major = chrome_match.group(1) if chrome_match else "130"
+    chrome_full = get_chrome_full_version()
+    if not chrome_full:
+        chrome_full = f"{chrome_major}.0.0.0"
 
     # Build brands array (Chrome's GREASEd brand format)
     brands = [
-        {"brand": "Chromium", "version": chrome_version},
-        {"brand": "Google Chrome", "version": chrome_version},
+        {"brand": "Chromium", "version": chrome_major},
+        {"brand": "Google Chrome", "version": chrome_major},
         {"brand": "Not.A/Brand", "version": "24"},
     ]
 
@@ -188,8 +189,8 @@ def apply_user_agent_override(driver: WebDriver, user_agent: str, accept_languag
                 "mobile": False,
                 "brands": brands,
                 "fullVersionList": [
-                    {"brand": "Chromium", "version": f"{chrome_version}.0.0.0"},
-                    {"brand": "Google Chrome", "version": f"{chrome_version}.0.0.0"},
+                    {"brand": "Chromium", "version": chrome_full},
+                    {"brand": "Google Chrome", "version": chrome_full},
                     {"brand": "Not.A/Brand", "version": "24.0.0.0"},
                 ],
             },
@@ -444,6 +445,14 @@ def _maybe_normalize_user_agent(driver: WebDriver, effective_stealth_mode: str) 
         normalized_ua = sanitize_user_agent(default_ua)
         ua_changed = normalized_ua != default_ua
 
+        # Replace reduced version (e.g. Chrome/148.0.0.0) with the full binary version
+        full_version = get_chrome_full_version()
+        if full_version:
+            reduced_pattern = re.compile(r"Chrome/(\d+)\.0\.0\.0")
+            if reduced_pattern.search(normalized_ua):
+                normalized_ua = reduced_pattern.sub(f"Chrome/{full_version}", normalized_ua)
+                ua_changed = True
+
         if ua_changed or effective_stealth_mode != STEALTH_MODE_OFF:
             apply_user_agent_override(driver, normalized_ua, get_config_accept_language())
             if ua_changed:
@@ -568,14 +577,18 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             # detection-prone default flags like --enable-automation.
             debug_port = _find_free_port()
             user_data_dir = tempfile.mkdtemp(prefix="flaresolverr-chrome-")
-            cmd = [browser_executable_path] + list(options.arguments) + [
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--homepage=about:blank",
-                f"--user-data-dir={user_data_dir}",
-                "--remote-debugging-host=127.0.0.1",
-                f"--remote-debugging-port={debug_port}",
-            ]
+            cmd = (
+                [browser_executable_path]
+                + list(options.arguments)
+                + [
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--homepage=about:blank",
+                    f"--user-data-dir={user_data_dir}",
+                    "--remote-debugging-host=127.0.0.1",
+                    f"--remote-debugging-port={debug_port}",
+                ]
+            )
             if get_config_headless():
                 cmd.append("--headless=new")
             else:
@@ -601,6 +614,7 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             driver._chrome_proc = chrome_proc  # type: ignore[attr-defined]
             driver._chrome_user_data_dir = user_data_dir  # type: ignore[attr-defined]
             _orig_quit = driver.quit
+
             def _quit_with_cleanup() -> None:
                 try:
                     _orig_quit()
@@ -616,6 +630,7 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
                     udd = getattr(driver, "_chrome_user_data_dir", None)
                     if udd and os.path.isdir(udd):
                         shutil.rmtree(udd, ignore_errors=True)
+
             driver.quit = _quit_with_cleanup  # type: ignore[method-assign]
         else:
             # Stock Chromium: use undetected_chromedriver for patcher benefits.
@@ -693,6 +708,33 @@ def get_chrome_major_version() -> str:
     return CHROME_MAJOR_VERSION
 
 
+def get_chrome_full_version() -> str:
+    global CHROME_FULL_VERSION
+    if CHROME_FULL_VERSION is not None:
+        return CHROME_FULL_VERSION
+
+    if os.name == "nt":
+        try:
+            CHROME_FULL_VERSION = extract_version_nt_executable(get_chrome_exe_path())
+        except Exception:
+            try:
+                CHROME_FULL_VERSION = extract_version_nt_registry()
+            except Exception:
+                CHROME_FULL_VERSION = extract_version_nt_folder()
+    else:
+        chrome_path = get_chrome_exe_path()
+        if chrome_path is None:
+            return ""
+        process = os.popen(f'"{chrome_path}" --version')
+        complete_version = process.read()
+        process.close()
+        # Extract version from strings like "Chromium 148.0.7778.168 Arch Linux"
+        match = re.search(r"(\d+\.\d+\.\d+\.\d+)", complete_version)
+        CHROME_FULL_VERSION = match.group(1) if match else ""
+
+    return CHROME_FULL_VERSION
+
+
 def extract_version_nt_executable(exe_path: str) -> str:
     import pefile  # pyright: ignore[reportMissingImports]
 
@@ -753,6 +795,10 @@ def get_user_agent(driver=None) -> str:
         USER_AGENT = user_agent_value
         # Fix for Chrome 117 | https://github.com/FlareSolverr/FlareSolverr/issues/910
         USER_AGENT = re.sub("HEADLESS", "", USER_AGENT, flags=re.IGNORECASE)
+        # Replace reduced version (e.g. Chrome/148.0.0.0) with the full binary version
+        full_version = get_chrome_full_version()
+        if full_version:
+            USER_AGENT = re.sub(r"Chrome/(\d+)\.0\.0\.0", f"Chrome/{full_version}", USER_AGENT)
         assert USER_AGENT is not None
         return USER_AGENT
     except Exception as e:
