@@ -729,8 +729,7 @@ class PatchApplier:
             "chrome/test/chromedriver/chrome/devtools_client_impl.cc",
             r'std::string script =\s*"\(function \(\) \{"\s*(?:"window\.cdc_[^"]+;"\s*)*"\}\) \(\);"\s*;',
             'std::string script =\n'
-            '        "(function () {"\n'
-            '        ") ();";',
+            '        "(function () {})();";',
             "remove CDC alias injection from chromedriver SetUpDevTools",
         )
 
