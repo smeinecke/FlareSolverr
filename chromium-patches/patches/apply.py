@@ -42,7 +42,7 @@ class PatchApplier:
         numbered = [f"{lo + i + 1:5}: {line}" for i, line in enumerate(lines[lo:hi])]
         return "\n".join(numbered)
 
-    def patch(self, rel_path: str, old: str, new: str, description: str, fallbacks: "list[str] | None" = None) -> None:
+    def patch(self, rel_path: str, old: str, new: str, description: str, fallbacks: "list[str] | None" = None, required: bool = True) -> None:
         if rel_path not in self.patched_files:
             self.patched_files.append(rel_path)
         if self.list_files_only:
@@ -50,6 +50,9 @@ class PatchApplier:
 
         p = pathlib.Path(rel_path)
         if not p.exists():
+            if not required:
+                print(f"  SKIP  {rel_path}  ({description} – file not found, optional)")
+                return
             print(f"\nERROR [{description}]: file not found: {rel_path}", file=sys.stderr)
             self.errors += 1
             return
@@ -69,6 +72,9 @@ class PatchApplier:
                     print(f"  OK  {rel_path}  ({description})")
                 return
 
+        if not required:
+            print(f"  SKIP  {rel_path}  ({description} – old string not found, optional)")
+            return
         print(f"\nERROR [{description}]: target string not found in {rel_path}", file=sys.stderr)
         print(f"  Searched for: {old[:120]!r}", file=sys.stderr)
         print("  Nearest context in file:", file=sys.stderr)
@@ -261,9 +267,35 @@ class PatchApplier:
             "    [RuntimeEnabled=AutomationControlled] readonly attribute boolean webdriver;",
             "gate webdriver on AutomationControlled runtime feature",
             fallbacks=[
+                # Old Patch 2 left the IDL as boolean? — normalise it first.
+                "    readonly attribute boolean? webdriver;",
                 # Older Chrome: modules/navigatorcontrolled/
                 "readonly attribute boolean webdriver;",
             ],
+        )
+
+        # Revert any C++ changes left behind by the previous Patch 2 approach
+        # (std::nullopt / std::optional<bool>). These are no-ops on a fresh tree.
+        self.patch(
+            "third_party/blink/renderer/core/frame/navigator.h",
+            "  std::optional<bool> webdriver() const;",
+            "  bool webdriver() const;",
+            "revert old Patch 2 header change (std::optional → bool)",
+            required=False,
+        )
+        self.patch(
+            "third_party/blink/renderer/core/frame/navigator.cc",
+            "std::optional<bool> Navigator::webdriver() const {\n  return std::nullopt;\n}",
+            "bool Navigator::webdriver() const {\n"
+            "  if (RuntimeEnabledFeatures::AutomationControlledEnabled())\n"
+            "    return true;\n"
+            "\n"
+            "  bool automation_enabled = false;\n"
+            "  probe::ApplyAutomationOverride(GetExecutionContext(), automation_enabled);\n"
+            "  return automation_enabled;\n"
+            "}",
+            "revert old Patch 2 C++ implementation (std::nullopt → original)",
+            required=False,
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
