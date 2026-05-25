@@ -27,6 +27,8 @@
   // ChromeDriver's own script (registered first), so deleting here is safe.
   // The CDC aliases are only fallbacks in call_function.js; removing them does
   // not affect ChromeDriver functionality (it falls back to native globals).
+  // NOTE: Patch 10 neutralises the injection at C++ level (custom Chromium).
+  // This JS block is defence-in-depth for stock Chromium / older builds.
   try {
     const cdcProps = [
       'cdc_adoQpoasnfa76pfcZLmcfl_Array',
