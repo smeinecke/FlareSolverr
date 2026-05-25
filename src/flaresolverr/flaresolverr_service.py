@@ -333,8 +333,8 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
                     driver.close()
                 driver.quit()
                 logging.debug("A used instance of webdriver has been destroyed")
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"Failed to quit webdriver: {e}")
 
 
 def _resolve_request_stealth_mode(req: V1RequestBase) -> str | None:
