@@ -233,64 +233,36 @@ class PatchApplier:
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 2: navigator.webdriver → undefined (IDL boolean? + C++ std::nullopt)
-        # Chrome 112+: moved to core/frame/navigator_automation_information.idl +
-        #              navigator.cc (was in modules/navigatorcontrolled/ before).
+        # Patch 2: navigator.webdriver → undefined via [RuntimeEnabled=AutomationControlled]
+        #
+        # Strategy: gate the IDL attribute on the AutomationControlled Blink runtime
+        # feature. When Chrome is launched with
+        #   --disable-blink-features=AutomationControlled
+        # the feature is OFF → the property does not exist on Navigator → JS reads it
+        # as `undefined` (not `false`, not `null`).
+        #
+        # This avoids:
+        #   • typeof null === "object"  (the old boolean? / std::nullopt approach)
+        #   • detectable prototype getter overrides (JS-only workaround)
+        #
+        # No C++ implementation changes needed — just the IDL attribute annotation.
+        # Chrome 112+: moved to core/frame/navigator_automation_information.idl.
         # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 2: navigator.webdriver → undefined")
+        print("Patch 2: navigator.webdriver → undefined via [RuntimeEnabled=AutomationControlled]")
 
         # Chrome 112+: navigator_automation_information.idl in core/frame/
+        # The attribute already has [RuntimeEnabled=AutomationControlled] checked at
+        # runtime via RuntimeEnabledFeatures. We add it at the IDL level so the Blink
+        # bindings generator makes the property absent (not just false) when the
+        # feature is disabled.
         self.patch(
             "third_party/blink/renderer/core/frame/navigator_automation_information.idl",
             "    readonly attribute boolean webdriver;",
-            "    readonly attribute boolean? webdriver;",
-            "nullable boolean in IDL",
+            "    [RuntimeEnabled=AutomationControlled] readonly attribute boolean webdriver;",
+            "gate webdriver on AutomationControlled runtime feature",
             fallbacks=[
                 # Older Chrome: modules/navigatorcontrolled/
                 "readonly attribute boolean webdriver;",
-            ],
-        )
-
-        self.add_include(
-            "third_party/blink/renderer/core/frame/navigator.h",
-            "#include <optional>",
-            after_patterns=[
-                '#include "third_party/blink/renderer/platform/supplementable.h"',
-                '#include "third_party/blink/renderer/platform/wtf/forward.h"',
-                '#include "third_party/blink/renderer/core/execution_context/navigator_base.h"',
-            ],
-        )
-
-        self.patch(
-            "third_party/blink/renderer/core/frame/navigator.h",
-            "  bool webdriver() const;",
-            "  std::optional<bool> webdriver() const;",
-            "update header declaration",
-        )
-
-        self.add_include(
-            "third_party/blink/renderer/core/frame/navigator.cc",
-            "#include <optional>",
-            after_patterns=[
-                '#include "third_party/blink/renderer/core/frame/navigator.h"',
-            ],
-        )
-
-        self.patch(
-            "third_party/blink/renderer/core/frame/navigator.cc",
-            "bool Navigator::webdriver() const {\n"
-            "  if (RuntimeEnabledFeatures::AutomationControlledEnabled())\n"
-            "    return true;\n"
-            "\n"
-            "  bool automation_enabled = false;\n"
-            "  probe::ApplyAutomationOverride(GetExecutionContext(), automation_enabled);\n"
-            "  return automation_enabled;\n"
-            "}",
-            "std::optional<bool> Navigator::webdriver() const {\n  return std::nullopt;\n}",
-            "return nullopt",
-            fallbacks=[
-                # Older Chrome: navigatorcontrolled module
-                "bool NavigatorControlled::webdriver() const {\n  return true;\n}",
             ],
         )
 
