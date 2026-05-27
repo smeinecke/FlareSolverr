@@ -58,7 +58,7 @@ jobs:
 
       - name: Build artifacts
         run: |
-          cd src
+          cd src/flaresolverr
           uv run python build_package.py
 
       - name: Upload release artifacts

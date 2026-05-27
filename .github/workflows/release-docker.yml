@@ -75,6 +75,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.docker_meta.outputs.labels }}
           outputs: type=image,name=ghcr.io/${{ env.REPOSITORY }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          build-args: |
+            CHROMIUM_STEALTH_IMAGE=${{ matrix.platform == 'linux/amd64' && 'ghcr.io/smeinecke/chromium-stealth:latest' || 'python:3.13-slim-trixie' }}
 
       - name: Export digest
         if: github.event_name != 'pull_request'
