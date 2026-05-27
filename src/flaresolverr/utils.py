@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import platform
+import random
 import re
 import shutil
 import socket
@@ -20,6 +21,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.common.action_chains import ActionChains
 from flaresolverr import undetected_chromedriver as uc  # type: ignore[import-untyped]
 
 FLARESOLVERR_VERSION: str | None = None
@@ -486,6 +488,11 @@ def _apply_screen_size_override(driver: WebDriver) -> None:
 
 def _maybe_apply_stealth(driver: WebDriver, effective_stealth_mode: str) -> None:
     """Apply stealth patches based on mode and Chromium type."""
+    # navigator.webdriver is handled natively via Patch 2:
+    # [RuntimeEnabled=AutomationControlled] IDL gating + --disable-blink-features=AutomationControlled
+    # flag in get_webdriver() makes navigator.webdriver === undefined (property absent).
+    # No JS override needed here.
+
     if effective_stealth_mode == STEALTH_MODE_OFF:
         return
 
@@ -493,10 +500,10 @@ def _maybe_apply_stealth(driver: WebDriver, effective_stealth_mode: str) -> None
 
     try:
         if _is_custom_chromium():
-            # C++ flags handle WebGL, webdriver, languages, isTrusted at binary level.
+            # C++ flags handle WebGL, languages, isTrusted at binary level.
             # Inject stealth.js (not stealth_fallback.js) via CDP — stealth.js does NOT
-            # patch Navigator.prototype.webdriver or languages so getter-tampering
-            # detections (webdriverGetterPatched, languagesProtoGetterPatched) are avoided.
+            # patch Navigator.prototype.languages so getter-tampering detections
+            # (languagesProtoGetterPatched) are avoided.
             driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": _load_stealth_script(fallback=False)})
             logging.info("Applied custom Chromium stealth (C++ flags + CDP stealth.js, mode=%s).", effective_stealth_mode)
         else:
@@ -591,10 +598,6 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             )
             if get_config_headless():
                 cmd.append("--headless=new")
-            else:
-                # Prevent Chrome from opening a blank startup window before
-                # ChromeDriver creates its own session window.
-                cmd.append("--no-startup-window")
             chrome_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=_build_chrome_env(), start_new_session=True)
             logging.debug("Started custom Chromium manually (PID %d, debug port %d)", chrome_proc.pid, debug_port)
 
@@ -826,3 +829,122 @@ def object_to_dict(_object: Any) -> dict[str, Any]:
     json_dict = json.loads(json.dumps(_object, default=lambda o: o.__dict__))
     # remove hidden fields
     return {k: v for k, v in json_dict.items() if not k.startswith("__")}
+
+
+def _random_delay(min_sec: float, max_sec: float) -> float:
+    """Generate a random delay with slight gaussian distribution for natural feel."""
+    mean = (min_sec + max_sec) / 2
+    std_dev = (max_sec - min_sec) / 6
+    delay = random.gauss(mean, std_dev)
+    return max(min_sec, min(max_sec, delay))
+
+
+def _generate_bezier_curve(start: tuple[float, float], end: tuple[float, float], control_points: int = 1) -> list[tuple[float, float]]:
+    """Generate points along a bezier curve for natural mouse movement."""
+    points = [start]
+
+    for i in range(control_points):
+        t = (i + 1) / (control_points + 1)
+        base_x = start[0] + (end[0] - start[0]) * t
+        base_y = start[1] + (end[1] - start[1]) * t
+        deviation = max(abs(end[0] - start[0]), abs(end[1] - start[1])) * random.uniform(0.1, 0.3)  # nosec B311
+        ctrl_x = base_x + deviation * random.gauss(0, 0.5)
+        ctrl_y = base_y + deviation * random.gauss(0, 0.5)
+        points.append((ctrl_x, ctrl_y))
+
+    points.append(end)
+
+    num_steps = random.randint(15, 25)  # nosec B311
+    curve_points = []
+
+    for t in [i / num_steps for i in range(num_steps + 1)]:
+        temp_points = points.copy()
+        while len(temp_points) > 1:
+            new_points = []
+            for j in range(len(temp_points) - 1):
+                x = temp_points[j][0] + (temp_points[j + 1][0] - temp_points[j][0]) * t
+                y = temp_points[j][1] + (temp_points[j + 1][1] - temp_points[j][1]) * t
+                new_points.append((x, y))
+            temp_points = new_points
+        curve_points.append(temp_points[0])
+
+    return curve_points
+
+
+def _human_like_click(driver: WebDriver, element) -> None:
+    """Perform a human-like mouse movement and click with bezier curves and randomness."""
+    location = element.location
+    size = element.size
+    element_center_x = location["x"] + size["width"] / 2
+    element_center_y = location["y"] + size["height"] / 2
+
+    offset_x = random.gauss(0, size["width"] / 8)
+    offset_y = random.gauss(0, size["height"] / 8)
+    target_x = element_center_x + offset_x
+    target_y = element_center_y + offset_y
+
+    viewport_width = driver.execute_script("return window.innerWidth")
+    viewport_height = driver.execute_script("return window.innerHeight")
+
+    start_edge = random.choice(["top", "bottom", "left", "right"])  # nosec B311
+    if start_edge == "top":
+        start_x = random.uniform(0, viewport_width)  # nosec B311
+        start_y = random.uniform(0, 100)  # nosec B311
+    elif start_edge == "bottom":
+        start_x = random.uniform(0, viewport_width)  # nosec B311
+        start_y = random.uniform(viewport_height - 100, viewport_height)  # nosec B311
+    elif start_edge == "left":
+        start_x = random.uniform(0, 100)  # nosec B311
+        start_y = random.uniform(0, viewport_height)  # nosec B311
+    else:
+        start_x = random.uniform(viewport_width - 100, viewport_width)  # nosec B311
+        start_y = random.uniform(0, viewport_height)  # nosec B311
+
+    points = _generate_bezier_curve((start_x, start_y), (target_x, target_y), control_points=random.randint(1, 2))  # nosec B311
+
+    actions = ActionChains(driver)
+    first_x, first_y = points[0]
+    anchor_dx = round(first_x - element_center_x)
+    anchor_dy = round(first_y - element_center_y)
+    actions.move_to_element_with_offset(element, anchor_dx, anchor_dy)
+    actions.pause(_random_delay(0.02, 0.06))
+
+    actual_x = round(element_center_x) + anchor_dx
+    actual_y = round(element_center_y) + anchor_dy
+    prev_x = float(actual_x)
+    prev_y = float(actual_y)
+    acc_x = 0.0
+    acc_y = 0.0
+
+    for i, (x, y) in enumerate(points[1:], start=1):
+        desired_dx = (x - prev_x) + acc_x
+        desired_dy = (y - prev_y) + acc_y
+        int_dx = round(desired_dx)
+        int_dy = round(desired_dy)
+        acc_x = desired_dx - int_dx
+        acc_y = desired_dy - int_dy
+        actions.move_by_offset(int_dx, int_dy)
+        actual_x += int_dx
+        actual_y += int_dy
+        prev_x, prev_y = x, y
+
+        progress = i / len(points)
+        delay = 0.01 + 0.03 * (1 - abs(progress - 0.5) * 2)
+        actions.pause(delay)
+
+    target_int_x = round(target_x)
+    target_int_y = round(target_y)
+    if actual_x != target_int_x or actual_y != target_int_y:
+        fix_dx = target_int_x - actual_x
+        fix_dy = target_int_y - actual_y
+        actions.move_by_offset(fix_dx, fix_dy)
+        actual_x = target_int_x
+        actual_y = target_int_y
+
+    actions.pause(_random_delay(0.05, 0.15))
+    actions.click_and_hold()
+    actions.move_by_offset(int(random.gauss(0, 1)), int(random.gauss(0, 1)))
+    actions.pause(_random_delay(0.03, 0.08))
+    actions.release()
+
+    actions.perform()

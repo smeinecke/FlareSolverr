@@ -266,7 +266,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertGreater(len(cf_cookie["value"]), 30)
 
     def test_v1_endpoint_request_get_cloudflare_js_2(self):
-        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.cloudflare_url_2, "maxTimeout": 120000}, timeout=190)
+        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.cloudflare_url_2, "maxTimeout": 40000}, timeout=60)
         if res.status_code == 500:
             body = V1ResponseBase(self._get_json(res))
             if "Timeout after" in body.message:

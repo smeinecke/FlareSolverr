@@ -63,6 +63,7 @@ class V1RequestBase(object):
     #   {"type": "wait",           "seconds": 2}                         — sleep N seconds
     actions: list[dict[str, Any]] | None = None
     captchaSolver: str | None = None  # Optional per-request solver override
+    enabledServices: list[str] | None = None  # Optional per-request/session enabled challenge services
 
     def __init__(self, _dict: dict[str, Any]):
         self.__dict__.update(_dict)

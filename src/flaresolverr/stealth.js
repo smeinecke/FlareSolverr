@@ -29,25 +29,25 @@
   // not affect ChromeDriver functionality (it falls back to native globals).
   // NOTE: Patch 10 neutralises the injection at C++ level (custom Chromium).
   // This JS block is defence-in-depth for stock Chromium / older builds.
-  try {
-    const cdcProps = [
-      'cdc_adoQpoasnfa76pfcZLmcfl_Array',
-      'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
-      'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
-      'cdc_adoQpoasnfa76pfcZLmcfl_Window',
-      'cdc_adoQpoasnfa76pfcZLmcfl_JSON',
-      'cdc_adoQpoasnfa76pfcZLmcfl_Proxy',
-    ];
-    for (const p of cdcProps) {
-      if (p in window) {
-        try { delete window[p]; } catch (_) { window[p] = undefined; }
-      }
-    }
-    // Also clear the document-level artifact used by older ChromeDriver versions
-    if ('$cdc_asdjflasutopfhvcZLmcfl_' in document) {
-      try { delete document['$cdc_asdjflasutopfhvcZLmcfl_']; } catch (_) { document['$cdc_asdjflasutopfhvcZLmcfl_'] = undefined; }
-    }
-  } catch (_) {}
+  // try {
+  //   const cdcProps = [
+  //     'cdc_adoQpoasnfa76pfcZLmcfl_Array',
+  //     'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
+  //     'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
+  //     'cdc_adoQpoasnfa76pfcZLmcfl_Window',
+  //     'cdc_adoQpoasnfa76pfcZLmcfl_JSON',
+  //     'cdc_adoQpoasnfa76pfcZLmcfl_Proxy',
+  //   ];
+  //   for (const p of cdcProps) {
+  //     if (p in window) {
+  //       try { delete window[p]; } catch (_) { window[p] = undefined; }
+  //     }
+  //   }
+  //   // Also clear the document-level artifact used by older ChromeDriver versions
+  //   if ('$cdc_asdjflasutopfhvcZLmcfl_' in document) {
+  //     try { delete document['$cdc_asdjflasutopfhvcZLmcfl_']; } catch (_) { document['$cdc_asdjflasutopfhvcZLmcfl_'] = undefined; }
+  //   }
+  // } catch (_) {}
 
   // ── console guard ────────────────────────────────────────────────────────────
   try {
