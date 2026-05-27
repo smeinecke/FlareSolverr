@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from flaresolverr.client.models import Action
+from .models import Action
 
 
 @dataclass

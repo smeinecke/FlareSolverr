@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 
-from flaresolverr.client.models import (
+from .models import (
     Cookie,
     Header,
     HealthResponse,
