@@ -153,7 +153,11 @@ def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
     res.startTimestamp = start_ts
     res.endTimestamp = int(time.time() * 1000)
     res.version = utils.get_flaresolverr_version()  # noqa
-    logging.debug(f"Response => POST /v1 body: {utils.object_to_dict(res)}")
+    debug_res = utils.object_to_dict(res)
+    if debug_res.get("solution", {}).get("response"):
+        html = debug_res["solution"]["response"]
+        debug_res["solution"]["response"] = html[:500] + ("..." if len(html) > 500 else "")
+    logging.debug(f"Response => POST /v1 body: {debug_res}")
     logging.info(f"Response in {(res.endTimestamp - res.startTimestamp) / 1000} s")
     return res
 

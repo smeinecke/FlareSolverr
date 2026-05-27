@@ -1,13 +1,32 @@
 import pytest
 from selenium.common import TimeoutException
 from selenium.webdriver.chrome.webdriver import WebDriver
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from flaresolverr.services.base import ChallengeService
 from flaresolverr.services.manager import ServiceManager
 from flaresolverr.services.cloudflare import CloudflareService
 from flaresolverr.services.ddos_guard import DDoSGuardService
 from flaresolverr.services.brave import BraveService
+
+
+class _BraveDriverMock:
+    """Minimal mock driver with rotating page_source for Brave tests."""
+
+    def __init__(self, page_sources):
+        self._page_sources = list(page_sources)
+        self._idx = 0
+        self.current_url = "https://search.brave.com/captcha"
+        self._find_elements = MagicMock(return_value=[])
+
+    @property
+    def page_source(self):
+        val = self._page_sources[min(self._idx, len(self._page_sources) - 1)]
+        self._idx += 1
+        return val
+
+    def find_elements(self, by, value):
+        return self._find_elements(by, value)
 
 
 class _FakeService(ChallengeService):
@@ -197,19 +216,19 @@ class TestBraveService:
     def test_name(self, svc):
         assert svc.name == "brave"
 
-    def test_detect_by_url(self, svc):
+    def test_detect_by_url_and_text(self, svc):
         driver = MagicMock()
         driver.title = "Some Page"
         driver.current_url = "https://search.brave.com/captcha"
-        driver.page_source = ""
+        driver.page_source = "Brave Search decided to schedule a captcha"
         assert svc.detect(driver) is True
 
-    def test_detect_by_page_source(self, svc):
+    def test_detect_no_brave_text(self, svc):
         driver = MagicMock()
         driver.title = "Some Page"
-        driver.current_url = "https://example.com"
+        driver.current_url = "https://search.brave.com/"
         driver.page_source = '<script>"page":"/captcha"</script>'
-        assert svc.detect(driver) is True
+        assert svc.detect(driver) is False
 
     def test_detect_no_challenge(self, svc):
         driver = MagicMock()
@@ -218,15 +237,18 @@ class TestBraveService:
         driver.page_source = "<html><body>ok</body></html>"
         assert svc.detect(driver) is False
 
-    @patch("flaresolverr.services.brave.BraveService._is_verify_button_visible")
+    @patch("flaresolverr.services.brave.BraveService._find_clickable_verify_button")
     @patch("flaresolverr.services.brave.time.sleep")
     @patch("flaresolverr.services.brave.WebDriverWait")
-    def test_resolve_clicks_and_waits(self, mock_wait, mock_sleep, mock_is_visible, svc):
-        driver = MagicMock()
-        driver.current_url = "https://search.brave.com/captcha"
-        driver.page_source = ""
+    def test_resolve_clicks_and_waits(self, mock_wait, mock_sleep, mock_find, svc):
+        driver = _BraveDriverMock([
+            "Brave Search decided to schedule a captcha",
+            "Brave Search decided to schedule a captcha",
+            "",
+        ])
 
-        mock_is_visible.return_value = True
+        mock_button = MagicMock()
+        mock_find.return_value = mock_button
 
         # Redirect away from captcha after a few attempts
         call_count = [0]
@@ -243,22 +265,25 @@ class TestBraveService:
 
         svc.resolve(driver)
         assert mock_wait_instance.until.call_count >= 1
+        mock_button.click.assert_called()
 
-    @patch("flaresolverr.services.brave._human_like_click")
+    @patch("flaresolverr.services.brave.BraveService._find_clickable_verify_button")
     @patch("flaresolverr.services.brave.time.sleep")
     @patch("flaresolverr.services.brave.WebDriverWait")
-    def test_resolve_clicks_visible_button(self, mock_wait, mock_sleep, mock_hlc, svc):
-        driver = MagicMock()
-        driver.current_url = "https://search.brave.com/captcha"
-        driver.page_source = ""
+    def test_resolve_clicks_visible_button(self, mock_wait, mock_sleep, mock_find, svc):
+        driver = _BraveDriverMock([
+            "Brave Search decided to schedule a captcha",
+            "",
+        ])
 
         mock_button = MagicMock()
         mock_button.is_displayed.return_value = True
-        driver.find_elements.return_value = [mock_button]
+        mock_button.get_attribute.return_value = None
+        mock_find.return_value = mock_button
 
         mock_wait_instance = MagicMock()
         mock_wait_instance.until.return_value = True
         mock_wait.return_value = mock_wait_instance
 
         svc.resolve(driver)
-        mock_hlc.assert_called_once_with(driver, mock_button)
+        mock_button.click.assert_called_once()
