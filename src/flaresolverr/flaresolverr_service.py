@@ -196,6 +196,8 @@ def _controller_v1_handler(req: V1RequestBase) -> V1ResponseBase:
         res = _cmd_sessions_action(req)
     elif req.cmd == "sessions.screenshot":
         res = _cmd_sessions_screenshot(req)
+    elif req.cmd == "sessions.cdp":
+        res = _cmd_sessions_cdp(req)
     elif req.cmd == "request.get":
         res = _cmd_request_get(req)
     elif req.cmd == "request.post":
@@ -514,6 +516,35 @@ def _cmd_sessions_screenshot(req: V1RequestBase) -> V1ResponseBase:
     res = V1ResponseBase({})
     res.status = STATUS_OK
     res.message = "Screenshot captured successfully."
+    res.solution = result
+    return res
+
+
+def _cmd_sessions_cdp(req: V1RequestBase) -> V1ResponseBase:
+    session_id = req.session
+    if session_id is None:
+        raise Exception("Request parameter 'session' is mandatory in 'sessions.cdp' command.")
+    if not SESSIONS_STORAGE.exists(session_id):
+        raise Exception("The session doesn't exist.")
+
+    session = SESSIONS_STORAGE.sessions[session_id]
+    driver = session.driver
+    cdp_cmd = req.cdp_cmd
+    cdp_params = req.cdp_params or {}
+    logging.debug(f"sessions.cdp (session_id={session_id}, cmd={cdp_cmd})")
+
+    try:
+        cdp_result = driver.execute_cdp_cmd(cdp_cmd, cdp_params)
+    except Exception as e:
+        raise Exception(f"Error executing CDP command: {e}")
+
+    result = ChallengeResolutionResultT({})
+    result.url = driver.current_url
+    result.evalResult = cdp_result
+
+    res = V1ResponseBase({})
+    res.status = STATUS_OK
+    res.message = "CDP command executed successfully."
     res.solution = result
     return res
 

@@ -598,3 +598,39 @@ class TestFlareSolverrClientHTTP:
         assert payload["cmd"] == "sessions.screenshot"
         assert payload["session"] == "abc123"
         assert r.solution.screenshot.startswith("iVBOR")
+
+    def test_session_cdp(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "message": "CDP command executed successfully.",
+            "solution": {"evalResult": {"result": {}}, "url": "https://example.com"},
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            r = client.sessions.cdp("abc123", "Page.addScriptToEvaluateOnNewDocument", {"source": "console.log('hi')"})
+        payload = mock_post.call_args[1]["json"]
+        assert payload["cmd"] == "sessions.cdp"
+        assert payload["session"] == "abc123"
+        assert payload["cdp_cmd"] == "Page.addScriptToEvaluateOnNewDocument"
+        assert payload["cdp_params"] == {"source": "console.log('hi')"}
+        assert r.solution.evalResult == {"result": {}}
+
+    def test_session_cdp_without_params(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "message": "CDP command executed successfully.",
+            "solution": {"evalResult": {}, "url": "https://example.com"},
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            r = client.sessions.cdp("abc123", "Runtime.enable")
+        payload = mock_post.call_args[1]["json"]
+        assert payload["cmd"] == "sessions.cdp"
+        assert payload["session"] == "abc123"
+        assert payload["cdp_cmd"] == "Runtime.enable"
+        assert "cdp_params" not in payload
+        assert r.solution.evalResult == {}

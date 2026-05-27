@@ -1,0 +1,42 @@
+"""Vulture whitelist for public API names and dynamically-used symbols.
+
+These are referenced dynamically (e.g. bottle plugin loading, public client
+library methods, model fields populated by dict unpacking) and appear unused
+to static analysis, but are required at runtime.
+"""
+
+from flaresolverr.bottle_plugins import error_plugin, logger_plugin, prometheus_plugin
+from flaresolverr.client.client import _SessionManager
+from flaresolverr.client.models import ChallengeSolution
+from flaresolverr.sessions import SessionsStorage
+from selenium.webdriver.chrome.options import Options
+
+# Public _SessionManager API methods (called by users of the client library)
+_SessionManager.cdp
+_SessionManager.create
+_SessionManager.destroy
+_SessionManager.eval
+_SessionManager.get
+_SessionManager.list
+_SessionManager.network
+_SessionManager.screenshot
+_SessionManager.click
+_SessionManager.action
+
+# Model fields populated dynamically from API responses
+ChallengeSolution.evalResult
+ChallengeSolution.networkLogs
+ChallengeSolution.screenshot
+
+# Bottle plugin entry points (loaded dynamically by Bottle framework)
+error_plugin.plugin
+logger_plugin.plugin
+prometheus_plugin.plugin
+prometheus_plugin.setup
+
+# SessionsStorage internals
+SessionsStorage.session_ids
+SessionsStorage.stop_cleanup
+
+# Attribute set on driver options by undetected_chromedriver
+Options.binary_location

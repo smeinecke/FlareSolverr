@@ -256,3 +256,61 @@ class TestSessionsScreenshot:
         req = V1RequestBase({"cmd": "sessions.screenshot", "session": "s1"})
         with pytest.raises(Exception, match="Error capturing screenshot"):
             svc._cmd_sessions_screenshot(req)
+
+
+class TestSessionsCdp:
+    def test_cdp_executes_command(self, _patch_sessions_storage):
+        driver = MagicMock()
+        driver.execute_cdp_cmd.return_value = {"result": {"value": "ok"}}
+        driver.current_url = "https://example.com"
+
+        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+
+        req = V1RequestBase({
+            "cmd": "sessions.cdp",
+            "session": "s1",
+            "cdp_cmd": "Runtime.evaluate",
+            "cdp_params": {"expression": "1+1"},
+        })
+        res = svc._cmd_sessions_cdp(req)
+
+        assert res.status == "ok"
+        assert res.message == "CDP command executed successfully."
+        assert res.solution.evalResult == {"result": {"value": "ok"}}
+        driver.execute_cdp_cmd.assert_called_once_with("Runtime.evaluate", {"expression": "1+1"})
+
+    def test_cdp_without_params(self, _patch_sessions_storage):
+        driver = MagicMock()
+        driver.execute_cdp_cmd.return_value = {}
+        driver.current_url = "https://example.com"
+
+        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+
+        req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1", "cdp_cmd": "Runtime.enable"})
+        res = svc._cmd_sessions_cdp(req)
+
+        assert res.status == "ok"
+        driver.execute_cdp_cmd.assert_called_once_with("Runtime.enable", {})
+
+    def test_cdp_missing_session_raises(self):
+        req = V1RequestBase({"cmd": "sessions.cdp", "session": "missing", "cdp_cmd": "Runtime.enable"})
+        with pytest.raises(Exception, match="doesn't exist"):
+            svc._cmd_sessions_cdp(req)
+
+    def test_cdp_missing_cmd_raises(self, _patch_sessions_storage):
+        driver = MagicMock()
+        driver.execute_cdp_cmd.side_effect = Exception("invalid command name")
+        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+
+        req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1"})
+        with pytest.raises(Exception, match="Error executing CDP command"):
+            svc._cmd_sessions_cdp(req)
+
+    def test_cdp_command_error_raises(self, _patch_sessions_storage):
+        driver = MagicMock()
+        driver.execute_cdp_cmd.side_effect = Exception("invalid command")
+        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+
+        req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1", "cdp_cmd": "Bad.command"})
+        with pytest.raises(Exception, match="Error executing CDP command"):
+            svc._cmd_sessions_cdp(req)

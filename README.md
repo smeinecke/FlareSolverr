@@ -273,6 +273,29 @@ Captures a screenshot of the current session page and returns it as a Base64-enc
 | --------- | ---------------------------------------------------- |
 | session   | The session ID to capture.                           |
 
+#### + `sessions.cdp`
+
+Executes a Chrome DevTools Protocol (CDP) command directly on the session's browser instance.
+Useful for advanced debugging, injecting scripts before page load, or accessing low-level browser features.
+
+| Parameter  | Notes                                                |
+| ---------- | ---------------------------------------------------- |
+| session    | The session ID to target.                            |
+| cdp_cmd    | The CDP command name, e.g. `Page.addScriptToEvaluateOnNewDocument`. |
+| cdp_params | Optional. Dictionary of parameters for the CDP command. |
+
+Example:
+```json
+{
+  "cmd": "sessions.cdp",
+  "session": "my-session",
+  "cdp_cmd": "Page.addScriptToEvaluateOnNewDocument",
+  "cdp_params": {
+    "source": "console.log('injected')"
+  }
+}
+```
+
 #### + `request.get`
 
 | Parameter           | Notes                                                                                                                                                                                                                                                                                                                                        |
