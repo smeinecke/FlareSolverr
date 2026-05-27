@@ -175,6 +175,7 @@ This also speeds up the requests since it won't have to launch a new browser ins
 | stealthMode | Optional enum override: `"off"`, `"standard"`, `"csp-safe"`. Preferred over `stealth` for explicit behavior. |
 | userAgent | Optional. Custom browser user agent for the session. If a session already exists, this must match the existing configured value. |
 | acceptLanguage | Optional. Overrides the global `ACCEPT_LANGUAGE` for this session. Example: `"acceptLanguage": "de-DE,de"`. Once set on a session it cannot be changed without destroying and recreating the session. |
+| enabledServices | Optional. List of challenge services to enable for this session. Default: `["cloudflare", "ddos_guard"]`. Controls which challenge types are detected and resolved. |
 
 #### + `sessions.list`
 
@@ -221,6 +222,7 @@ session. When you no longer need to use a session you should make sure to close 
 | stealthMode         | Optional enum override: `"off"`, `"standard"`, `"csp-safe"`. Preferred over `stealth` for explicit behavior. |
 | userAgent           | Optional. Custom browser user agent override. For `session` requests, this can only be set on session initialization and must stay consistent afterwards. |
 | acceptLanguage      | Optional. Overrides the browser `Accept-Language` header for this request (or session initialization). Uses the global `ACCEPT_LANGUAGE` env var when omitted. Example: `"acceptLanguage": "fr-FR,fr"`. |
+| enabledServices     | Optional. Overrides the session's challenge services for this request. Controls which challenge types are detected and resolved. Example: `"enabledServices": ["cloudflare", "brave"]`. |
 
 > **Warning**
 > If you want to use Cloudflare clearance cookie in your scripts, make sure you use the FlareSolverr User-Agent too. If they don't match you will see the challenge.

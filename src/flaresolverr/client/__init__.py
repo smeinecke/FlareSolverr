@@ -15,7 +15,10 @@ Basic Usage:
 
 Session Management:
     >>> # Create a session (persists cookies and browser state)
-    >>> session = client.sessions.create("my_session_id")
+    >>> session = client.sessions.create(
+    ...     "my_session_id",
+    ...     enabled_services=["cloudflare", "ddos_guard"],  # Optional: override which challenge services are active
+    ... )
     >>>
     >>> # Use the session for multiple requests
     >>> response1 = client.request.get("https://example.com", session="my_session_id")

@@ -236,7 +236,7 @@ def _cmd_request_post(req: V1RequestBase) -> V1ResponseBase:
 def _cmd_sessions_create(req: V1RequestBase) -> V1ResponseBase:
     logging.debug("Creating new session...")
     req_stealth_mode = _resolve_request_stealth_mode(req)
-    enabled_services = req.enabledServices if req.enabledServices is not None else ["cloudflare"]
+    enabled_services = req.enabledServices if req.enabledServices is not None else ["cloudflare", "ddos_guard"]
 
     session, fresh = SESSIONS_STORAGE.create(
         session_id=req.session, proxy=req.proxy, stealth_mode=req_stealth_mode, user_agent=req.userAgent, accept_language=req.acceptLanguage, enabled_services=enabled_services
@@ -298,7 +298,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         if enabled_services is None and session is not None:
             enabled_services = session.enabled_services
         if enabled_services is None:
-            enabled_services = ["cloudflare"]
+            enabled_services = ["cloudflare", "ddos_guard"]
         challenge_result = func_timeout(timeout, _evil_logic, (req, driver, method, enabled_services))
         if session is not None:
             session.request_count += 1

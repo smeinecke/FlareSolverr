@@ -38,7 +38,7 @@ class Session:
         self.stealth_mode = stealth_mode
         self.user_agent_override = user_agent_override
         self.accept_language_override = accept_language_override
-        self.enabled_services = enabled_services if enabled_services is not None else ["cloudflare"]
+        self.enabled_services = enabled_services if enabled_services is not None else ["cloudflare", "ddos_guard"]
         self.request_count = 0
         self.lock = threading.Lock()  # noqa
 

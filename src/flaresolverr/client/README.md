@@ -54,7 +54,13 @@ client = FlareSolverrClient(base_url="http://localhost:8191", timeout=120.0)
 
 ```python
 # Create a persistent session
-response = client.sessions.create(session_id="my_session", stealth_mode="standard", user_agent="Mozilla/5.0 ...", accept_language="de-DE,de")
+response = client.sessions.create(
+    session_id="my_session",
+    stealth_mode="standard",
+    user_agent="Mozilla/5.0 ...",
+    accept_language="de-DE,de",
+    enabled_services=["cloudflare", "ddos_guard"],  # Optional: override which challenge services are active
+)
 session_id = response.session  # Auto-generated if not provided
 
 # Use session for requests
@@ -84,6 +90,7 @@ response = client.request.get(
     user_agent="Mozilla/5.0 ...",   # Optional per-request user-agent override
     accept_language="fr-FR,fr",     # Optional per-request Accept-Language override
     wait_in_seconds=2,              # Wait after page load
+    enabled_services=["cloudflare", "ddos_guard", "brave"],  # Optional: override which challenge services are active
     proxy=ProxyConfig(url="http://proxy:8080"),
     cookies=[Cookie(name="session", value="abc", domain=".example.com", path="/")],
     headers=[Header(name="User-Agent", value="Custom/1.0")],
