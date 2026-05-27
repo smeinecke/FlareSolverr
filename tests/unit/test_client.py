@@ -392,6 +392,7 @@ class TestFlareSolverrClientHTTP:
     def test_http_error_propagates(self):
         client = FlareSolverrClient("http://localhost:8191")
         mock_resp = MagicMock()
+        mock_resp.json.side_effect = ValueError("No JSON")
         mock_resp.raise_for_status.side_effect = requests.HTTPError("503")
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp):
             with pytest.raises(requests.HTTPError):
