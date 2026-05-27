@@ -38,12 +38,14 @@ Docker images are available in:
 
 Supported architectures are:
 
-| Architecture | Tag          |
-| ------------ | ------------ |
-| x86          | linux/386    |
-| x86-64       | linux/amd64  |
-| ARM32        | linux/arm/v7 |
-| ARM64        | linux/arm64  |
+| Architecture | Tag          | Notes                                           |
+| ------------ | ------------ | ----------------------------------------------- |
+| x86          | linux/386    | Uses stock Debian Chromium (no stealth patches) |
+| x86-64       | linux/amd64  | Includes custom stealth Chromium                |
+| ARM32        | linux/arm/v7 | Uses stock Debian Chromium (no stealth patches) |
+| ARM64        | linux/arm64  | Uses stock Debian Chromium (no stealth patches) |
+
+> **Note:** The custom stealth-patched Chromium build is only available for **amd64**. On other architectures FlareSolverr falls back to the stock Debian `chromium` package; stealth mode still works but with reduced hardening (CDP-based JS patches only, no C++ binary patches).
 
 We provide a `docker-compose.yml` configuration file. Clone this repository and execute
 `docker-compose up -d` _(Compose V1)_ or `docker compose up -d` _(Compose V2)_ to start
@@ -393,7 +395,7 @@ The **default solver** handles Cloudflare challenges through browser automation:
 | DISABLE_MEDIA      | false                  | To disable loading images, CSS, and other media in the web browser to save network bandwidth.                                            |
 | DISABLE_QUIC       | true                   | Disables QUIC/HTTP3 in Chrome (`--disable-quic --disable-http3`) to avoid challenge transport instability on some networks/environments. |
 | MINIMAL_FINGERPRINT | true                  | If `true`, avoids extra anti-detection Chrome flags (`--disable-blink-features=AutomationControlled` and site-isolation-disabling flags) to keep browser behavior closer to stock Chrome. |
-| STEALTH_MODE       | off                    | Global stealth mode. Supported values: `off`, `standard`, `csp-safe` (also accepts legacy `true/false`). `standard` does **not** enable blob-worker bypass by default. |
+| STEALTH_MODE       | off                    | Global stealth mode. Supported values: `off`, `standard`, `csp-safe` (also accepts legacy `true/false`). `standard` does **not** enable blob-worker bypass by default. Custom C++-patched Chromium hardening is only available on **amd64**; other architectures use CDP-based JS patches only. |
 | UC_HEADLESS_AUTO_UA_OVERRIDE | false      | Controls undetected_chromedriver automatic headless UA override. Default `false` means no automatic UA replacement. |
 | PORT               | 8191                   | Listening port. You don't need to change this if you are running on Docker.                                                              |
 | HOST               | 0.0.0.0                | Listening interface. You don't need to change this if you are running on Docker.                                                         |

@@ -9,19 +9,16 @@ import tarfile
 import requests
 
 
+# Script moved from src/ to src/flaresolverr/; compute repo root once.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 def clean_files():
-    try:
-        shutil.rmtree(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "build"))
-    except Exception:
-        pass
-    try:
-        shutil.rmtree(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "dist"))
-    except Exception:
-        pass
-    try:
-        shutil.rmtree(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "dist_chrome"))
-    except Exception:
-        pass
+    for folder in ("build", "dist", "dist_chrome"):
+        try:
+            shutil.rmtree(os.path.join(REPO_ROOT, folder))
+        except Exception:
+            pass
 
 
 def download_chromium():
@@ -29,7 +26,7 @@ def download_chromium():
     revision = "1522586" if os.name == "nt" else "1522586"
     arch = "Win_x64" if os.name == "nt" else "Linux_x64"
     dl_file = "chrome-win" if os.name == "nt" else "chrome-linux"
-    dl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "dist_chrome")
+    dl_path = os.path.join(REPO_ROOT, "dist_chrome")
     dl_path_folder = os.path.join(dl_path, dl_file)
     dl_path_zip = dl_path_folder + ".zip"
 
@@ -72,14 +69,14 @@ def run_pyinstaller():
             "-m",
             "PyInstaller",
             "--icon",
-            "resources/flaresolverr_logo.ico",
+            os.path.join("resources", "flaresolverr_logo.ico"),
             "--add-data",
             f"pyproject.toml{sep}.",
             "--add-data",
             f"{os.path.join('dist_chrome', 'chrome')}{sep}chrome",
-            os.path.join("src", "flaresolverr.py"),
+            os.path.join("src", "flaresolverr", "flaresolverr.py"),
         ],
-        cwd=os.pardir,
+        cwd=REPO_ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -89,7 +86,7 @@ def run_pyinstaller():
 
 
 def compress_package():
-    dist_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "dist")
+    dist_folder = os.path.join(REPO_ROOT, "dist")
     package_folder = os.path.join(dist_folder, "package")
     shutil.move(os.path.join(dist_folder, "flaresolverr"), os.path.join(package_folder, "flaresolverr"))
     print("Package folder: " + package_folder)
