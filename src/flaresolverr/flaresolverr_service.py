@@ -9,12 +9,11 @@ from typing import cast
 from urllib.parse import quote, unquote
 
 from func_timeout import FunctionTimedOut, func_timeout
-from selenium.common import TimeoutException, UnexpectedAlertPresentException
+from selenium.common import UnexpectedAlertPresentException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.expected_conditions import presence_of_element_located, staleness_of, title_is, visibility_of_element_located
+from selenium.webdriver.support.expected_conditions import presence_of_element_located, visibility_of_element_located
 from selenium.webdriver.support.wait import WebDriverWait
 
 from flaresolverr import utils
@@ -29,7 +28,9 @@ from flaresolverr.dtos import (
     V1RequestBase,
     V1ResponseBase,
 )
+from flaresolverr.services import SERVICE_MANAGER
 from flaresolverr.sessions import SessionsStorage
+from flaresolverr.utils import _human_like_click, _random_delay
 
 ACCESS_DENIED_TITLES = [
     # Cloudflare
@@ -42,28 +43,6 @@ ACCESS_DENIED_SELECTORS = [
     "div.cf-error-title span.cf-code-label span",
     # Cloudflare http://bitturk.net/ Firefox
     "#cf-error-details div.cf-error-overview h1",
-]
-CHALLENGE_TITLES = [
-    # Cloudflare
-    "Just a moment...",
-    "Nur einen Moment…",
-    # DDoS-GUARD
-    "DDoS-Guard",
-]
-CHALLENGE_SELECTORS = [
-    # Cloudflare
-    "#cf-challenge-running",
-    ".ray_id",
-    ".attack-box",
-    "#cf-please-wait",
-    "#challenge-spinner",
-    "#trk_jschal_js",
-    "#turnstile-wrapper",
-    ".lds-ring",
-    # Custom CloudFlare for EbookParadijs, Film-Paleis, MuziekFabriek and Puur-Hollands
-    "td.info #js_info",
-    # Fairlane / pararius.com
-    "div.vc div.text-box h2",
 ]
 
 TURNSTILE_SELECTORS = ["input[name='cf-turnstile-response']"]
@@ -119,9 +98,6 @@ BLOCK_MEDIA_URL_PATTERNS = [
 SHORT_TIMEOUT = 1
 SESSIONS_STORAGE = SessionsStorage()
 _NET_ERROR_CODE_RE = re.compile(r"\bERR_[A-Z0-9_]+\b")
-
-HARD_BLOCK_TEXT = "Incompatible browser extension or network configuration"
-
 
 def test_browser_installation() -> None:
     logging.info("Testing web browser installation...")
@@ -256,9 +232,10 @@ def _cmd_request_post(req: V1RequestBase) -> V1ResponseBase:
 def _cmd_sessions_create(req: V1RequestBase) -> V1ResponseBase:
     logging.debug("Creating new session...")
     req_stealth_mode = _resolve_request_stealth_mode(req)
+    enabled_services = req.enabledServices if req.enabledServices is not None else ["cloudflare"]
 
     session, fresh = SESSIONS_STORAGE.create(
-        session_id=req.session, proxy=req.proxy, stealth_mode=req_stealth_mode, user_agent=req.userAgent, accept_language=req.acceptLanguage
+        session_id=req.session, proxy=req.proxy, stealth_mode=req_stealth_mode, user_agent=req.userAgent, accept_language=req.acceptLanguage, enabled_services=enabled_services
     )
     session_id = session.session_id
 
@@ -313,7 +290,12 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             if req.userAgent is not None:
                 utils.apply_user_agent_override(driver, req.userAgent, req.acceptLanguage or utils.get_config_accept_language())
             logging.debug("New instance of webdriver has been created to perform the request")
-        challenge_result = func_timeout(timeout, _evil_logic, (req, driver, method))
+        enabled_services = req.enabledServices
+        if enabled_services is None and session is not None:
+            enabled_services = session.enabled_services
+        if enabled_services is None:
+            enabled_services = ["cloudflare"]
+        challenge_result = func_timeout(timeout, _evil_logic, (req, driver, method, enabled_services))
         if session is not None:
             session.request_count += 1
         return cast(ChallengeResolutionT, challenge_result)
@@ -345,218 +327,13 @@ def _resolve_request_stealth_mode(req: V1RequestBase) -> str | None:
     return None
 
 
-def click_verify(driver: WebDriver, num_tabs: int = 1) -> None:
-    try:
-        logging.debug("Try to find the Cloudflare verify checkbox...")
-        actions = ActionChains(driver)
-        actions.pause(_random_delay(4.0, 6.0))
-        for _ in range(num_tabs):
-            actions.send_keys(Keys.TAB).pause(_random_delay(0.08, 0.15))
-        actions.pause(_random_delay(0.8, 1.2))
-        actions.send_keys(Keys.SPACE).perform()
-
-        logging.debug(f"Cloudflare verify checkbox clicked after {num_tabs} tabs!")
-    except Exception:
-        logging.debug("Cloudflare verify checkbox not found on the page.")
-    finally:
-        driver.switch_to.default_content()
-
-    try:
-        logging.debug("Try to find the Cloudflare 'Verify you are human' button...")
-        button = driver.find_element(
-            by=By.XPATH,
-            value="//input[@type='button' and @value='Verify you are human']",
-        )
-        if button:
-            _human_like_click(driver, button)
-            logging.debug("The Cloudflare 'Verify you are human' button found and clicked!")
-    except Exception:
-        logging.debug("The Cloudflare 'Verify you are human' button not found on the page.")
-
-    time.sleep(_random_delay(1.5, 2.5))
-
-
-def _should_attempt_verify_click(driver: WebDriver) -> bool:
-    """Only click when challenge UI appears interactive and likely needs user action."""
-    try:
-        # Explicit interactive button variant.
-        if driver.find_elements(By.XPATH, "//input[@type='button' and @value='Verify you are human']"):
-            return True
-
-        src = driver.page_source
-        # Automatic verification states: extra clicks can reset/restart the loop.
-        if "Verifying you are human. This may take a few seconds." in src:
-            return False
-        if "Verification successful. Waiting for" in src:
-            return False
-
-        # Fallback markers for embedded turnstile/challenge widgets.
-        markers = driver.find_elements(
-            By.CSS_SELECTOR,
-            "#turnstile-wrapper, iframe[src*='turnstile'], iframe[src*='challenges.cloudflare.com']",
-        )
-        return len(markers) > 0
-    except Exception:
-        # Conservative fallback: do not inject synthetic input when uncertain.
-        return False
-
-
-def _random_delay(min_sec: float, max_sec: float) -> float:
-    """Generate a random delay with slight gaussian distribution for natural feel."""
-    import random
-
-    mean = (min_sec + max_sec) / 2
-    std_dev = (max_sec - min_sec) / 6
-    delay = random.gauss(mean, std_dev)
-    return max(min_sec, min(max_sec, delay))
-
-
-def _human_like_click(driver: WebDriver, element) -> None:
-    """Perform a human-like mouse movement and click with bezier curves and randomness."""
-    import random
-
-    from selenium.webdriver.common.action_chains import ActionChains
-
-    # Get element location and size
-    location = element.location
-    size = element.size
-    element_center_x = location["x"] + size["width"] / 2
-    element_center_y = location["y"] + size["height"] / 2
-
-    # Random offset within the element (avoid edges, focus on center area)
-    offset_x = random.gauss(0, size["width"] / 8)
-    offset_y = random.gauss(0, size["height"] / 8)
-    target_x = element_center_x + offset_x
-    target_y = element_center_y + offset_y
-
-    # Get current mouse position or start from random screen edge
-    # Start from a random position near the viewport edges (common human pattern)
-    viewport_width = driver.execute_script("return window.innerWidth")
-    viewport_height = driver.execute_script("return window.innerHeight")
-
-    start_edge = random.choice(["top", "bottom", "left", "right"])  # nosec B311
-    if start_edge == "top":
-        start_x = random.uniform(0, viewport_width)  # nosec B311
-        start_y = random.uniform(0, 100)  # nosec B311
-    elif start_edge == "bottom":
-        start_x = random.uniform(0, viewport_width)  # nosec B311
-        start_y = random.uniform(viewport_height - 100, viewport_height)  # nosec B311
-    elif start_edge == "left":
-        start_x = random.uniform(0, 100)  # nosec B311
-        start_y = random.uniform(0, viewport_height)  # nosec B311
-    else:
-        start_x = random.uniform(viewport_width - 100, viewport_width)  # nosec B311
-        start_y = random.uniform(0, viewport_height)  # nosec B311
-
-    # Generate bezier curve points for natural movement
-    points = _generate_bezier_curve((start_x, start_y), (target_x, target_y), control_points=random.randint(1, 2))  # nosec B311
-
-    # move the cursor at the first bezier point
-    actions = ActionChains(driver)
-    first_x, first_y = points[0]
-    anchor_dx = round(first_x - element_center_x)
-    anchor_dy = round(first_y - element_center_y)
-    actions.move_to_element_with_offset(element, anchor_dx, anchor_dy)
-    actions.pause(_random_delay(0.02, 0.06))
-
-    # Cursor is now at (element_center + anchor_offset) — known position.
-    actual_x = round(element_center_x) + anchor_dx
-    actual_y = round(element_center_y) + anchor_dy
-    prev_x = float(actual_x)
-    prev_y = float(actual_y)
-
-    # Fractional residue carried between hops by round() truncation
-    acc_x = 0.0
-    acc_y = 0.0
-
-    # Walk the remaining bezier points with relative move_by_offset
-    for i, (x, y) in enumerate(points[1:], start=1):
-        desired_dx = (x - prev_x) + acc_x
-        desired_dy = (y - prev_y) + acc_y
-
-        int_dx = round(desired_dx)
-        int_dy = round(desired_dy)
-
-        # Whatever fraction we didn't move, carry into the next hop.
-        acc_x = desired_dx - int_dx
-        acc_y = desired_dy - int_dy
-
-        actions.move_by_offset(int_dx, int_dy)
-        actual_x += int_dx
-        actual_y += int_dy
-        prev_x, prev_y = x, y
-
-        # Variable delay between movements (faster in middle, slower at start/end)
-        progress = i / len(points)
-        delay = 0.01 + 0.03 * (1 - abs(progress - 0.5) * 2)  # 0.01 to 0.04
-        actions.pause(delay)
-
-    # if the cursor still isn't exactly on the integer target (a leftover sub-pixel pushed us 1 px off), move to it.
-    target_int_x = round(target_x)
-    target_int_y = round(target_y)
-    if actual_x != target_int_x or actual_y != target_int_y:
-        fix_dx = target_int_x - actual_x
-        fix_dy = target_int_y - actual_y
-        actions.move_by_offset(fix_dx, fix_dy)
-        actual_x = target_int_x
-        actual_y = target_int_y
-
-    actions.pause(_random_delay(0.05, 0.15))
-
-    # Click with slight movement during press (human hand tremor)
-    actions.click_and_hold()
-    actions.move_by_offset(int(random.gauss(0, 1)), int(random.gauss(0, 1)))
-    actions.pause(_random_delay(0.03, 0.08))
-    actions.release()
-
-    actions.perform()
-
-
-def _generate_bezier_curve(start: tuple[float, float], end: tuple[float, float], control_points: int = 1) -> list[tuple[float, float]]:
-    """Generate points along a bezier curve for natural mouse movement."""
-    import random
-
-    points = [start]
-
-    # Generate control points with randomness
-    for i in range(control_points):
-        # Control points deviate from the direct line
-        t = (i + 1) / (control_points + 1)
-        base_x = start[0] + (end[0] - start[0]) * t
-        base_y = start[1] + (end[1] - start[1]) * t
-
-        # Add perpendicular deviation
-        deviation = max(abs(end[0] - start[0]), abs(end[1] - start[1])) * random.uniform(0.1, 0.3)  # nosec B311
-        ctrl_x = base_x + deviation * random.gauss(0, 0.5)
-        ctrl_y = base_y + deviation * random.gauss(0, 0.5)
-        points.append((ctrl_x, ctrl_y))
-
-    points.append(end)
-
-    # Generate interpolated points along the curve
-    num_steps = random.randint(15, 25)  # nosec B311
-    curve_points = []
-
-    for t in [i / num_steps for i in range(num_steps + 1)]:
-        # De Casteljau's algorithm for bezier curves
-        temp_points = points.copy()
-        while len(temp_points) > 1:
-            new_points = []
-            for i in range(len(temp_points) - 1):
-                x = temp_points[i][0] + (temp_points[i + 1][0] - temp_points[i][0]) * t
-                y = temp_points[i][1] + (temp_points[i + 1][1] - temp_points[i][1]) * t
-                new_points.append((x, y))
-            temp_points = new_points
-        curve_points.append(temp_points[0])
-
-    return curve_points
-
-
 def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
     token_input = driver.find_element(By.CSS_SELECTOR, "input[name='cf-turnstile-response']")
     current_value = token_input.get_attribute("value")
     while True:
-        click_verify(driver, num_tabs=tabs)
+        cloudflare_svc = SERVICE_MANAGER.get_service("cloudflare")
+        if cloudflare_svc is not None:
+            cloudflare_svc._click_verify(driver, num_tabs=tabs)
         turnstile_token = token_input.get_attribute("value")
         if turnstile_token:
             if turnstile_token != current_value:
@@ -700,59 +477,6 @@ def _raise_if_navigation_error(driver: WebDriver) -> None:
     raise Exception("Message: unknown error: net::ERR_FAILED")
 
 
-def _challenge_found(driver: WebDriver, page_title: str) -> bool:
-    for title in CHALLENGE_TITLES:
-        if title.lower() == page_title.lower():
-            logging.info("Challenge detected. Title found: " + page_title)
-            return True
-    for selector in CHALLENGE_SELECTORS:
-        found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
-        if len(found_elements) > 0:
-            logging.info("Challenge detected. Selector found: " + selector)
-            return True
-    return False
-
-
-def _wait_for_challenge(driver: WebDriver, html_element) -> None:
-    attempt = 0
-    last_verify_click_ts = 0.0
-    click_cooldown_seconds = 10.0
-    while True:
-        try:
-            attempt += 1
-            for title in CHALLENGE_TITLES:
-                logging.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
-                WebDriverWait(driver, SHORT_TIMEOUT).until_not(title_is(title))
-            for selector in CHALLENGE_SELECTORS:
-                logging.debug("Waiting for selector (attempt " + str(attempt) + "): " + selector)
-                WebDriverWait(driver, SHORT_TIMEOUT).until_not(presence_of_element_located((By.CSS_SELECTOR, selector)))
-            break
-        except TimeoutException:
-            logging.debug("Timeout waiting for selector")
-            # Check for hard block page (title stays "Just a moment..." but body changes)
-            if HARD_BLOCK_TEXT in driver.page_source:
-                raise Exception("Cloudflare hard block: Incompatible browser extension or network configuration")
-            now = time.time()
-            if _should_attempt_verify_click(driver):
-                if now - last_verify_click_ts >= click_cooldown_seconds:
-                    click_verify(driver)
-                    last_verify_click_ts = now
-                else:
-                    remaining = click_cooldown_seconds - (now - last_verify_click_ts)
-                    logging.debug("Skipping verify click due to cooldown (%.1fs remaining)", remaining)
-            else:
-                logging.debug("Skipping verify click: challenge appears to be in automatic verification mode")
-            # update the html (cloudflare reloads the page every 5 s)
-            html_element = driver.find_element(By.TAG_NAME, "html")
-
-    logging.debug("Waiting for redirect")
-    # noinspection PyBroadException
-    try:
-        WebDriverWait(driver, SHORT_TIMEOUT).until(staleness_of(html_element))
-    except Exception:
-        logging.debug("Timeout waiting for redirect")
-
-
 def _execute_actions(driver: WebDriver, actions: list) -> None:
     """Execute a list of browser actions after page load (fill forms, click, wait)."""
     default_action_timeout = 15
@@ -855,7 +579,7 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
     return challenge_res
 
 
-def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> ChallengeResolutionT:
+def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_services: list[str]) -> ChallengeResolutionT:
     if req.url is None:
         raise Exception("Request parameter 'url' is mandatory in request commands.")
     target_url = req.url
@@ -872,13 +596,12 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     # wait for the page
     if utils.get_config_log_html():
         logging.debug(f"Response HTML:\n{driver.page_source}")
-    html_element = driver.find_element(By.TAG_NAME, "html")
     page_title = driver.title
 
     _raise_if_navigation_error(driver)
     _raise_if_access_denied(driver, page_title)
-    challenge_found = _challenge_found(driver, page_title)
-    if challenge_found:
+    detected_service = SERVICE_MANAGER.detect(driver, enabled_services)
+    if detected_service is not None:
         # Try external captcha solver first if configured
         solver_used = False
         effective_solver = req.captchaSolver if req.captchaSolver is not None else get_config_captcha_solver()
@@ -892,7 +615,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
 
         if not solver_used:
             # Fall back to default challenge resolution
-            _wait_for_challenge(driver, html_element)
+            SERVICE_MANAGER.resolve(driver, detected_service)
 
         logging.info("Challenge solved!")
         res.message = "Challenge solved!"

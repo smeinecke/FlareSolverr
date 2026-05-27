@@ -342,7 +342,7 @@ class TestEffectiveSolverSelection:
 
         def spy_solve(driver, ct, solver_name=None):
             calls.append(solver_name)
-            return False  # return False so _wait_for_challenge is still skipped below
+            return False  # return False so SERVICE_MANAGER.resolve is still called below
 
         monkeypatch.setattr(cs.SOLVER_MANAGER, "solve", spy_solve)
         monkeypatch.setattr(svc, "_configure_blocked_media", lambda *a: None)
@@ -350,9 +350,9 @@ class TestEffectiveSolverSelection:
         monkeypatch.setattr(svc, "_navigate_request", lambda *a: None)
         monkeypatch.setattr(svc, "_set_request_cookies", lambda *a: None)
         monkeypatch.setattr(svc, "_raise_if_access_denied", lambda *a: None)
-        monkeypatch.setattr(svc, "_challenge_found", lambda *a: challenge_found)
+        monkeypatch.setattr(svc.SERVICE_MANAGER, "detect", lambda *a: "cloudflare" if challenge_found else None)
+        monkeypatch.setattr(svc.SERVICE_MANAGER, "resolve", lambda *a: None)
         monkeypatch.setattr(svc, "_detect_captcha_type", lambda *a: captcha_type)
-        monkeypatch.setattr(svc, "_wait_for_challenge", lambda *a: None)
         monkeypatch.setattr(svc, "_build_challenge_result", lambda *a: None)
         monkeypatch.setattr(svc.utils, "get_config_log_html", lambda: False)
 
@@ -388,7 +388,7 @@ class TestEffectiveSolverSelection:
         mock_driver, calls = self._stub_evil_logic_deps(monkeypatch, challenge_found=True, captcha_type="hcaptcha")
 
         req = self._make_req(captcha_solver="custom-solver-b")
-        svc._evil_logic(req, mock_driver, "GET")
+        svc._evil_logic(req, mock_driver, "GET", enabled_services=["cloudflare"])
 
         assert calls == ["custom-solver-b"]
 
@@ -409,7 +409,7 @@ class TestEffectiveSolverSelection:
         mock_driver, calls = self._stub_evil_logic_deps(monkeypatch, challenge_found=True, captcha_type="hcaptcha")
 
         req = self._make_req()  # no captchaSolver
-        svc._evil_logic(req, mock_driver, "GET")
+        svc._evil_logic(req, mock_driver, "GET", enabled_services=["cloudflare"])
 
         assert calls == ["custom-solver-c"]
 

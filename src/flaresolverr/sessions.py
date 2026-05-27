@@ -18,6 +18,7 @@ class Session:
     stealth_mode: str
     user_agent_override: str | None
     accept_language_override: str | None
+    enabled_services: list[str]
     request_count: int
     lock: threading.Lock  # noqa
 
@@ -29,6 +30,7 @@ class Session:
         stealth_mode: str,
         user_agent_override: str | None = None,
         accept_language_override: str | None = None,
+        enabled_services: list[str] | None = None,
     ):
         self.session_id = session_id
         self.driver = driver
@@ -36,6 +38,7 @@ class Session:
         self.stealth_mode = stealth_mode
         self.user_agent_override = user_agent_override
         self.accept_language_override = accept_language_override
+        self.enabled_services = enabled_services if enabled_services is not None else ["cloudflare"]
         self.request_count = 0
         self.lock = threading.Lock()  # noqa
 
@@ -57,6 +60,7 @@ class SessionsStorage:
         stealth_mode: Optional[str | bool] = None,
         user_agent: Optional[str] = None,
         accept_language: Optional[str] = None,
+        enabled_services: Optional[list[str]] = None,
     ) -> Tuple[Session, bool]:
         """create creates new instance of WebDriver if necessary,
         assign defined (or newly generated) session_id to the instance
@@ -101,6 +105,12 @@ class SessionsStorage:
                         f"Session '{session_id}' already initialized with acceptLanguage={existing_session.accept_language_override!r}. "
                         f"Requested acceptLanguage={accept_language!r}. Destroy/recreate the session to change this setting."
                     )
+            if enabled_services is not None:
+                if existing_session.enabled_services != enabled_services:
+                    raise ValueError(
+                        f"Session '{session_id}' already initialized with enabledServices={existing_session.enabled_services!r}. "
+                        f"Requested enabledServices={enabled_services!r}. Destroy/recreate the session to change this setting."
+                    )
             return self.sessions[session_id], False
 
         effective_stealth_mode = utils.get_config_stealth_mode() if stealth_mode is None else utils.normalize_stealth_mode(stealth_mode)
@@ -109,7 +119,8 @@ class SessionsStorage:
         if user_agent is not None:
             utils.apply_user_agent_override(driver, user_agent, effective_accept_language)
         created_at = datetime.now()
-        session = Session(session_id, driver, created_at, effective_stealth_mode, user_agent_override=user_agent, accept_language_override=accept_language)
+        effective_enabled_services = enabled_services if enabled_services is not None else ["cloudflare"]
+        session = Session(session_id, driver, created_at, effective_stealth_mode, user_agent_override=user_agent, accept_language_override=accept_language, enabled_services=effective_enabled_services)
 
         self.sessions[session_id] = session
 
@@ -140,12 +151,13 @@ class SessionsStorage:
         stealth_mode: Optional[str | bool] = None,
         user_agent: Optional[str] = None,
         accept_language: Optional[str] = None,
+        enabled_services: Optional[list[str]] = None,
     ) -> Tuple[Session, bool]:
-        session, fresh = self.create(session_id, stealth_mode=stealth_mode, user_agent=user_agent, accept_language=accept_language)
+        session, fresh = self.create(session_id, stealth_mode=stealth_mode, user_agent=user_agent, accept_language=accept_language, enabled_services=enabled_services)
 
         if ttl is not None and not fresh and session.lifetime() > ttl:
             logging.debug(f"session's lifetime has expired, so the session is recreated (session_id={session_id})")
-            session, fresh = self.create(session_id, force_new=True, stealth_mode=stealth_mode, user_agent=user_agent, accept_language=accept_language)
+            session, fresh = self.create(session_id, force_new=True, stealth_mode=stealth_mode, user_agent=user_agent, accept_language=accept_language, enabled_services=enabled_services)
 
         return session, fresh
 
