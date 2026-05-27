@@ -72,11 +72,12 @@ class Header:
 class Action:
     """A single browser action in an action chain."""
 
-    type: Literal["fill", "click", "wait_for", "wait"]
+    type: Literal["fill", "click", "wait_for", "wait", "eval"]
     selector: str | None = None
     value: str | None = None
     seconds: float | None = None
     humanLike: bool = False  # noqa
+    script: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to API-compatible dictionary."""
@@ -89,6 +90,8 @@ class Action:
             result["seconds"] = self.seconds
         if self.humanLike:
             result["humanLike"] = True
+        if self.script is not None:
+            result["script"] = self.script
         return result
 
 

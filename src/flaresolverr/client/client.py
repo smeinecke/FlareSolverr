@@ -177,6 +177,7 @@ class _SessionManager:
         - {"type": "click", "selector": "//button", "humanLike": false}
         - {"type": "wait_for", "selector": "//div"}
         - {"type": "wait", "seconds": 2}
+        - {"type": "eval", "script": "return document.title"}
 
         Args:
             session_id: The session ID to execute actions in.

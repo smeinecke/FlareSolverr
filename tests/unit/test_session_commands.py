@@ -225,6 +225,53 @@ class TestSessionsAction:
         with pytest.raises(Exception, match="'actions' is mandatory"):
             svc._cmd_sessions_action(req)
 
+    def test_action_eval_returns_result(self, _patch_sessions_storage):
+        driver = MagicMock()
+        driver.execute_script.return_value = "token123"
+        driver.current_url = "https://example.com"
+        driver.title = "Page"
+        driver.get_cookies.return_value = []
+
+        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+
+        actions = [{"type": "eval", "script": "return localStorage.getItem('key')"}]
+        req = V1RequestBase({"cmd": "sessions.action", "session": "s1", "actions": actions})
+        res = svc._cmd_sessions_action(req)
+
+        assert res.status == "ok"
+        assert res.solution.evalResult == "token123"
+        driver.execute_script.assert_called_once_with("return localStorage.getItem('key')")
+
+    def test_action_eval_multiple_returns_list(self, _patch_sessions_storage):
+        driver = MagicMock()
+        driver.execute_script.side_effect = ["a", "b"]
+        driver.current_url = "https://example.com"
+        driver.title = "Page"
+        driver.get_cookies.return_value = []
+
+        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+
+        actions = [
+            {"type": "eval", "script": "return 1"},
+            {"type": "wait", "seconds": 0.1},
+            {"type": "eval", "script": "return 2"},
+        ]
+        req = V1RequestBase({"cmd": "sessions.action", "session": "s1", "actions": actions})
+        res = svc._cmd_sessions_action(req)
+
+        assert res.status == "ok"
+        assert res.solution.evalResult == ["a", "b"]
+
+    def test_action_eval_error_raises(self, _patch_sessions_storage):
+        driver = MagicMock()
+        driver.execute_script.side_effect = Exception("JS error")
+        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+
+        actions = [{"type": "eval", "script": "bad"}]
+        req = V1RequestBase({"cmd": "sessions.action", "session": "s1", "actions": actions})
+        with pytest.raises(Exception, match="Error executing eval action"):
+            svc._cmd_sessions_action(req)
+
 
 class TestSessionsScreenshot:
     def test_screenshot_returns_base64(self, _patch_sessions_storage):

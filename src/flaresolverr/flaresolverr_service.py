@@ -6,7 +6,7 @@ import sys
 import time
 from datetime import timedelta
 from html import escape
-from typing import cast
+from typing import Any, cast
 from urllib.parse import quote, unquote
 
 from func_timeout import FunctionTimedOut, func_timeout
@@ -467,7 +467,7 @@ def _cmd_sessions_action(req: V1RequestBase) -> V1ResponseBase:
     logging.debug(f"sessions.action (session_id={session_id}, actions={len(actions)})")
 
     try:
-        _execute_actions(driver, actions)
+        action_results = _execute_actions(driver, actions)
     except Exception as e:
         raise Exception(f"Error executing actions: {e}")
 
@@ -481,6 +481,9 @@ def _cmd_sessions_action(req: V1RequestBase) -> V1ResponseBase:
         result.cookies = driver.get_cookies()
     except Exception:
         result.cookies = []
+    eval_values = [r for r in action_results if r is not None]
+    if eval_values:
+        result.evalResult = eval_values if len(eval_values) > 1 else eval_values[0]
 
     res = V1ResponseBase({})
     res.status = STATUS_OK
@@ -774,9 +777,13 @@ def _raise_if_navigation_error(driver: WebDriver) -> None:
     raise Exception("Message: unknown error: net::ERR_FAILED")
 
 
-def _execute_actions(driver: WebDriver, actions: list) -> None:
-    """Execute a list of browser actions after page load (fill forms, click, wait)."""
+def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
+    """Execute a list of browser actions after page load (fill forms, click, wait, eval).
+
+    Returns a list of results, one per action. Non-eval actions return None.
+    """
     default_action_timeout = 15
+    eval_results: list[Any | None] = []
     for action in actions:
         action_type = action.get("type")
         selector = action.get("selector")
@@ -844,8 +851,19 @@ def _execute_actions(driver: WebDriver, actions: list) -> None:
             seconds = float(action.get("seconds", 1))
             logging.debug(f"Action wait: {seconds}s")
             time.sleep(seconds)
+        elif action_type == "eval":
+            script = action.get("script", "")
+            logging.debug(f"Action eval: script={script[:80]!r}")
+            try:
+                result = driver.execute_script(script)
+            except Exception as e:
+                raise Exception(f"Error executing eval action: {e}")
+            eval_results.append(result)
+            continue
         else:
             logging.warning(f"Unknown action type: {action_type!r}")
+        eval_results.append(None)
+    return eval_results
 
 
 def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_token: str | None) -> ChallengeResolutionResultT:
@@ -859,7 +877,10 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
         challenge_res.headers = {}  # todo: fix, selenium not provides this info
 
         if req.actions:
-            _execute_actions(driver, req.actions)
+            action_results = _execute_actions(driver, req.actions)
+            eval_values = [r for r in action_results if r is not None]
+            if eval_values:
+                challenge_res.evalResult = eval_values if len(eval_values) > 1 else eval_values[0]
 
         if req.waitInSeconds and req.waitInSeconds > 0:
             logging.info("Waiting " + str(req.waitInSeconds) + " seconds before returning the response...")

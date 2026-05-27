@@ -250,7 +250,7 @@ Executes a list of browser actions in a session without re-navigating. Uses the 
 | Parameter | Notes                                                |
 | --------- | ---------------------------------------------------- |
 | session   | The session ID to execute actions in.                |
-| actions   | List of action objects. Supported types: `fill`, `click`, `wait_for`, `wait`. |
+| actions   | List of action objects. Supported types: `fill`, `click`, `wait_for`, `wait`, `eval`. |
 
 Example:
 ```json
@@ -395,8 +395,9 @@ All `selector` values must be **XPath** expressions.
 | ----------- | ---------- | ----------- |
 | `fill` | `selector` (XPath), `value` (string) | Scrolls to the element, clicks to focus, then types the value character-by-character with randomised inter-key delays to mimic human typing speed. |
 | `click` | `selector` (XPath), `humanLike` (bool, default `false`) | Scrolls the element into view and clicks. When `humanLike` is `true`, uses bezier-curve mouse movement for a more natural trajectory; the default uses `move_to_element` which is more robust for elements near viewport edges. |
-| `wait_for` | `selector` (XPath) | Blocks until the matched element becomes visible. Useful to wait for XHR-driven results to appear. |
+| `wait_for` | `selector` (XPath), `timeout` (ms, optional, default `15000`) | Blocks until the matched element becomes visible. Default timeout is 15 seconds; override with e.g. `"timeout": 30000` for 30s. |
 | `wait` | `seconds` (number) | Sleeps for the given number of seconds. Useful to allow interaction trackers to warm up before the first input. |
+| `eval` | `script` (string) | Executes JavaScript in the page and captures the return value. The result is returned in `solution.evalResult` (single value) or as a list if multiple `eval` actions are used. |
 
 Example — fill and submit a login form, then wait for the result element to appear:
 
@@ -410,6 +411,18 @@ Example — fill and submit a login form, then wait for the result element to ap
     { "type": "fill",     "selector": "//input[@id='password']", "value": "s3cr3t!" },
     { "type": "click",    "selector": "//button[@type='submit']" },
     { "type": "wait_for", "selector": "//div[@id='dashboard']" }
+  ]
+}
+```
+
+Example — execute JavaScript to read localStorage after solving a challenge:
+
+```json
+{
+  "cmd": "request.get",
+  "url": "https://example.com/protected",
+  "actions": [
+    { "type": "eval", "script": "return localStorage.getItem('key')" }
   ]
 }
 ```

@@ -344,7 +344,12 @@ class TestBuildChallengeResultIntegration:
         from flaresolverr import flaresolverr_service as svc
         driver = _make_driver()
         called_with = []
-        monkeypatch.setattr(svc, "_execute_actions", lambda d, a: called_with.append(a))
+
+        def _fake_execute(d, a):
+            called_with.append(a)
+            return []
+
+        monkeypatch.setattr(svc, "_execute_actions", _fake_execute)
         monkeypatch.setattr(svc.utils, "get_user_agent", lambda _: "Chrome/1")
 
         actions = [{"type": "wait", "seconds": 1}]
@@ -390,6 +395,7 @@ class TestBuildChallengeResultIntegration:
 
         def fake_actions(d, a):
             sequence.append("actions")
+            return []
 
         monkeypatch.setattr(svc, "_execute_actions", fake_actions)
         monkeypatch.setattr(svc.utils, "get_user_agent", lambda _: "Chrome/1")

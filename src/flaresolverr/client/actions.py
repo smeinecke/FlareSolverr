@@ -91,6 +91,22 @@ class ActionQueue:
         self._actions.append(Action(type="wait_for", selector=selector))
         return self
 
+    def eval(self, script: str) -> ActionQueue:  # noqa
+        """Execute JavaScript in the page and capture the return value.
+
+        The script's return value is included in the response under
+        `solution.evalResult`. Useful for reading page state, localStorage,
+        or custom JS variables without a separate sessions.eval call.
+
+        Args:
+            script: The JavaScript code to execute.
+
+        Returns:
+            Self for method chaining.
+        """
+        self._actions.append(Action(type="eval", script=script))
+        return self
+
     def build(self) -> list[dict]:  # noqa
         """Build and return the list of actions as API-compatible dictionaries.
 

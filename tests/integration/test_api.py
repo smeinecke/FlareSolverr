@@ -950,6 +950,24 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(STATUS_ERROR, body.status)
         self.assertIn("'actions' is mandatory", body.message)
 
+    def test_v1_endpoint_sessions_action_eval(self):
+        """sessions.action eval action returns JS result in evalResult."""
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_eval_session"})
+        self._request("POST", "/v1", {"cmd": "request.get", "session": "test_eval_session", "url": self.google_url})
+
+        res = self._request("POST", "/v1", {
+            "cmd": "sessions.action",
+            "session": "test_eval_session",
+            "actions": [
+                {"type": "eval", "script": "return document.title"},
+            ],
+        })
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertIn("Google", body.solution.evalResult)
+
     def test_v1_endpoint_sessions_screenshot(self):
         """sessions.screenshot returns a base64 PNG."""
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_screenshot_session"})

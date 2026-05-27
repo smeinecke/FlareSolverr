@@ -48,6 +48,10 @@ class TestActionQueue:
         result = ActionQueue().wait_for("//div[@id='result']").build()
         assert result == [{"type": "wait_for", "selector": "//div[@id='result']"}]
 
+    def test_eval(self):
+        result = ActionQueue().eval("return document.title").build()
+        assert result == [{"type": "eval", "script": "return document.title"}]
+
     def test_chaining(self):
         result = (
             ActionQueue()
