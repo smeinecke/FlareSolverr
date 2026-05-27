@@ -24,7 +24,7 @@ BRAVE_VERIFY_XPATHS = [
     "//*[@role='button' and contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'try again')]",
     # Structure-based matchers (work even before text renders)
     "//div[contains(@class,'captcha-actions')]//button[not(contains(@class,'default-captcha-button'))]",
-    "//div[contains(@class,'captcha-button-wrap')]//button"
+    "//div[contains(@class,'captcha-button-wrap')]//button",
 ]
 
 

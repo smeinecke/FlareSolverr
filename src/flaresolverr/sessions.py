@@ -1,7 +1,7 @@
 import logging
 import os
 import signal
-import subprocess
+import subprocess  # nosec B404
 import threading
 import time
 from dataclasses import dataclass
@@ -38,14 +38,14 @@ def _ensure_process_dead(pid: int | None, grace_seconds: float = 2.0) -> None:
     # Escalate to force kill
     try:
         if utils.PLATFORM_VERSION == "nt":
-            subprocess.run(
+            subprocess.run(  # nosec
                 ["taskkill", "/F", "/PID", str(pid)],
                 check=False,
                 capture_output=True,
             )
         else:
             os.kill(pid, signal.SIGKILL)
-    except Exception:
+    except Exception:  # nosec B110
         pass
 
 
@@ -242,16 +242,26 @@ class SessionsStorage:
         idle_timeout: Optional[timedelta] = None,
     ) -> Tuple[Session, bool]:
         session, fresh = self.create(
-            session_id, stealth_mode=stealth_mode, user_agent=user_agent, accept_language=accept_language,
-            enabled_services=enabled_services, max_runtime=max_runtime, idle_timeout=idle_timeout,
+            session_id,
+            stealth_mode=stealth_mode,
+            user_agent=user_agent,
+            accept_language=accept_language,
+            enabled_services=enabled_services,
+            max_runtime=max_runtime,
+            idle_timeout=idle_timeout,
         )
 
         if ttl is not None and not fresh and session.lifetime() > ttl:
             logging.debug(f"session's lifetime has expired, so the session is recreated (session_id={session_id})")
             session, fresh = self.create(
-                session_id, force_new=True, stealth_mode=stealth_mode, user_agent=user_agent,
-                accept_language=accept_language, enabled_services=enabled_services,
-                max_runtime=max_runtime, idle_timeout=idle_timeout,
+                session_id,
+                force_new=True,
+                stealth_mode=stealth_mode,
+                user_agent=user_agent,
+                accept_language=accept_language,
+                enabled_services=enabled_services,
+                max_runtime=max_runtime,
+                idle_timeout=idle_timeout,
             )
 
         return session, fresh

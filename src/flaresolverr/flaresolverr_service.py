@@ -390,11 +390,13 @@ def _cmd_sessions_network(req: V1RequestBase) -> V1ResponseBase:
     for entry in logs:
         try:
             msg = json.loads(entry["message"])["message"]
-            parsed_logs.append({
-                "method": msg.get("method"),
-                "params": msg.get("params"),
-            })
-        except Exception:
+            parsed_logs.append(
+                {
+                    "method": msg.get("method"),
+                    "params": msg.get("params"),
+                }
+            )
+        except Exception:  # nosec B110
             pass
 
     result = ChallengeResolutionResultT({})
@@ -529,8 +531,13 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             max_runtime = timedelta(seconds=req.sessionMaxRuntime) if req.sessionMaxRuntime is not None else None
             idle_timeout = timedelta(seconds=req.sessionIdleTimeout) if req.sessionIdleTimeout is not None else None
             session, fresh = SESSIONS_STORAGE.get(
-                session_id, ttl, stealth_mode=req_stealth_mode, user_agent=req.userAgent,
-                accept_language=req.acceptLanguage, max_runtime=max_runtime, idle_timeout=idle_timeout,
+                session_id,
+                ttl,
+                stealth_mode=req_stealth_mode,
+                user_agent=req.userAgent,
+                accept_language=req.acceptLanguage,
+                max_runtime=max_runtime,
+                idle_timeout=idle_timeout,
             )
 
             if fresh:
