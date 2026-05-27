@@ -11,13 +11,20 @@ from selenium.webdriver.support.wait import WebDriverWait
 
 from flaresolverr.services.base import ChallengeService
 
-SHORT_TIMEOUT = 1
+SHORT_TIMEOUT = 10
 
 BRAVE_VERIFY_XPATHS = [
-    "//button[contains(translate(.,'VERIFY','verify'), 'verify')]",
-    "//*[@role='button' and contains(translate(.,'VERIFY','verify'), 'verify')]",
-    "//a[contains(translate(.,'VERIFY','verify'), 'verify')]",
-    "//button[.//*[contains(translate(.,'VERIFY','verify'), 'verify')]]",
+    # Text-based matchers (need full-alphabet translate for case-insensitive)
+    "//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'verify')]",
+    "//*[@role='button' and contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'verify')]",
+    "//a[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'verify')]",
+    "//button[.//*[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'verify')]]",
+    # Also match "Try again" button on verification-failed state
+    "//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'try again')]",
+    "//*[@role='button' and contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'try again')]",
+    # Structure-based matchers (work even before text renders)
+    "//div[contains(@class,'captcha-actions')]//button[not(contains(@class,'default-captcha-button'))]",
+    "//div[contains(@class,'captcha-button-wrap')]//button"
 ]
 
 
@@ -52,9 +59,9 @@ class BraveService(ChallengeService):
 
             button = self._find_clickable_verify_button(driver)
             if button is not None:
-                logging.debug("Brave Verify button clickable, clicking...")
+                logging.debug("Brave Verify/Try again button clickable, clicking...")
                 button.click()
-                logging.debug("Brave Verify button clicked, waiting for it to become clickable again or challenge to resolve...")
+                logging.debug("Brave button clicked, waiting for it to become clickable again or challenge to resolve...")
                 try:
                     WebDriverWait(driver, SHORT_TIMEOUT).until(
                         lambda d: (

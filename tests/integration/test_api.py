@@ -772,3 +772,195 @@ class TestFlareSolverr(unittest.TestCase):
 
         body = V1ResponseBase(self._get_json(res))
         self.assertEqual(STATUS_OK, body.status)
+
+    def test_v1_endpoint_sessions_cleanup_idle_timeout(self):
+        self._request(
+            "POST",
+            "/v1",
+            {"cmd": "sessions.create", "session": "test_cleanup_idle", "sessionIdleTimeout": 0},
+        )
+        res = self._request("POST", "/v1", {"cmd": "sessions.cleanup"})
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertIn("test_cleanup_idle", body.sessions)
+
+        res = self._request("POST", "/v1", {"cmd": "sessions.list"})
+        body = V1ResponseBase(self._get_json(res))
+        self.assertNotIn("test_cleanup_idle", body.sessions)
+
+    def test_v1_endpoint_sessions_cleanup_max_runtime(self):
+        self._request(
+            "POST",
+            "/v1",
+            {"cmd": "sessions.create", "session": "test_cleanup_runtime", "sessionMaxRuntime": 0},
+        )
+        res = self._request("POST", "/v1", {"cmd": "sessions.cleanup"})
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertIn("test_cleanup_runtime", body.sessions)
+
+        res = self._request("POST", "/v1", {"cmd": "sessions.list"})
+        body = V1ResponseBase(self._get_json(res))
+        self.assertNotIn("test_cleanup_runtime", body.sessions)
+
+    # ---- Session interaction commands ----
+
+    def test_v1_endpoint_sessions_get(self):
+        """sessions.get returns current URL, title, cookies, response, userAgent."""
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_get_session"})
+        self._request("POST", "/v1", {"cmd": "request.get", "session": "test_get_session", "url": self.google_url})
+
+        res = self._request("POST", "/v1", {"cmd": "sessions.get", "session": "test_get_session"})
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertEqual("Session info retrieved successfully.", body.message)
+
+        solution = body.solution
+        self.assertIn(self.google_url, solution.url)
+        self.assertIn("Google", solution.title)
+        self.assertIn("<title>Google</title>", solution.response)
+        self.assertGreater(len(solution.cookies), 0)
+        self.assertIn("Chrome/", solution.userAgent)
+
+    def test_v1_endpoint_sessions_get_missing_session(self):
+        res = self._request("POST", "/v1", {"cmd": "sessions.get", "session": "missing_session"}, status=500)
+        self.assertEqual(res.status_code, 500)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_ERROR, body.status)
+        self.assertEqual("Error: The session doesn't exist.", body.message)
+
+    def test_v1_endpoint_sessions_eval(self):
+        """sessions.eval executes JS and returns the result."""
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_eval_session"})
+        self._request("POST", "/v1", {"cmd": "request.get", "session": "test_eval_session", "url": self.google_url})
+
+        res = self._request("POST", "/v1", {
+            "cmd": "sessions.eval",
+            "session": "test_eval_session",
+            "script": "return document.title",
+        })
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertEqual("Script executed successfully.", body.message)
+        self.assertIn("Google", body.solution.evalResult)
+        self.assertGreater(len(body.solution.cookies), 0)
+
+    def test_v1_endpoint_sessions_eval_missing_script(self):
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_eval_no_script"})
+        res = self._request(
+            "POST", "/v1",
+            {"cmd": "sessions.eval", "session": "test_eval_no_script"},
+            status=500,
+        )
+        self.assertEqual(res.status_code, 500)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_ERROR, body.status)
+        self.assertIn("'script' is mandatory", body.message)
+
+    def test_v1_endpoint_sessions_network(self):
+        """sessions.network returns performance log entries."""
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_network_session"})
+        self._request("POST", "/v1", {"cmd": "request.get", "session": "test_network_session", "url": self.google_url})
+
+        res = self._request("POST", "/v1", {"cmd": "sessions.network", "session": "test_network_session"})
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertIn("network log entries", body.message)
+        self.assertIsInstance(body.solution.networkLogs, list)
+        self.assertGreater(len(body.solution.networkLogs), 0)
+        # At least one Network.requestWillBeSent entry should exist
+        methods = {e.get("method") for e in body.solution.networkLogs}
+        self.assertIn("Network.requestWillBeSent", methods)
+
+    def test_v1_endpoint_sessions_click(self):
+        """sessions.click clicks an element by XPath."""
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_click_session"})
+        self._request("POST", "/v1", {"cmd": "request.get", "session": "test_click_session", "url": self.google_url})
+
+        res = self._request("POST", "/v1", {
+            "cmd": "sessions.click",
+            "session": "test_click_session",
+            "selector": "//a[contains(text(),'Gmail')] | //a[@aria-label='Gmail']",
+        })
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertEqual("Element clicked successfully.", body.message)
+        self.assertIsNotNone(body.solution.url)
+
+    def test_v1_endpoint_sessions_click_missing_element(self):
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_click_missing"})
+        self._request("POST", "/v1", {"cmd": "request.get", "session": "test_click_missing", "url": self.google_url})
+
+        res = self._request("POST", "/v1", {
+            "cmd": "sessions.click",
+            "session": "test_click_missing",
+            "selector": "//span[@id='nonexistent-span-12345']",
+        }, status=500)
+        self.assertEqual(res.status_code, 500)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_ERROR, body.status)
+        self.assertIn("Error clicking element", body.message)
+
+    def test_v1_endpoint_sessions_action(self):
+        """sessions.action executes a list of browser actions."""
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_action_session"})
+        self._request("POST", "/v1", {"cmd": "request.get", "session": "test_action_session", "url": self.google_url})
+
+        res = self._request("POST", "/v1", {
+            "cmd": "sessions.action",
+            "session": "test_action_session",
+            "actions": [
+                {"type": "wait", "seconds": 1},
+                {"type": "click", "selector": "//a[contains(text(),'Gmail')] | //a[@aria-label='Gmail']"},
+                {"type": "wait", "seconds": 1},
+            ],
+        })
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertEqual("Actions executed successfully.", body.message)
+        self.assertIsNotNone(body.solution.url)
+
+    def test_v1_endpoint_sessions_action_missing_actions(self):
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_action_missing"})
+        res = self._request(
+            "POST", "/v1",
+            {"cmd": "sessions.action", "session": "test_action_missing"},
+            status=500,
+        )
+        self.assertEqual(res.status_code, 500)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_ERROR, body.status)
+        self.assertIn("'actions' is mandatory", body.message)
+
+    def test_v1_endpoint_sessions_screenshot(self):
+        """sessions.screenshot returns a base64 PNG."""
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_screenshot_session"})
+        self._request("POST", "/v1", {"cmd": "request.get", "session": "test_screenshot_session", "url": self.google_url})
+
+        res = self._request("POST", "/v1", {"cmd": "sessions.screenshot", "session": "test_screenshot_session"})
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertEqual("Screenshot captured successfully.", body.message)
+        self.assertIsNotNone(body.solution.screenshot)
+        self.assertGreater(len(body.solution.screenshot), 100)
+        self.assertIn(self.google_url, body.solution.url)

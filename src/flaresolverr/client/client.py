@@ -42,6 +42,8 @@ class _SessionManager:
         user_agent: str | None = None,
         accept_language: str | None = None,
         enabled_services: list[str] | None = None,
+        session_max_runtime: int | None = None,
+        session_idle_timeout: int | None = None,
     ) -> V1Response:
         """Create a new browser session.
 
@@ -57,6 +59,8 @@ class _SessionManager:
             user_agent: Optional custom browser user agent for the session.
             accept_language: Optional Accept-Language override for the session.
             enabled_services: Optional list of challenge service names to enable for this session.
+            session_max_runtime: Optional per-session max lifetime in seconds.
+            session_idle_timeout: Optional per-session idle timeout in seconds.
 
         Returns:
             V1Response containing the session ID on success.
@@ -79,6 +83,10 @@ class _SessionManager:
             payload["acceptLanguage"] = accept_language
         if enabled_services is not None:
             payload["enabledServices"] = enabled_services
+        if session_max_runtime is not None:
+            payload["sessionMaxRuntime"] = session_max_runtime
+        if session_idle_timeout is not None:
+            payload["sessionIdleTimeout"] = session_idle_timeout
 
         return self._client._post_v1(payload)
 
@@ -109,6 +117,89 @@ class _SessionManager:
         payload: dict[str, Any] = {"cmd": "sessions.destroy", "session": session_id}
         return self._client._post_v1(payload)
 
+    def get(self, session_id: str) -> V1Response:
+        """Get current info from a session: URL, title, cookies, page source, userAgent.
+
+        Args:
+            session_id: The session ID to query.
+
+        Returns:
+            V1Response with session info in the `solution` field.
+        """
+        payload: dict[str, Any] = {"cmd": "sessions.get", "session": session_id}
+        return self._client._post_v1(payload)
+
+    def eval(self, session_id: str, script: str) -> V1Response:
+        """Execute JavaScript in a session and return the result.
+
+        Args:
+            session_id: The session ID to execute JS in.
+            script: The JavaScript code to execute.
+
+        Returns:
+            V1Response with `solution.evalResult` containing the JS return value.
+        """
+        payload: dict[str, Any] = {"cmd": "sessions.eval", "session": session_id, "script": script}
+        return self._client._post_v1(payload)
+
+    def network(self, session_id: str) -> V1Response:
+        """Retrieve Chrome DevTools performance/network logs from a session.
+
+        Requires the session to have been created with performance logging enabled.
+
+        Args:
+            session_id: The session ID to retrieve logs from.
+
+        Returns:
+            V1Response with `solution.networkLogs` containing parsed CDP events.
+        """
+        payload: dict[str, Any] = {"cmd": "sessions.network", "session": session_id}
+        return self._client._post_v1(payload)
+
+    def click(self, session_id: str, selector: str) -> V1Response:
+        """Click an element in a session using an XPath selector.
+
+        Args:
+            session_id: The session ID to click in.
+            selector: XPath selector for the element to click.
+
+        Returns:
+            V1Response confirming the click was performed.
+        """
+        payload: dict[str, Any] = {"cmd": "sessions.click", "session": session_id, "selector": selector}
+        return self._client._post_v1(payload)
+
+    def action(self, session_id: str, actions: list[dict]) -> V1Response:
+        """Execute a list of browser actions in a session.
+
+        Actions are the same format as used in request.get/actions. Supported types:
+        - {"type": "fill", "selector": "//input", "value": "text"}
+        - {"type": "click", "selector": "//button", "humanLike": false}
+        - {"type": "wait_for", "selector": "//div"}
+        - {"type": "wait", "seconds": 2}
+
+        Args:
+            session_id: The session ID to execute actions in.
+            actions: List of action dicts.
+
+        Returns:
+            V1Response with the session state after actions complete.
+        """
+        payload: dict[str, Any] = {"cmd": "sessions.action", "session": session_id, "actions": actions}
+        return self._client._post_v1(payload)
+
+    def screenshot(self, session_id: str) -> V1Response:
+        """Capture a screenshot of the current session page.
+
+        Args:
+            session_id: The session ID to capture.
+
+        Returns:
+            V1Response with `solution.screenshot` containing a Base64-encoded PNG.
+        """
+        payload: dict[str, Any] = {"cmd": "sessions.screenshot", "session": session_id}
+        return self._client._post_v1(payload)
+
 
 class _RequestManager:
     """Internal class for request API calls (GET and POST)."""
@@ -122,6 +213,8 @@ class _RequestManager:
         *,
         session: str | None = None,
         session_ttl_minutes: int | None = None,
+        session_max_runtime: int | None = None,
+        session_idle_timeout: int | None = None,
         max_timeout: int = 60000,
         cookies: list[Cookie] | None = None,
         headers: list[Header] | None = None,
@@ -145,6 +238,8 @@ class _RequestManager:
             url: The URL to request (mandatory).
             session: Optional session ID for persistent browser state.
             session_ttl_minutes: Optional TTL for automatic session rotation.
+            session_max_runtime: Optional per-session max lifetime in seconds.
+            session_idle_timeout: Optional per-session idle timeout in seconds.
             max_timeout: Maximum time in ms to wait for challenge resolution (default: 60000).
             cookies: Optional cookies to send with the request.
             headers: Optional custom HTTP headers.
@@ -173,6 +268,8 @@ class _RequestManager:
             url=url,
             session=session,
             session_ttl_minutes=session_ttl_minutes,
+            session_max_runtime=session_max_runtime,
+            session_idle_timeout=session_idle_timeout,
             max_timeout=max_timeout,
             cookies=cookies,
             headers=headers,
@@ -199,6 +296,8 @@ class _RequestManager:
         *,
         session: str | None = None,
         session_ttl_minutes: int | None = None,
+        session_max_runtime: int | None = None,
+        session_idle_timeout: int | None = None,
         max_timeout: int = 60000,
         cookies: list[Cookie] | None = None,
         headers: list[Header] | None = None,
@@ -223,6 +322,8 @@ class _RequestManager:
             post_data: Form data as application/x-www-form-urlencoded string (e.g., "a=b&c=d").
             session: Optional session ID for persistent browser state.
             session_ttl_minutes: Optional TTL for automatic session rotation.
+            session_max_runtime: Optional per-session max lifetime in seconds.
+            session_idle_timeout: Optional per-session idle timeout in seconds.
             max_timeout: Maximum time in ms to wait for challenge resolution (default: 60000).
             cookies: Optional cookies to send with the request.
             headers: Optional custom HTTP headers.
@@ -251,6 +352,8 @@ class _RequestManager:
             post_data=post_data,
             session=session,
             session_ttl_minutes=session_ttl_minutes,
+            session_max_runtime=session_max_runtime,
+            session_idle_timeout=session_idle_timeout,
             max_timeout=max_timeout,
             cookies=cookies,
             headers=headers,
@@ -278,6 +381,8 @@ class _RequestManager:
         post_data: str | None = None,
         session: str | None = None,
         session_ttl_minutes: int | None = None,
+        session_max_runtime: int | None = None,
+        session_idle_timeout: int | None = None,
         max_timeout: int = 60000,
         cookies: list[Cookie] | None = None,
         headers: list[Header] | None = None,
@@ -308,6 +413,10 @@ class _RequestManager:
             payload["session"] = session
         if session_ttl_minutes is not None:
             payload["session_ttl_minutes"] = session_ttl_minutes
+        if session_max_runtime is not None:
+            payload["sessionMaxRuntime"] = session_max_runtime
+        if session_idle_timeout is not None:
+            payload["sessionIdleTimeout"] = session_idle_timeout
         if cookies is not None:
             payload["cookies"] = [{"name": c.name, "value": c.value} for c in cookies]
         if headers is not None:

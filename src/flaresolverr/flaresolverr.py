@@ -125,6 +125,9 @@ if __name__ == "__main__":
     # test browser installation
     flaresolverr_service.test_browser_installation()
 
+    # start session cleanup thread
+    flaresolverr_service.SESSIONS_STORAGE.start_cleanup(interval_seconds=30)
+
     # start bootle plugins
     # plugin order is important
     app.install(logger_plugin)

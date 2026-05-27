@@ -11,6 +11,7 @@ import tempfile
 import time
 import urllib.parse
 from typing import Any
+from datetime import timedelta
 
 try:
     import tomllib
@@ -94,6 +95,37 @@ def get_config_disable_quic() -> bool:
 
 def get_config_minimal_fingerprint() -> bool:
     return os.environ.get("MINIMAL_FINGERPRINT", "true").lower() == "true"
+
+
+def get_config_session_max_runtime() -> timedelta | None:
+    raw = os.environ.get("SESSION_MAX_RUNTIME", "").strip()
+    if raw == "":
+        return None
+    try:
+        return timedelta(minutes=int(raw))
+    except ValueError:
+        return None
+
+
+def get_config_session_idle_timeout() -> timedelta:
+    raw = os.environ.get("SESSION_IDLE_TIMEOUT", "15").strip()
+    if raw == "":
+        return timedelta(minutes=15)
+    try:
+        return timedelta(minutes=int(raw))
+    except ValueError:
+        return timedelta(minutes=15)
+
+
+def get_config_session_max_count() -> int | None:
+    raw = os.environ.get("SESSION_MAX_COUNT", "").strip()
+    if raw == "":
+        return None
+    try:
+        val = int(raw)
+        return val if val > 0 else None
+    except ValueError:
+        return None
 
 
 def normalize_stealth_mode(value: str | bool | None) -> str:
@@ -560,7 +592,7 @@ def _wait_for_debug_port(port: int, timeout: int = 15) -> None:
     raise RuntimeError(f"Chrome debug port {port} did not become ready within {timeout}s")
 
 
-def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None) -> WebDriver:
+def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None, logging_prefs: dict[str, str] | None = None) -> WebDriver:
     global PATCHED_DRIVER_PATH
 
     logging.debug("Launching web browser...")
@@ -608,6 +640,8 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
 
             opts = ChromeOptions()
             opts.add_experimental_option("debuggerAddress", f"127.0.0.1:{debug_port}")
+            if logging_prefs:
+                opts.set_capability("goog:loggingPrefs", logging_prefs)
             if driver_exe_path:
                 service = ChromeService(executable_path=driver_exe_path)
             else:
@@ -639,6 +673,8 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             driver.quit = _quit_with_cleanup  # type: ignore[method-assign]
         else:
             # Stock Chromium: use undetected_chromedriver for patcher benefits.
+            if logging_prefs:
+                options.set_capability("goog:loggingPrefs", logging_prefs)
             driver = uc.Chrome(
                 options=options,
                 browser_executable_path=browser_executable_path,

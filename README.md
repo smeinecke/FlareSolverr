@@ -178,6 +178,8 @@ This also speeds up the requests since it won't have to launch a new browser ins
 | userAgent | Optional. Custom browser user agent for the session. If a session already exists, this must match the existing configured value. |
 | acceptLanguage | Optional. Overrides the global `ACCEPT_LANGUAGE` for this session. Example: `"acceptLanguage": "de-DE,de"`. Once set on a session it cannot be changed without destroying and recreating the session. |
 | enabledServices | Optional. List of challenge services to enable for this session. Default: `["cloudflare", "ddos_guard"]`. Controls which challenge types are detected and resolved. |
+| sessionMaxRuntime | Optional. Per-session maximum lifetime in seconds. Overrides the global `SESSION_MAX_RUNTIME` env var. Session is destroyed when lifetime exceeds this value. |
+| sessionIdleTimeout | Optional. Per-session idle timeout in seconds. Overrides the global `SESSION_IDLE_TIMEOUT` env var. Session is destroyed when idle longer than this value. |
 
 #### + `sessions.list`
 
@@ -202,6 +204,75 @@ session. When you no longer need to use a session you should make sure to close 
 | --------- | --------------------------------------------- |
 | session   | The session ID that you want to be destroyed. |
 
+#### + `sessions.get`
+
+Retrieves the current state of a session without re-navigating. Returns the current URL, page title, full page source,
+cookies, and user agent.
+
+| Parameter | Notes                               |
+| --------- | ----------------------------------- |
+| session   | The session ID to retrieve info for. |
+
+#### + `sessions.eval`
+
+Executes arbitrary JavaScript in the session's browser context. Useful for inspecting page state, reading custom JS
+variables, or interacting with the DOM directly.
+
+| Parameter | Notes                                              |
+| --------- | -------------------------------------------------- |
+| session   | The session ID to execute JS in.                   |
+| script    | The JavaScript code to execute.                    |
+
+#### + `sessions.network`
+
+Retrieves Chrome DevTools Protocol performance logs from a session. Useful for debugging network traffic, request/response
+headers, and cookie behavior. Requires the session to have been created with performance logging enabled (enabled by default
+in sessions).
+
+| Parameter | Notes                                                |
+| --------- | ---------------------------------------------------- |
+| session   | The session ID to retrieve network logs from.       |
+
+#### + `sessions.click`
+
+Clicks an element in the session's browser using an XPath selector. Useful for interacting with pages (e.g. clicking a
+"Verify" or "Try again" button) without triggering a full page navigation.
+
+| Parameter | Notes                                                |
+| --------- | ---------------------------------------------------- |
+| session   | The session ID to click in.                         |
+| selector  | XPath selector for the element to click.              |
+
+#### + `sessions.action`
+
+Executes a list of browser actions in a session without re-navigating. Uses the same action format as `request.get`/`request.post`.
+
+| Parameter | Notes                                                |
+| --------- | ---------------------------------------------------- |
+| session   | The session ID to execute actions in.                |
+| actions   | List of action objects. Supported types: `fill`, `click`, `wait_for`, `wait`. |
+
+Example:
+```json
+{
+  "cmd": "sessions.action",
+  "session": "my-session",
+  "actions": [
+    {"type": "wait", "seconds": 2},
+    {"type": "click", "selector": "//button[contains(.,'Verify')]"},
+    {"type": "wait_for", "selector": "//div[@id='results']"}
+  ]
+}
+```
+
+#### + `sessions.screenshot`
+
+Captures a screenshot of the current session page and returns it as a Base64-encoded PNG.
+
+| Parameter | Notes                                                |
+| --------- | ---------------------------------------------------- |
+| session   | The session ID to capture.                           |
+
 #### + `request.get`
 
 | Parameter           | Notes                                                                                                                                                                                                                                                                                                                                        |
@@ -209,6 +280,8 @@ session. When you no longer need to use a session you should make sure to close 
 | url                 | Mandatory                                                                                                                                                                                                                                                                                                                                    |
 | session             | Optional. Will send the request from and existing browser instance. If one is not sent it will create a temporary instance that will be destroyed immediately after the request is completed.                                                                                                                                                |
 | session_ttl_minutes | Optional. FlareSolverr will automatically rotate expired sessions based on the TTL provided in minutes.                                                                                                                                                                                                                                      |
+| sessionMaxRuntime   | Optional. Per-session maximum lifetime in seconds. Overrides the global `SESSION_MAX_RUNTIME` env var for this request's session. Session is destroyed when lifetime exceeds this value. |
+| sessionIdleTimeout  | Optional. Per-session idle timeout in seconds. Overrides the global `SESSION_IDLE_TIMEOUT` env var for this request's session. Session is destroyed when idle longer than this value. |
 | maxTimeout          | Optional, default value 60000. Max timeout to solve the challenge in milliseconds.                                                                                                                                                                                                                                                           |
 | cookies             | Optional. Will be used by the headless browser. Eg: `"cookies": [{"name": "cookie1", "value": "value1"}, {"name": "cookie2", "value": "value2"}]`.                                                                                                                                                                                           |
 | headers             | Optional. Custom HTTP headers to send with the request. Useful for sites requiring specific referrers or custom headers. Supports dict format: `"headers": [{"name": "Referer", "value": "https://example.com"}]` or string format: `"headers": ["Referer: https://example.com"]`.                                                          |
@@ -401,6 +474,9 @@ The **default solver** handles Cloudflare challenges through browser automation:
 | HOST               | 0.0.0.0                | Listening interface. You don't need to change this if you are running on Docker.                                                         |
 | PROMETHEUS_ENABLED | false                  | Enable Prometheus exporter. See the Prometheus section below.                                                                            |
 | PROMETHEUS_PORT    | 8192                   | Listening port for Prometheus exporter. See the Prometheus section below.                                                                |
+| SESSION_MAX_RUNTIME | none                  | Maximum lifetime of a session in seconds. When set, sessions older than this are automatically destroyed. Overrides per-session `sessionMaxRuntime`. |
+| SESSION_IDLE_TIMEOUT | 900                 | Maximum idle time of a session in seconds (default: 15 minutes). Sessions idle longer than this are automatically destroyed. Overrides per-session `sessionIdleTimeout`. Always active. |
+| SESSION_MAX_COUNT    | none                  | Maximum number of concurrent sessions. When exceeded, oldest idle sessions are destroyed first. |
 | XVFB_WIDTH         | 1920                   | Width of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
 | XVFB_HEIGHT        | 1080                   | Height of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
 | XVFB_COLORDEPTH    | 24                     | Color depth (bits per pixel) of the Xvfb virtual display. Common values: 8, 16, 24, 32. Only used in headless mode on Linux.          |

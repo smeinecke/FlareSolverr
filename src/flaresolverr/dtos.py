@@ -13,6 +13,10 @@ class ChallengeResolutionResultT:
     userAgent: str | None = None
     screenshot: str | None = None  # noqa
     turnstile_token: str | None = None
+    # Session interaction results
+    evalResult: Any | None = None
+    networkLogs: list[dict[str, Any]] | None = None
+    title: str | None = None
 
     def __init__(self, _dict: dict[str, Any]):
         self.__dict__.update(_dict)
@@ -37,6 +41,8 @@ class V1RequestBase(object):
     proxy: dict[str, Any] | None = None
     session: str | None = None
     session_ttl_minutes: int | None = None
+    sessionMaxRuntime: int | None = None  # Optional per-session max lifetime in seconds
+    sessionIdleTimeout: int | None = None  # Optional per-session idle timeout in seconds
     headers: list[Any] | None = None  # custom headers to send with requests
     userAgent: str | None = None  # Optional per-request/session user agent override
     acceptLanguage: str | None = None  # Optional per-request/session accept-language override
@@ -51,6 +57,9 @@ class V1RequestBase(object):
     download: bool | None = None  # deprecated v2.0.0, not used
     returnRawHtml: bool | None = None  # deprecated v2.0.0, not used
     waitInSeconds: int | None = None
+    # Session interaction commands
+    script: str | None = None  # JS script to execute (sessions.eval)
+    selector: str | None = None  # Element selector for click/wait actions
     # Optional resource blocking flag (blocks images, CSS, and fonts)
     disableMedia: bool | None = None
     # Optional when you've got a turnstile captcha that needs to be clicked after X number of Tab presses

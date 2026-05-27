@@ -9,6 +9,9 @@ services:
       - LOG_FILE=${LOG_FILE:-none}
       - LOG_HTML=${LOG_HTML:-false}
       - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
+      - SESSION_MAX_RUNTIME=${SESSION_MAX_RUNTIME:-}
+      - SESSION_IDLE_TIMEOUT=${SESSION_IDLE_TIMEOUT:-900}
+      - SESSION_MAX_COUNT=${SESSION_MAX_COUNT:-}
       - TZ=Europe/London
     ports:
       - "${PORT:-8191}:8191"

@@ -104,6 +104,10 @@ class ChallengeSolution:
     userAgent: str | None = None
     screenshot: str | None = None  # noqa
     turnstile_token: str | None = None
+    # Session interaction fields
+    title: str | None = None
+    evalResult: Any | None = None
+    networkLogs: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ChallengeSolution | None:
@@ -120,6 +124,9 @@ class ChallengeSolution:
             userAgent=data.get("userAgent"),
             screenshot=data.get("screenshot"),
             turnstile_token=data.get("turnstile_token"),
+            title=data.get("title"),
+            evalResult=data.get("evalResult"),
+            networkLogs=data.get("networkLogs", []),
         )
 
 

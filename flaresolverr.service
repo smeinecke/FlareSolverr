@@ -11,6 +11,9 @@ User=flaresolverr
 Group=flaresolverr
 Environment="LOG_LEVEL=info"
 Environment="CAPTCHA_SOLVER=default"
+# Environment="SESSION_MAX_RUNTIME=3600"
+# Environment="SESSION_IDLE_TIMEOUT=900"
+# Environment="SESSION_MAX_COUNT=10"
 # Environment="XVFB_WIDTH=1280"
 # Environment="XVFB_HEIGHT=720"
 # Environment="XVFB_COLORDEPTH=24"

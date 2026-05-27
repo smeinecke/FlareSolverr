@@ -491,3 +491,110 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp):
             r = client.sessions.list()
         assert r.sessions == ["s1", "s2"]
+
+    def test_session_get(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "message": "Session info retrieved successfully.",
+            "solution": {
+                "url": "https://example.com",
+                "title": "Example",
+                "response": "<html></html>",
+                "cookies": [],
+                "userAgent": "Mozilla/5.0",
+            },
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            r = client.sessions.get("abc123")
+        payload = mock_post.call_args[1]["json"]
+        assert payload["cmd"] == "sessions.get"
+        assert payload["session"] == "abc123"
+        assert r.solution.url == "https://example.com"
+        assert r.solution.title == "Example"
+
+    def test_session_eval(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "message": "Script executed successfully.",
+            "solution": {"evalResult": "Test Title", "url": "https://example.com", "cookies": []},
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            r = client.sessions.eval("abc123", "return document.title")
+        payload = mock_post.call_args[1]["json"]
+        assert payload["cmd"] == "sessions.eval"
+        assert payload["session"] == "abc123"
+        assert payload["script"] == "return document.title"
+        assert r.solution.evalResult == "Test Title"
+
+    def test_session_network(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "message": "Retrieved 42 network log entries.",
+            "solution": {"networkLogs": [{"method": "Network.requestWillBeSent"}], "url": "https://example.com"},
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            r = client.sessions.network("abc123")
+        payload = mock_post.call_args[1]["json"]
+        assert payload["cmd"] == "sessions.network"
+        assert payload["session"] == "abc123"
+        assert len(r.solution.networkLogs) == 1
+
+    def test_session_click(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "message": "Element clicked successfully.",
+            "solution": {"url": "https://example.com", "cookies": []},
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            r = client.sessions.click("abc123", "//button")
+        payload = mock_post.call_args[1]["json"]
+        assert payload["cmd"] == "sessions.click"
+        assert payload["session"] == "abc123"
+        assert payload["selector"] == "//button"
+        assert r.solution.url == "https://example.com"
+
+    def test_session_action(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "message": "Actions executed successfully.",
+            "solution": {"url": "https://example.com", "cookies": []},
+        }
+        mock_resp.raise_for_status = MagicMock()
+        actions = [{"type": "wait", "seconds": 1}]
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            r = client.sessions.action("abc123", actions)
+        payload = mock_post.call_args[1]["json"]
+        assert payload["cmd"] == "sessions.action"
+        assert payload["session"] == "abc123"
+        assert payload["actions"] == actions
+        assert r.solution.url == "https://example.com"
+
+    def test_session_screenshot(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "message": "Screenshot captured successfully.",
+            "solution": {"screenshot": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "url": "https://example.com"},
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            r = client.sessions.screenshot("abc123")
+        payload = mock_post.call_args[1]["json"]
+        assert payload["cmd"] == "sessions.screenshot"
+        assert payload["session"] == "abc123"
+        assert r.solution.screenshot.startswith("iVBOR")

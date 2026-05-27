@@ -11,6 +11,9 @@ services:
       - LOG_HTML=${LOG_HTML:-false}
       - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
       - STEALTH_MODE=${STEALTH_MODE:-standard}
+      - SESSION_MAX_RUNTIME=${SESSION_MAX_RUNTIME:-}
+      - SESSION_IDLE_TIMEOUT=${SESSION_IDLE_TIMEOUT:-900}
+      - SESSION_MAX_COUNT=${SESSION_MAX_COUNT:-}
       - TZ=Europe/London
     ports:
       - "${PORT:-8191}:8191"
