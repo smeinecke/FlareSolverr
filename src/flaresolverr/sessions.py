@@ -120,7 +120,15 @@ class SessionsStorage:
             utils.apply_user_agent_override(driver, user_agent, effective_accept_language)
         created_at = datetime.now()
         effective_enabled_services = enabled_services if enabled_services is not None else ["cloudflare"]
-        session = Session(session_id, driver, created_at, effective_stealth_mode, user_agent_override=user_agent, accept_language_override=accept_language, enabled_services=effective_enabled_services)
+        session = Session(
+            session_id,
+            driver,
+            created_at,
+            effective_stealth_mode,
+            user_agent_override=user_agent,
+            accept_language_override=accept_language,
+            enabled_services=effective_enabled_services,
+        )
 
         self.sessions[session_id] = session
 
@@ -153,11 +161,15 @@ class SessionsStorage:
         accept_language: Optional[str] = None,
         enabled_services: Optional[list[str]] = None,
     ) -> Tuple[Session, bool]:
-        session, fresh = self.create(session_id, stealth_mode=stealth_mode, user_agent=user_agent, accept_language=accept_language, enabled_services=enabled_services)
+        session, fresh = self.create(
+            session_id, stealth_mode=stealth_mode, user_agent=user_agent, accept_language=accept_language, enabled_services=enabled_services
+        )
 
         if ttl is not None and not fresh and session.lifetime() > ttl:
             logging.debug(f"session's lifetime has expired, so the session is recreated (session_id={session_id})")
-            session, fresh = self.create(session_id, force_new=True, stealth_mode=stealth_mode, user_agent=user_agent, accept_language=accept_language, enabled_services=enabled_services)
+            session, fresh = self.create(
+                session_id, force_new=True, stealth_mode=stealth_mode, user_agent=user_agent, accept_language=accept_language, enabled_services=enabled_services
+            )
 
         return session, fresh
 

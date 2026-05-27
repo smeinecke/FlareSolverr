@@ -102,9 +102,7 @@ class CloudflareService(ChallengeService):
 
             if "Verification successful. Waiting for" in src:
                 is_hidden = driver.execute_script(
-                    "var el = document.getElementById('ijUz0');"
-                    "if (!el) return false;"
-                    "return getComputedStyle(el).display === 'none';"
+                    "var el = document.getElementById('ijUz0');if (!el) return false;return getComputedStyle(el).display === 'none';"
                 )
                 if not is_hidden:
                     logging.debug("_should_attempt_verify_click: False (Verification successful visible)")
@@ -120,10 +118,9 @@ class CloudflareService(ChallengeService):
             iframes = driver.find_elements(By.TAG_NAME, "iframe")
             iframe_srcs = [f.get_attribute("src") or "(no src)" for f in iframes[:5]]
             logging.debug(
-                "_should_attempt_verify_click: False (no markers). iframes=%s, "
-                "page_snippet=%r",
+                "_should_attempt_verify_click: False (no markers). iframes=%s, page_snippet=%r",
                 iframe_srcs,
-                src[src.find("<body"):src.find("<body") + 800] if "<body" in src else src[:800],
+                src[src.find("<body") : src.find("<body") + 800] if "<body" in src else src[:800],
             )
             return False
         except Exception as e:

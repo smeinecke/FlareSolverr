@@ -76,7 +76,7 @@ test-down:
 	docker compose -f docker-compose.local.yml down --remove-orphans --rmi local
 
 vulture:
-	vulture src/ --exclude src/flaresolverr/undetected_chromedriver --ignore-names "error_plugin,logger_plugin,setup,prometheus_plugin,SessionsStorage,session_ids"
+	vulture src/ --exclude src/flaresolverr/undetected_chromedriver --ignore-names "error_plugin,logger_plugin,setup,prometheus_plugin,SessionsStorage,session_ids,binary_location"
 
 complexity:
 	radon cc . -a -nc

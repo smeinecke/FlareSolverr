@@ -72,8 +72,8 @@ def _is_custom_chromium() -> bool:
     # Checking for it avoids spawning a Chrome subprocess and is reliable.
     # Also accept a sentinel next to the extracted local chrome binary.
     chrome_dir = os.path.dirname(get_chrome_exe_path() or "")
-    _CUSTOM_CHROMIUM = os.path.exists("/opt/chromium/.stealth-patched") or (chrome_dir and os.path.exists(os.path.join(chrome_dir, ".stealth-patched")))
-    return _CUSTOM_CHROMIUM
+    _CUSTOM_CHROMIUM = os.path.exists("/opt/chromium/.stealth-patched") or (chrome_dir != "" and os.path.exists(os.path.join(chrome_dir, ".stealth-patched")))
+    return bool(_CUSTOM_CHROMIUM)
 
 
 def get_config_log_html() -> bool:
@@ -579,6 +579,8 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
 
     try:
         if custom_chromium:
+            if not browser_executable_path:
+                raise RuntimeError("Custom chromium enabled but no browser executable path found")
             # Custom stealth-patched Chromium: start Chrome manually and
             # connect via debugger address to avoid chromedriver injecting
             # detection-prone default flags like --enable-automation.
@@ -735,6 +737,8 @@ def get_chrome_full_version() -> str:
         match = re.search(r"(\d+\.\d+\.\d+\.\d+)", complete_version)
         CHROME_FULL_VERSION = match.group(1) if match else ""
 
+    if CHROME_FULL_VERSION is None:
+        CHROME_FULL_VERSION = ""
     return CHROME_FULL_VERSION
 
 

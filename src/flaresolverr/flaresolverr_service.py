@@ -29,6 +29,7 @@ from flaresolverr.dtos import (
     V1ResponseBase,
 )
 from flaresolverr.services import SERVICE_MANAGER
+from flaresolverr.services.cloudflare import CloudflareService
 from flaresolverr.sessions import SessionsStorage
 from flaresolverr.utils import _human_like_click, _random_delay
 
@@ -98,6 +99,7 @@ BLOCK_MEDIA_URL_PATTERNS = [
 SHORT_TIMEOUT = 1
 SESSIONS_STORAGE = SessionsStorage()
 _NET_ERROR_CODE_RE = re.compile(r"\bERR_[A-Z0-9_]+\b")
+
 
 def test_browser_installation() -> None:
     logging.info("Testing web browser installation...")
@@ -239,7 +241,12 @@ def _cmd_sessions_create(req: V1RequestBase) -> V1ResponseBase:
     enabled_services = req.enabledServices if req.enabledServices is not None else ["cloudflare", "ddos_guard"]
 
     session, fresh = SESSIONS_STORAGE.create(
-        session_id=req.session, proxy=req.proxy, stealth_mode=req_stealth_mode, user_agent=req.userAgent, accept_language=req.acceptLanguage, enabled_services=enabled_services
+        session_id=req.session,
+        proxy=req.proxy,
+        stealth_mode=req_stealth_mode,
+        user_agent=req.userAgent,
+        accept_language=req.acceptLanguage,
+        enabled_services=enabled_services,
     )
     session_id = session.session_id
 
@@ -336,7 +343,7 @@ def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
     current_value = token_input.get_attribute("value")
     while True:
         cloudflare_svc = SERVICE_MANAGER.get_service("cloudflare")
-        if cloudflare_svc is not None:
+        if isinstance(cloudflare_svc, CloudflareService):
             cloudflare_svc._click_verify(driver, num_tabs=tabs)
         turnstile_token = token_input.get_attribute("value")
         if turnstile_token:
