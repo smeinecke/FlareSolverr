@@ -546,9 +546,13 @@ class FlareSolverrClient:
 
         logger.debug(f"POST {url} with payload: {payload}")
         response = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
-        response.raise_for_status()
 
-        data = response.json()
+        try:
+            data = response.json()
+        except Exception:
+            response.raise_for_status()
+            raise FlareSolverrError(f"Invalid JSON response: {response.text}")
+
         v1_response = V1Response.from_dict(data)
 
         if not v1_response.is_ok:
