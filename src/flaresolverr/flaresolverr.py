@@ -66,7 +66,9 @@ def controller_v1() -> dict[str, Any]:  # noqa
         data["proxy"] = {"url": env_proxy_url, "username": env_proxy_username, "password": env_proxy_password}
     req = V1RequestBase(data)
     res = flaresolverr_service.controller_v1_endpoint(req)
-    if res.__error_500__:
+    if getattr(res, "__error_429__", False):
+        response.status = 429
+    elif res.__error_500__:
         response.status = 500
     return utils.object_to_dict(res)
 

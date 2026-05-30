@@ -114,3 +114,20 @@ def test_controller_v1_sets_500_status_when_error_flagged(monkeypatch) -> None:
 
     assert fake_response.status == 500
     assert result == {"message": "err"}
+
+
+def test_controller_v1_sets_429_status_when_limit_reached(monkeypatch) -> None:
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={}))
+    fake_response = SimpleNamespace(status=200)
+    monkeypatch.setattr(flaresolverr, "response", fake_response)
+    monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_username", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_password", None)
+
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "controller_v1_endpoint", lambda _req: SimpleNamespace(__error_429__=True, message="too busy"))
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda res: {"message": res.message})
+
+    result = flaresolverr.controller_v1()
+
+    assert fake_response.status == 429
+    assert result == {"message": "too busy"}

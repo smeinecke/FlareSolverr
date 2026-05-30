@@ -3,6 +3,7 @@ import logging
 import platform
 import re
 import sys
+import threading
 import time
 from datetime import timedelta
 from html import escape
@@ -100,6 +101,8 @@ BLOCK_MEDIA_URL_PATTERNS = [
 SHORT_TIMEOUT = 1
 SESSIONS_STORAGE = SessionsStorage()
 _NET_ERROR_CODE_RE = re.compile(r"\bERR_[A-Z0-9_]+\b")
+_MAX_PARALLEL_REQUESTS = utils.get_config_max_parallel_requests()
+_PARALLEL_REQUESTS_SEMAPHORE = threading.Semaphore(_MAX_PARALLEL_REQUESTS) if _MAX_PARALLEL_REQUESTS else None
 
 
 def test_browser_installation() -> None:
@@ -143,26 +146,42 @@ def health_endpoint() -> HealthResponse:
 def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
     start_ts = int(time.time() * 1000)
     logging.info(f"Incoming request => POST /v1 body: {utils.object_to_dict(req)}")
-    res: V1ResponseBase
-    try:
-        res = _controller_v1_handler(req)
-    except Exception as e:
-        res = V1ResponseBase({})
-        res.__error_500__ = True
-        res.status = STATUS_ERROR
-        res.message = "Error: " + str(e)
-        logging.error(res.message)
 
-    res.startTimestamp = start_ts
-    res.endTimestamp = int(time.time() * 1000)
-    res.version = utils.get_flaresolverr_version()  # noqa
-    debug_res = utils.object_to_dict(res)
-    if debug_res.get("solution", {}).get("response"):
-        html = debug_res["solution"]["response"]
-        debug_res["solution"]["response"] = html[:500] + ("..." if len(html) > 500 else "")
-    logging.debug(f"Response => POST /v1 body: {debug_res}")
-    logging.info(f"Response in {(res.endTimestamp - res.startTimestamp) / 1000} s")
-    return res
+    if _PARALLEL_REQUESTS_SEMAPHORE is not None and not _PARALLEL_REQUESTS_SEMAPHORE.acquire(blocking=False):
+        res = V1ResponseBase({})
+        res.__error_429__ = True
+        res.status = STATUS_ERROR
+        res.message = "Error: Maximum parallel requests limit reached. Please retry later."
+        res.startTimestamp = start_ts
+        res.endTimestamp = int(time.time() * 1000)
+        res.version = utils.get_flaresolverr_version()  # noqa
+        logging.warning("Request rejected: maximum parallel requests limit reached")
+        return res
+
+    try:
+        res: V1ResponseBase
+        try:
+            res = _controller_v1_handler(req)
+        except Exception as e:
+            res = V1ResponseBase({})
+            res.__error_500__ = True
+            res.status = STATUS_ERROR
+            res.message = "Error: " + str(e)
+            logging.error(res.message)
+
+        res.startTimestamp = start_ts
+        res.endTimestamp = int(time.time() * 1000)
+        res.version = utils.get_flaresolverr_version()  # noqa
+        debug_res = utils.object_to_dict(res)
+        if debug_res.get("solution", {}).get("response"):
+            html = debug_res["solution"]["response"]
+            debug_res["solution"]["response"] = html[:500] + ("..." if len(html) > 500 else "")
+        logging.debug(f"Response => POST /v1 body: {debug_res}")
+        logging.info(f"Response in {(res.endTimestamp - res.startTimestamp) / 1000} s")
+        return res
+    finally:
+        if _PARALLEL_REQUESTS_SEMAPHORE is not None:
+            _PARALLEL_REQUESTS_SEMAPHORE.release()
 
 
 def _controller_v1_handler(req: V1RequestBase) -> V1ResponseBase:

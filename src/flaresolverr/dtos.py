@@ -96,6 +96,7 @@ class V1ResponseBase(object):
 
     # hidden vars
     __error_500__: bool = False
+    __error_429__: bool = False
 
     def __init__(self, _dict: dict[str, Any]):
         self.__dict__.update(_dict)

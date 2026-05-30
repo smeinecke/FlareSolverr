@@ -128,6 +128,17 @@ def get_config_session_max_count() -> int | None:
         return None
 
 
+def get_config_max_parallel_requests() -> int | None:
+    raw = os.environ.get("MAX_PARALLEL_REQUESTS", "").strip()
+    if raw == "":
+        return None
+    try:
+        val = int(raw)
+        return val if val > 0 else None
+    except ValueError:
+        return None
+
+
 def normalize_stealth_mode(value: str | bool | None) -> str:
     """Normalize boolean/legacy values to a stealth mode enum value."""
     if value is None:
