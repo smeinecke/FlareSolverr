@@ -52,6 +52,8 @@ class V1RequestBase(object):
     # V1Request
     url: str | None = None
     postData: str | None = None
+    postDataRaw: str | None = None
+    postDataContentType: str | None = None
     returnOnlyCookies: bool | None = None
     returnScreenshot: bool | None = None
     download: bool | None = None  # deprecated v2.0.0, not used

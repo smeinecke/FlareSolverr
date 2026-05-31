@@ -252,7 +252,9 @@ def _cmd_request_get(req: V1RequestBase) -> V1ResponseBase:
     if req.url is None:
         raise Exception("Request parameter 'url' is mandatory in 'request.get' command.")
     if req.postData is not None:
-        raise Exception("Cannot use 'postBody' when sending a GET request.")
+        raise Exception("Cannot use 'postData' when sending a GET request.")
+    if req.postDataRaw is not None:
+        raise Exception("Cannot use 'postDataRaw' when sending a GET request.")
     _validate_common_request_params(req)
 
     challenge_res = _resolve_challenge(req, "GET")
@@ -261,8 +263,10 @@ def _cmd_request_get(req: V1RequestBase) -> V1ResponseBase:
 
 def _cmd_request_post(req: V1RequestBase) -> V1ResponseBase:
     # do some validations
-    if req.postData is None:
-        raise Exception("Request parameter 'postData' is mandatory in 'request.post' command.")
+    if req.postData is None and req.postDataRaw is None:
+        raise Exception("Request parameter 'postData' or 'postDataRaw' is mandatory in 'request.post' command.")
+    if req.postData is not None and req.postDataRaw is not None:
+        raise Exception("Cannot use both 'postData' and 'postDataRaw' in the same request.")
     _validate_common_request_params(req)
 
     challenge_res = _resolve_challenge(req, "POST")
@@ -584,7 +588,8 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             session.lock.acquire()
             logging.debug(f"session lock acquired (session_id={session_id})")
         else:
-            driver = utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode)
+            logging_prefs = {"performance": "ALL"} if req.postDataRaw is not None else None
+            driver = utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode, logging_prefs=logging_prefs)
             if req.userAgent is not None:
                 utils.apply_user_agent_override(driver, req.userAgent, req.acceptLanguage or utils.get_config_accept_language())
             logging.debug("New instance of webdriver has been created to perform the request")
@@ -1034,9 +1039,103 @@ def _detect_captcha_type(driver: WebDriver) -> str | None:
     return None
 
 
+def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
+    if req.url is None:
+        raise Exception("Request parameter 'url' is mandatory in request commands.")
+    if req.postDataRaw is None:
+        raise Exception("Request parameter 'postDataRaw' is mandatory for raw POST requests.")
+
+    import base64
+    import json
+
+    target_url = req.url
+    post_data = req.postDataRaw
+    content_type = req.postDataContentType or "application/x-www-form-urlencoded"
+
+    # Enable Fetch interception for all requests so we catch the navigation
+    driver.execute_cdp_cmd("Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Request"}]})
+
+    try:
+        # Navigate using CDP (non-blocking command)
+        nav_result = driver.execute_cdp_cmd("Page.navigate", {"url": target_url})
+        logging.debug(f"Page.navigate result: {nav_result}")
+
+        # Poll performance logs for the paused request
+        request_id = None
+        start_time = time.time()
+        timeout = 10
+
+        while time.time() - start_time < timeout:
+            try:
+                logs = driver.get_log("performance")
+            except Exception:
+                logs = []
+
+            for entry in logs:
+                try:
+                    msg = json.loads(entry["message"])["message"]
+                    if msg.get("method") == "Fetch.requestPaused":
+                        params = msg.get("params", {})
+                        paused_url = params.get("request", {}).get("url")
+                        paused_id = params["requestId"]
+                        if paused_url == target_url:
+                            request_id = paused_id
+                            break
+                        # Continue non-matching requests unchanged
+                        driver.execute_cdp_cmd("Fetch.continueRequest", {"requestId": paused_id})
+                except Exception:
+                    continue
+
+            if request_id is not None:
+                break
+            time.sleep(0.05)
+
+        if request_id is None:
+            raise Exception("Failed to intercept the POST request for raw body data.")
+
+        # Build headers including Content-Type and any custom headers
+        headers = [{"name": "Content-Type", "value": content_type}]
+        if req.headers:
+            for header in req.headers:
+                if isinstance(header, dict) and "name" in header and "value" in header:
+                    headers.append({"name": header["name"], "value": header["value"]})
+                elif isinstance(header, str) and ":" in header:
+                    name, value = header.split(":", 1)
+                    headers.append({"name": name.strip(), "value": value.strip()})
+
+        # Continue the intercepted request as POST with raw body
+        post_data_b64 = base64.b64encode(post_data.encode("utf-8")).decode("ascii")
+        driver.execute_cdp_cmd("Fetch.continueRequest", {
+            "requestId": request_id,
+            "method": "POST",
+            "postData": post_data_b64,
+            "headers": headers,
+        })
+
+        # Wait for the page to finish loading
+        load_timeout = 60
+        load_start = time.time()
+        while time.time() - load_start < load_timeout:
+            try:
+                ready_state = driver.execute_script("return document.readyState")
+            except Exception:
+                ready_state = None
+            if ready_state == "complete":
+                break
+            time.sleep(0.1)
+    finally:
+        try:
+            driver.execute_cdp_cmd("Fetch.disable", {})
+        except Exception:
+            pass
+
+
 def _post_request(req: V1RequestBase, driver: WebDriver) -> None:
     if req.url is None:
         raise Exception("Request parameter 'url' is mandatory in request commands.")
+    if req.postDataRaw is not None:
+        _post_request_raw(req, driver)
+        return
     post_form = f'<form id="hackForm" action="{req.url}" method="POST">'
     query_string = req.postData if req.postData and req.postData[0] != "?" else req.postData[1:] if req.postData else ""
     pairs = query_string.split("&")
