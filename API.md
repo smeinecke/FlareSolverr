@@ -226,12 +226,17 @@ Example:
 
 ### + `request.post`
 
-This works like `request.get`, with the addition of the `postData` parameter.
+This works like `request.get`, with the addition of the `postData` / `postDataRaw` parameters.
 
 | Parameter | Notes |
 | --------- | ----- |
-| postData | Must be a string with `application/x-www-form-urlencoded`. Eg: `a=b&c=d` |
+| postData | Optional (unless `postDataRaw` is omitted). Must be a string with `application/x-www-form-urlencoded`. Eg: `a=b&c=d` |
+| postDataRaw | Optional (unless `postData` is omitted). Raw body sent without form encoding. Supports JSON, XML, or any custom payload. |
+| postDataContentType | Optional. Content-Type header for `postDataRaw` (default: `application/x-www-form-urlencoded`). |
 | headers | Optional. Same format as `request.get`. |
+
+> **Note**
+> Only one of `postData` or `postDataRaw` can be used in a single request, not both.
 
 ---
 

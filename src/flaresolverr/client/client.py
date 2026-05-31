@@ -319,8 +319,10 @@ class _RequestManager:
     def post(
         self,
         url: str,
-        post_data: str,
+        post_data: str | None = None,
         *,
+        post_data_raw: str | None = None,
+        post_data_content_type: str | None = None,
         session: str | None = None,
         session_ttl_minutes: int | None = None,
         session_max_runtime: int | None = None,
@@ -348,6 +350,8 @@ class _RequestManager:
         Args:
             url: The URL to request (mandatory).
             post_data: Form data as application/x-www-form-urlencoded string (e.g., "a=b&c=d").
+            post_data_raw: Raw body content sent without form encoding.
+            post_data_content_type: Content-Type header for raw body (default: application/x-www-form-urlencoded).
             session: Optional session ID for persistent browser state.
             session_ttl_minutes: Optional TTL for automatic session rotation.
             session_max_runtime: Optional per-session max lifetime in seconds.
@@ -378,6 +382,8 @@ class _RequestManager:
             cmd="request.post",
             url=url,
             post_data=post_data,
+            post_data_raw=post_data_raw,
+            post_data_content_type=post_data_content_type,
             session=session,
             session_ttl_minutes=session_ttl_minutes,
             session_max_runtime=session_max_runtime,
@@ -408,6 +414,8 @@ class _RequestManager:
         cmd: str,
         url: str,
         post_data: str | None = None,
+        post_data_raw: str | None = None,
+        post_data_content_type: str | None = None,
         session: str | None = None,
         session_ttl_minutes: int | None = None,
         session_max_runtime: int | None = None,
@@ -439,6 +447,10 @@ class _RequestManager:
 
         if post_data is not None:
             payload["postData"] = post_data
+        if post_data_raw is not None:
+            payload["postDataRaw"] = post_data_raw
+        if post_data_content_type is not None:
+            payload["postDataContentType"] = post_data_content_type
         if session is not None:
             payload["session"] = session
         if session_ttl_minutes is not None:
