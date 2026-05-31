@@ -78,6 +78,7 @@ class Action:
     seconds: float | None = None
     humanLike: bool = False  # noqa
     script: str | None = None
+    returnResult: bool = True  # noqa
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to API-compatible dictionary."""
@@ -92,6 +93,8 @@ class Action:
             result["humanLike"] = True
         if self.script is not None:
             result["script"] = self.script
+        if self.type == "eval" and not self.returnResult:
+            result["returnResult"] = False
         return result
 
 

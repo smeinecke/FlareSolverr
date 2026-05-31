@@ -89,6 +89,15 @@ def get_config_disable_media() -> bool:
     return os.environ.get("DISABLE_MEDIA", "false").lower() == "true"
 
 
+def get_config_js_injection_enabled() -> bool:
+    """Master switch for JavaScript injection features (issue #38).
+
+    Disabled by default for security. Must be explicitly enabled via the
+    JS_INJECTION_ENABLED environment variable.
+    """
+    return os.environ.get("JS_INJECTION_ENABLED", "false").lower() == "true"
+
+
 def get_config_disable_quic() -> bool:
     return os.environ.get("DISABLE_QUIC", "true").lower() == "true"
 
@@ -164,9 +173,9 @@ def get_config_accept_language() -> str:
 
 
 def _apply_stealth_patches(driver: WebDriver, stealth_mode: str) -> None:
-    # standard mode: enable WebGL spoofing — the worker wrapper also patches workers
+    # standard mode: enable WebGL spoofing - the worker wrapper also patches workers
     # so main/worker WebGL values stay consistent.
-    # csp-safe mode: disable WebGL spoofing — blob: worker injection is skipped
+    # csp-safe mode: disable WebGL spoofing - blob: worker injection is skipped
     # (BLOB_BYPASS=true), so the worker would see real renderer values and a
     # main-thread spoof would create a detectable inconsistency.
     patch_webgl = stealth_mode == STEALTH_MODE_STANDARD
@@ -407,7 +416,7 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
 def _check_proxy_reachable(proxy_url: str) -> None:
     """Raise RuntimeError if the proxy host:port is not reachable.
 
-    Chrome silently falls back to direct when a proxy is unreachable — its
+    Chrome silently falls back to direct when a proxy is unreachable - its
     internal background requests (telemetry, safe browsing) fail first,
     poisoning the bad-proxy cache, so the user's actual requests use DIRECT
     without any visible error.  Checking upfront gives a fast, clear failure
@@ -544,7 +553,7 @@ def _maybe_apply_stealth(driver: WebDriver, effective_stealth_mode: str) -> None
     try:
         if _is_custom_chromium():
             # C++ flags handle WebGL, languages, isTrusted at binary level.
-            # Inject stealth.js (not stealth_fallback.js) via CDP — stealth.js does NOT
+            # Inject stealth.js (not stealth_fallback.js) via CDP - stealth.js does NOT
             # patch Navigator.prototype.languages so getter-tampering detections
             # (languagesProtoGetterPatched) are avoided.
             driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": _load_stealth_script(fallback=False)})
