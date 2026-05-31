@@ -698,7 +698,7 @@ class TestFlareSolverr(unittest.TestCase):
 
         body = V1ResponseBase(self._get_json(res))
         self.assertEqual(STATUS_ERROR, body.status)
-        self.assertIn("Request parameter 'postData' is mandatory in 'request.post' command", body.message)
+        self.assertIn("Request parameter 'postData' or 'postDataRaw' is mandatory in 'request.post' command", body.message)
 
     def test_v1_endpoint_request_post_deprecated_param(self):
         res = self._request("POST", "/v1", {"cmd": "request.post", "url": self.google_url, "postData": "param1=value1&param2=value2", "userAgent": "Test User-Agent"})
@@ -707,6 +707,56 @@ class TestFlareSolverr(unittest.TestCase):
         body = V1ResponseBase(self._get_json(res))
         self.assertEqual(STATUS_OK, body.status)
         self.assertEqual("Challenge not detected!", body.message)
+
+    def test_v1_endpoint_request_post_raw_json_no_cloudflare(self):
+        raw_body = '{"key": "value", "num": 42}'
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "request.post",
+                "url": self.post_url,
+                "postDataRaw": raw_body,
+                "postDataContentType": "application/json",
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertEqual("Challenge not detected!", body.message)
+
+        solution = body.solution
+        self.assertIn(self.post_url, solution.url)
+        self.assertEqual(solution.status, 200)
+        self.assertIn(raw_body, solution.response)
+        self.assertIn('"Content-Type": "application/json"', solution.response)
+
+    def test_v1_endpoint_request_post_raw_fail_no_body(self):
+        res = self._request("POST", "/v1", {"cmd": "request.post", "url": self.google_url}, status=500)
+        self.assertEqual(res.status_code, 500)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_ERROR, body.status)
+        self.assertIn("Request parameter 'postData' or 'postDataRaw' is mandatory in 'request.post' command", body.message)
+
+    def test_v1_endpoint_request_post_raw_fail_both_bodies(self):
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "request.post",
+                "url": self.google_url,
+                "postData": "a=b",
+                "postDataRaw": "{}",
+            },
+            status=500,
+        )
+        self.assertEqual(res.status_code, 500)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_ERROR, body.status)
+        self.assertIn("Cannot use both 'postData' and 'postDataRaw' in the same request", body.message)
 
     def test_v1_endpoint_sessions_create_without_session(self):
         res = self._request("POST", "/v1", {"cmd": "sessions.create"})
