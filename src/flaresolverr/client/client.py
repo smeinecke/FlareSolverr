@@ -207,13 +207,13 @@ class _SessionManager:
         payload: dict[str, Any] = {"cmd": "sessions.screenshot", "session": session_id}
         return self._client._post_v1(payload)
 
-    def cdp(self, session_id: str, cdp_cmd: str, cdp_params: dict[str, Any] | None = None) -> V1Response:
+    def cdp(self, session_id: str, cdp: dict[str, Any]) -> V1Response:
         """Execute a Chrome DevTools Protocol (CDP) command on the session.
 
         Args:
             session_id: The session ID to target.
-            cdp_cmd: The CDP command name, e.g. "Page.addScriptToEvaluateOnNewDocument".
-            cdp_params: Optional dictionary of CDP command parameters.
+            cdp: Dictionary with "cmd" (CDP command name) and optional "params"
+                 (dictionary of CDP command parameters).
 
         Returns:
             V1Response with `solution.evalResult` containing the CDP result.
@@ -221,10 +221,8 @@ class _SessionManager:
         payload: dict[str, Any] = {
             "cmd": "sessions.cdp",
             "session": session_id,
-            "cdp_cmd": cdp_cmd,
+            "cdp": cdp,
         }
-        if cdp_params is not None:
-            payload["cdp_params"] = cdp_params
         return self._client._post_v1(payload)
 
 

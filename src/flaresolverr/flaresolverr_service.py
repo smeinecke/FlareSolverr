@@ -531,8 +531,8 @@ def _cmd_sessions_cdp(req: V1RequestBase) -> V1ResponseBase:
 
     session = SESSIONS_STORAGE.sessions[session_id]
     driver = session.driver
-    cdp_cmd = req.cdp_cmd
-    cdp_params = req.cdp_params or {}
+    cdp_cmd = req.cdp.get("cmd") if req.cdp else None
+    cdp_params = req.cdp.get("params", {}) if req.cdp else {}
     logging.debug(f"sessions.cdp (session_id={session_id}, cmd={cdp_cmd})")
 
     try:

@@ -629,12 +629,11 @@ class TestFlareSolverrClientHTTP:
         }
         mock_resp.raise_for_status = MagicMock()
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
-            r = client.sessions.cdp("abc123", "Page.addScriptToEvaluateOnNewDocument", {"source": "console.log('hi')"})
+            r = client.sessions.cdp("abc123", {"cmd": "Page.addScriptToEvaluateOnNewDocument", "params": {"source": "console.log('hi')"}})
         payload = mock_post.call_args[1]["json"]
         assert payload["cmd"] == "sessions.cdp"
         assert payload["session"] == "abc123"
-        assert payload["cdp_cmd"] == "Page.addScriptToEvaluateOnNewDocument"
-        assert payload["cdp_params"] == {"source": "console.log('hi')"}
+        assert payload["cdp"] == {"cmd": "Page.addScriptToEvaluateOnNewDocument", "params": {"source": "console.log('hi')"}}
         assert r.solution.evalResult == {"result": {}}
 
     def test_session_cdp_without_params(self):
@@ -647,10 +646,9 @@ class TestFlareSolverrClientHTTP:
         }
         mock_resp.raise_for_status = MagicMock()
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
-            r = client.sessions.cdp("abc123", "Runtime.enable")
+            r = client.sessions.cdp("abc123", {"cmd": "Runtime.enable"})
         payload = mock_post.call_args[1]["json"]
         assert payload["cmd"] == "sessions.cdp"
         assert payload["session"] == "abc123"
-        assert payload["cdp_cmd"] == "Runtime.enable"
-        assert "cdp_params" not in payload
+        assert payload["cdp"] == {"cmd": "Runtime.enable"}
         assert r.solution.evalResult == {}

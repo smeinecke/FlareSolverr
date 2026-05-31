@@ -313,8 +313,10 @@ class TestSessionsCdp:
         req = V1RequestBase({
             "cmd": "sessions.cdp",
             "session": "s1",
-            "cdp_cmd": "Runtime.evaluate",
-            "cdp_params": {"expression": "1+1"},
+            "cdp": {
+                "cmd": "Runtime.evaluate",
+                "params": {"expression": "1+1"},
+            },
         })
         res = svc._cmd_sessions_cdp(req)
 
@@ -327,14 +329,14 @@ class TestSessionsCdp:
         driver = _make_session_driver(return_values={"execute_cdp_cmd": {}})
         _register_session(_patch_sessions_storage, driver)
 
-        req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1", "cdp_cmd": "Runtime.enable"})
+        req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1", "cdp": {"cmd": "Runtime.enable"}})
         res = svc._cmd_sessions_cdp(req)
 
         assert res.status == "ok"
         driver.execute_cdp_cmd.assert_called_once_with("Runtime.enable", {})
 
     def test_cdp_missing_session_raises(self):
-        req = V1RequestBase({"cmd": "sessions.cdp", "session": "missing", "cdp_cmd": "Runtime.enable"})
+        req = V1RequestBase({"cmd": "sessions.cdp", "session": "missing", "cdp": {"cmd": "Runtime.enable"}})
         with pytest.raises(Exception, match="doesn't exist"):
             svc._cmd_sessions_cdp(req)
 
@@ -350,6 +352,6 @@ class TestSessionsCdp:
         driver = _make_session_driver(execute_cdp_cmd=Exception("invalid command"))
         _register_session(_patch_sessions_storage, driver)
 
-        req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1", "cdp_cmd": "Bad.command"})
+        req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1", "cdp": {"cmd": "Bad.command"}})
         with pytest.raises(Exception, match="Error executing CDP command"):
             svc._cmd_sessions_cdp(req)

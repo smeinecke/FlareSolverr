@@ -76,8 +76,7 @@ class V1RequestBase(object):
     captchaSolver: str | None = None  # Optional per-request solver override
     enabledServices: list[str] | None = None  # Optional per-request/session enabled challenge services
     # CDP command execution (sessions.cdp)
-    cdp_cmd: str | None = None
-    cdp_params: dict[str, Any] | None = None
+    cdp: dict[str, Any] | None = None
     # JavaScript injection (issue #38).
     # NOTE: Raw JS execution is already supported via:
     #   - sessions.eval command (driver.execute_script)

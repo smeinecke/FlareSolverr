@@ -161,8 +161,7 @@ Executes a Chrome DevTools Protocol (CDP) command directly on the session's brow
 | Parameter | Notes |
 | --------- | ----- |
 | session | The session ID to target. |
-| cdp_cmd | The CDP command name, e.g. `Page.addScriptToEvaluateOnNewDocument`. |
-| cdp_params | Optional. Dictionary of parameters for the CDP command. |
+| cdp | Dictionary with `cmd` (CDP command name) and optional `params` (parameters dict). |
 
 Example:
 
@@ -170,9 +169,11 @@ Example:
 {
   "cmd": "sessions.cdp",
   "session": "my-session",
-  "cdp_cmd": "Page.addScriptToEvaluateOnNewDocument",
-  "cdp_params": {
-    "source": "console.log('injected')"
+  "cdp": {
+    "cmd": "Page.addScriptToEvaluateOnNewDocument",
+    "params": {
+      "source": "console.log('injected')"
+    }
   }
 }
 ```
