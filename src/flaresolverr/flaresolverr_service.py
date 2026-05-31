@@ -231,8 +231,6 @@ def _validate_common_request_params(req: V1RequestBase) -> None:
     """Validate request parameters shared between GET and POST commands."""
     if req.returnRawHtml is not None:
         logging.warning("Request parameter 'returnRawHtml' was removed in FlareSolverr v2.")
-    if req.download is not None:
-        logging.warning("Request parameter 'download' was removed in FlareSolverr v2.")
     if req.captchaSolver is not None:
         available = get_available_solvers()
         if req.captchaSolver not in available:
@@ -875,6 +873,62 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
     return eval_results
 
 
+def _get_download_content(driver: WebDriver, url: str) -> tuple[str, bool, dict[str, str] | None]:
+    """Get raw page content for download mode.
+
+    Tries CDP Page.getResourceContent first, then falls back to a JS fetch.
+    Returns (content, is_binary, headers_dict_or_none).
+    """
+    # Try CDP Page.getResourceContent first
+    try:
+        driver.execute_cdp_cmd("Page.enable", {})
+        resource = driver.execute_cdp_cmd("Page.getResourceContent", {"url": url})
+        content = resource.get("content", "")
+        is_base64 = resource.get("base64Encoded", False)
+        if is_base64:
+            return content, True, None
+        return content, False, None
+    except Exception as e:
+        logging.debug(f"Page.getResourceContent failed: {e}")
+
+    # Fallback: JS fetch with FileReader data URL
+    script = """
+        return fetch(arguments[0], {credentials: 'include'})
+            .then(r => r.blob())
+            .then(blob => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve({
+                    dataUrl: reader.result,
+                    type: blob.type,
+                    size: blob.size
+                });
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            }));
+    """
+    try:
+        result = driver.execute_script(script, url)
+        data_url = result.get("dataUrl", "")
+        content_type = result.get("type", "")
+        size = result.get("size", 0)
+        if data_url.startswith("data:"):
+            comma_idx = data_url.index(",")
+            content = data_url[comma_idx + 1:]
+            is_binary = utils.is_binary_content_type(content_type)
+            headers: dict[str, str] | None = {}
+            if content_type:
+                headers["Content-Type"] = content_type
+            if size:
+                headers["Content-Length"] = str(size)
+            return content, is_binary, headers
+    except Exception as e:
+        logging.debug(f"JS fetch fallback failed: {e}")
+
+    # Ultimate fallback: page_source
+    page_source = _safe_driver_call(lambda: driver.page_source, "")
+    return page_source or "", False, None
+
+
 def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_token: str | None) -> ChallengeResolutionResultT:
     challenge_res = ChallengeResolutionResultT({})
     challenge_res.url = driver.current_url
@@ -895,7 +949,14 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
             logging.info("Waiting " + str(req.waitInSeconds) + " seconds before returning the response...")
             time.sleep(req.waitInSeconds)
 
-        challenge_res.response = driver.page_source
+        if req.download:
+            content, is_binary, download_headers = _get_download_content(driver, driver.current_url)
+            challenge_res.response = content
+            challenge_res.isBinary = is_binary
+            if download_headers:
+                challenge_res.headers = download_headers
+        else:
+            challenge_res.response = driver.page_source
 
     # Get cookies after waiting to ensure all challenge cookies are captured
     challenge_res.cookies = driver.get_cookies()

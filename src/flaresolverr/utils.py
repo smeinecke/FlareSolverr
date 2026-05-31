@@ -42,6 +42,23 @@ STEALTH_MODE_STANDARD = "standard"
 STEALTH_MODE_CSP_SAFE = "csp-safe"
 VALID_STEALTH_MODES = {STEALTH_MODE_OFF, STEALTH_MODE_STANDARD, STEALTH_MODE_CSP_SAFE}
 
+_TEXT_CONTENT_PREFIXES = (
+    "text/",
+    "application/json",
+    "application/javascript",
+    "application/xml",
+    "application/xhtml+xml",
+    "application/ld+json",
+)
+
+
+def is_binary_content_type(content_type: str | None) -> bool:
+    """Return True if the content-type indicates binary data."""
+    if not content_type:
+        return True
+    ct = content_type.lower()
+    return not ct.startswith(_TEXT_CONTENT_PREFIXES)
+
 
 def _load_stealth_script(fallback: bool = False) -> str:
     global _STEALTH_SCRIPT, _STEALTH_FALLBACK_SCRIPT
