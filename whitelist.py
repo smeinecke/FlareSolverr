@@ -8,6 +8,7 @@ to static analysis, but are required at runtime.
 from flaresolverr.bottle_plugins import error_plugin, logger_plugin, prometheus_plugin
 from flaresolverr.client.client import _SessionManager
 from flaresolverr.client.models import ChallengeSolution
+from flaresolverr.dtos import ChallengeResolutionResultT
 from flaresolverr.sessions import SessionsStorage
 from selenium.webdriver.chrome.options import Options
 
@@ -24,6 +25,7 @@ _SessionManager.click
 _SessionManager.action
 
 # Model fields populated dynamically from API responses
+ChallengeResolutionResultT.isBinary
 ChallengeSolution.evalResult
 ChallengeSolution.networkLogs
 ChallengeSolution.screenshot

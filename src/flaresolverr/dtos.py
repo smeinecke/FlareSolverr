@@ -13,6 +13,7 @@ class ChallengeResolutionResultT:
     userAgent: str | None = None
     screenshot: str | None = None  # noqa
     turnstile_token: str | None = None
+    isBinary: bool | None = None
     # Session interaction results
     evalResult: Any | None = None
     networkLogs: list[dict[str, Any]] | None = None
@@ -56,7 +57,7 @@ class V1RequestBase(object):
     postDataContentType: str | None = None
     returnOnlyCookies: bool | None = None
     returnScreenshot: bool | None = None
-    download: bool | None = None  # deprecated v2.0.0, not used
+    download: bool | None = None
     returnRawHtml: bool | None = None  # deprecated v2.0.0, not used
     waitInSeconds: int | None = None
     # Session interaction commands
