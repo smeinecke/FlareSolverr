@@ -183,7 +183,7 @@ class _SessionManager:
         - {"type": "click", "selector": "//button", "humanLike": false}
         - {"type": "wait_for", "selector": "//div"}
         - {"type": "wait", "seconds": 2}
-        - {"type": "eval", "script": "return document.title"}
+        - {"type": "eval", "script": "return document.title", "returnResult": true}
 
         Args:
             session_id: The session ID to execute actions in.
@@ -258,6 +258,7 @@ class _RequestManager:
         user_agent: str | None = None,
         accept_language: str | None = None,
         enabled_services: list[str] | None = None,
+        script_inject: list[dict] | None = None,
     ) -> V1Response:
         """Send a GET request through FlareSolverr.
 
@@ -313,6 +314,7 @@ class _RequestManager:
             user_agent=user_agent,
             accept_language=accept_language,
             enabled_services=enabled_services,
+            script_inject=script_inject,
         )
         return self._client._post_v1(payload)
 
@@ -341,6 +343,7 @@ class _RequestManager:
         user_agent: str | None = None,
         accept_language: str | None = None,
         enabled_services: list[str] | None = None,
+        script_inject: list[dict] | None = None,
     ) -> V1Response:
         """Send a POST request through FlareSolverr.
 
@@ -397,6 +400,7 @@ class _RequestManager:
             user_agent=user_agent,
             accept_language=accept_language,
             enabled_services=enabled_services,
+            script_inject=script_inject,
         )
         return self._client._post_v1(payload)
 
@@ -426,6 +430,7 @@ class _RequestManager:
         user_agent: str | None = None,
         accept_language: str | None = None,
         enabled_services: list[str] | None = None,
+        script_inject: list[dict] | None = None,
     ) -> dict[str, Any]:
         """Build the API request payload."""
         payload: dict[str, Any] = {
@@ -474,6 +479,8 @@ class _RequestManager:
             payload["acceptLanguage"] = accept_language
         if enabled_services is not None:
             payload["enabledServices"] = enabled_services
+        if script_inject is not None:
+            payload["scriptInject"] = script_inject
 
         return payload
 

@@ -66,16 +66,28 @@ class V1RequestBase(object):
     tabs_till_verify: int | None = None
     # Optional list of browser actions to perform after the page loads (before capturing the result).
     # Supported action types:
-    #   {"type": "fill",           "selector": "//input[@id='id']", "value": "text"} — clear and type into a field
-    #   {"type": "click",          "selector": "//button", "humanLike": false} — click; set humanLike=true for bezier-curve mouse movement
-    #   {"type": "wait_for",       "selector": "//div[@id='result']"}    — wait until selector is visible
-    #   {"type": "wait",           "seconds": 2}                         — sleep N seconds
+    #   {"type": "fill",           "selector": "//input[@id='id']", "value": "text"} - clear and type into a field
+    #   {"type": "click",          "selector": "//button", "humanLike": false} - click; set humanLike=true for bezier-curve mouse movement
+    #   {"type": "wait_for",       "selector": "//div[@id='result']"}    - wait until selector is visible
+    #   {"type": "wait",           "seconds": 2}                         - sleep N seconds
+    #   {"type": "eval",           "script": "return document.title"}      - execute JS and capture result
+    #   {"type": "eval",           "script": "return document.title", "returnResult": false} - execute JS without capturing
     actions: list[dict[str, Any]] | None = None
     captchaSolver: str | None = None  # Optional per-request solver override
     enabledServices: list[str] | None = None  # Optional per-request/session enabled challenge services
     # CDP command execution (sessions.cdp)
     cdp_cmd: str | None = None
     cdp_params: dict[str, Any] | None = None
+    # JavaScript injection (issue #38).
+    # NOTE: Raw JS execution is already supported via:
+    #   - sessions.eval command (driver.execute_script)
+    #   - "eval" action type in the actions chain
+    # scriptInject adds *declarative* injection at page lifecycle points
+    # (document_start, document_end, document_idle) controlled by the
+    # JS_INJECTION_ENABLED environment variable.
+    # Each entry is {"script": "...", "point": "document_start|document_end|document_idle"}.
+    # When point is omitted, it defaults to document_idle.
+    scriptInject: list[dict[str, Any]] | None = None  # noqa
 
     def __init__(self, _dict: dict[str, Any]):
         self.__dict__.update(_dict)

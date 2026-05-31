@@ -855,13 +855,19 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
             logging.debug(f"Action wait: {seconds}s")
             time.sleep(seconds)
         elif action_type == "eval":
+            # issue #38 - eval supports an optional returnResult flag.
+            # Defaults to True for backward compatibility.
             script = action.get("script", "")
+            should_return = action.get("returnResult", True)
             logging.debug(f"Action eval: script={script[:80]!r}")
             try:
                 result = driver.execute_script(script)
             except Exception as e:
                 raise Exception(f"Error executing eval action: {e}")
-            eval_results.append(result)
+            if should_return:
+                eval_results.append(result)
+            else:
+                eval_results.append(None)
             continue
         else:
             logging.warning(f"Unknown action type: {action_type!r}")
@@ -900,6 +906,55 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
     return challenge_res
 
 
+def _apply_js_injection(req: V1RequestBase, driver: WebDriver, point: str) -> None:
+    """Apply declarative JS injections for the given lifecycle point.
+
+    Collects all scripts from req.scriptInject whose point matches the
+    current lifecycle stage and injects them.
+
+    Args:
+        req: The incoming request.
+        driver: The active WebDriver instance.
+        point: The lifecycle point being processed (document_start, document_end,
+               document_idle).
+    """
+    if not utils.get_config_js_injection_enabled():
+        if req.scriptInject is not None:
+            logging.warning("JS injection fields ignored because JS_INJECTION_ENABLED is not set to true.")
+        return
+
+    if req.scriptInject is None or len(req.scriptInject) == 0:
+        return
+
+    point_lc = point.lower()
+    matched = []
+    for item in req.scriptInject:
+        if not isinstance(item, dict):
+            continue
+        script = item.get("script", "")
+        if not script:
+            continue
+        item_point = (item.get("point") or "document_idle").lower()
+        if item_point == point_lc:
+            matched.append(script)
+
+    if not matched:
+        return
+
+    for script in matched:
+        logging.info(f"Applying JS injection at '{point}'")
+        if point == "document_start":
+            try:
+                driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": script})
+            except Exception as e:
+                logging.warning(f"Failed to inject script at document_start: {e}")
+        else:
+            try:
+                driver.execute_script(script)
+            except Exception as e:
+                logging.warning(f"Failed to inject script at {point}: {e}")
+
+
 def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_services: list[str]) -> ChallengeResolutionT:
     if req.url is None:
         raise Exception("Request parameter 'url' is mandatory in request commands.")
@@ -911,6 +966,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
 
     _configure_blocked_media(req, driver)
     _set_custom_headers(req, driver)
+    _apply_js_injection(req, driver, "document_start")
     turnstile_token = _navigate_request(req, driver, method, target_url)
     _set_request_cookies(req, driver, method, target_url)
 
@@ -919,6 +975,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
         logging.debug(f"Response HTML:\n{driver.page_source}")
     page_title = driver.title
 
+    _apply_js_injection(req, driver, "document_end")
     _raise_if_navigation_error(driver)
     _raise_if_access_denied(driver, page_title)
     detected_service = SERVICE_MANAGER.detect(driver, enabled_services)
@@ -944,6 +1001,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
         logging.info("Challenge not detected!")
         res.message = "Challenge not detected!"
 
+    _apply_js_injection(req, driver, "document_idle")
     res.result = _build_challenge_result(req, driver, turnstile_token)
     return res
 

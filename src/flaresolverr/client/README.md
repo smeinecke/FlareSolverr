@@ -91,6 +91,10 @@ response = client.request.get(
     accept_language="fr-FR,fr",     # Optional per-request Accept-Language override
     wait_in_seconds=2,              # Wait after page load
     enabled_services=["cloudflare", "ddos_guard", "brave"],  # Optional: override which challenge services are active
+    script_inject=[                 # Optional: declarative JS injection (requires JS_INJECTION_ENABLED)
+        {"script": "window.before = 1;", "point": "document_start"},
+        {"script": "window.after = 2;", "point": "document_idle"},
+    ],
     proxy=ProxyConfig(url="http://proxy:8080"),
     cookies=[Cookie(name="session", value="abc", domain=".example.com", path="/")],
     headers=[Header(name="User-Agent", value="Custom/1.0")],
@@ -128,6 +132,8 @@ actions = (
     .fill("//input[@id='password']", "secret123")
     .click("//button[@type='submit']")                # Click button
     .wait_for("//div[@id='dashboard']")                # Wait for element
+    .eval("return document.title")                    # Execute JS and capture result
+    .eval("window.foo = 1;", return_result=False)     # Execute JS without capturing
     .build()
 )
 
@@ -140,6 +146,7 @@ response = client.request.get("https://example.com/login", actions=actions)
 - `fill(selector, value)` - Type value into field (uses XPath)
 - `click(selector, human_like=False)` - Click element
 - `wait_for(selector)` - Wait until element is visible
+- `eval(script, return_result=True)` - Execute JavaScript. Set `return_result=False` to skip capturing the return value.
 
 ### Models
 

@@ -91,7 +91,7 @@ class ActionQueue:
         self._actions.append(Action(type="wait_for", selector=selector))
         return self
 
-    def eval(self, script: str) -> ActionQueue:  # noqa
+    def eval(self, script: str, *, return_result: bool = True) -> ActionQueue:  # noqa
         """Execute JavaScript in the page and capture the return value.
 
         The script's return value is included in the response under
@@ -100,11 +100,13 @@ class ActionQueue:
 
         Args:
             script: The JavaScript code to execute.
+            return_result: If True (default), the return value is captured in
+                `solution.evalResult`.
 
         Returns:
             Self for method chaining.
         """
-        self._actions.append(Action(type="eval", script=script))
+        self._actions.append(Action(type="eval", script=script, returnResult=return_result))
         return self
 
     def build(self) -> list[dict]:  # noqa
