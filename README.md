@@ -83,8 +83,6 @@ For the complete API reference - all commands, parameters, browser actions, Java
 | PROXY_USERNAME     | none                   | Username for proxy. Will be overwritten by `request` or `sessions` proxy, if used. Example: `testuser`.                                  |
 | PROXY_PASSWORD     | none                   | Password for proxy. Will be overwritten by `request` or `sessions` proxy, if used. Example: `testpass`.                                  |
 | CAPTCHA_SOLVER     | default                | Captcha solving method. It is used when a captcha is encountered. See the Captcha Solvers section.                                       |
-| TZ                 | UTC                    | Timezone used in the logs and the web browser. Example: `TZ=Europe/London`.                                                              |
-| LANG               | none                   | Language used in the web browser. Example: `LANG=en_GB`.                                                                                 |
 | ACCEPT_LANGUAGE    | en-US,en               | Default `Accept-Language` header sent by the browser. Can be overridden per-request or per-session via the `acceptLanguage` parameter. Example: `ACCEPT_LANGUAGE=de-DE,de`. |
 | HEADLESS           | true                   | Only for debugging. To run the web browser in headless mode or visible.                                                                  |
 | DISABLE_MEDIA      | false                  | To disable loading images, CSS, and other media in the web browser to save network bandwidth.                                            |

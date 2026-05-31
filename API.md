@@ -88,6 +88,22 @@ This will properly shutdown a browser instance and remove all files associated w
 | --------- | ----- |
 | session | The session ID that you want to be destroyed. |
 
+### + `sessions.cleanup`
+
+Triggers manual cleanup of expired sessions (by idle timeout or max runtime) and returns the list of destroyed session IDs.
+
+No parameters required.
+
+Example response:
+
+```json
+{
+  "status": "ok",
+  "message": "Cleaned up 2 session(s).",
+  "sessions": ["session_id_1", "session_id_2"]
+}
+```
+
 ### + `sessions.get`
 
 Retrieves the current state of a session without re-navigating. Returns the current URL, page title, full page source,
@@ -329,7 +345,11 @@ Example response from a `request.get`:
       }
     ],
     "userAgent": "Windows NT 10.0; Win64; x64) AppleWebKit/5...",
-    "turnstile_token": "03AGdBq24k3lK7JH2v8uN1T5F..."
+    "turnstile_token": "03AGdBq24k3lK7JH2v8uN1T5F...",
+    "title": "Example Domain",
+    "screenshot": "iVBORw0KGgoAAAANSUhEUgAA...",
+    "evalResult": "Hello from JS",
+    "networkLogs": []
   },
   "status": "ok",
   "message": "",
@@ -338,3 +358,9 @@ Example response from a `request.get`:
   "version": "1.0.0"
 }
 ```
+
+> **Note:** Response fields are populated depending on the command and parameters used:
+> - `title` — present in `sessions.get`, `sessions.screenshot`, and `sessions.action` responses.
+> - `screenshot` — present when `returnScreenshot=true` (requests) or from `sessions.screenshot`.
+> - `evalResult` — present when an `eval` action is used or from `sessions.eval` / `sessions.action`.
+> - `networkLogs` — present in the `sessions.network` response.
