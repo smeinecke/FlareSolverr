@@ -913,7 +913,7 @@ def _get_download_content(driver: WebDriver, url: str) -> tuple[str, bool, dict[
         size = result.get("size", 0)
         if data_url.startswith("data:"):
             comma_idx = data_url.index(",")
-            content = data_url[comma_idx + 1:]
+            content = data_url[comma_idx + 1 :]
             is_binary = utils.is_binary_content_type(content_type)
             headers: dict[str, str] | None = {}
             if content_type:
