@@ -1105,12 +1105,15 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
 
         # Continue the intercepted request as POST with raw body
         post_data_b64 = base64.b64encode(post_data.encode("utf-8")).decode("ascii")
-        driver.execute_cdp_cmd("Fetch.continueRequest", {
-            "requestId": request_id,
-            "method": "POST",
-            "postData": post_data_b64,
-            "headers": headers,
-        })
+        driver.execute_cdp_cmd(
+            "Fetch.continueRequest",
+            {
+                "requestId": request_id,
+                "method": "POST",
+                "postData": post_data_b64,
+                "headers": headers,
+            },
+        )
 
         # Wait for the page to finish loading
         load_timeout = 60
