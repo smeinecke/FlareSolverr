@@ -81,6 +81,10 @@ If you prefer Podman, see [PODMAN.md](./PODMAN.md) for two ready-to-run examples
 - a standard Podman deployment
 - a restricted deployment with separate networks and a `dnsdist` DNS sidecar so FlareSolverr itself has no public egress
 
+### HAProxy / Clustering
+
+If you want to run multiple FlareSolverr instances behind a load balancer with session-aware routing, see [HAPROXY.md](./HAPROXY.md). It covers how to use the `X-FlareSolverr-Session` header with HAProxy to ensure requests for the same session always reach the backend that owns it.
+
 ### Precompiled binaries
 
 > **Warning**
@@ -301,7 +305,7 @@ Example:
 | Parameter           | Notes                                                                                                                                                                                                                                                                                                                                        |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | url                 | Mandatory                                                                                                                                                                                                                                                                                                                                    |
-| session             | Optional. Will send the request from and existing browser instance. If one is not sent it will create a temporary instance that will be destroyed immediately after the request is completed.                                                                                                                                                |
+| session             | Optional. Will send the request from an existing browser instance. If one is not sent it will create a temporary instance that will be destroyed immediately after the request is completed. Can also be passed as the `X-FlareSolverr-Session` HTTP header (body value takes precedence). |
 | session_ttl_minutes | Optional. FlareSolverr will automatically rotate expired sessions based on the TTL provided in minutes.                                                                                                                                                                                                                                      |
 | sessionMaxRuntime   | Optional. Per-session maximum lifetime in seconds. Overrides the global `SESSION_MAX_RUNTIME` env var for this request's session. Session is destroyed when lifetime exceeds this value. |
 | sessionIdleTimeout  | Optional. Per-session idle timeout in seconds. Overrides the global `SESSION_IDLE_TIMEOUT` env var for this request's session. Session is destroyed when idle longer than this value. |
@@ -584,6 +588,24 @@ response = client.request.get("https://example.com/login", actions=actions)
 ```
 
 For detailed documentation, see [src/flaresolverr/client/README.md](./src/flaresolverr/client/README.md).
+
+## Clustering with HAProxy
+
+FlareSolverr sessions are stored in local memory, so when running multiple instances behind a load balancer you must ensure session affinity (sticky sessions). FlareSolverr accepts the session ID via the `X-FlareSolverr-Session` HTTP header in addition to the JSON body. This allows HAProxy (or any reverse proxy) to inspect incoming traffic and route requests to the correct backend without parsing the request body.
+
+Quick example with HAProxy:
+
+```haproxy
+backend flaresolverr_backend
+    balance hdr(X-FlareSolverr-Session)
+    hash-type consistent
+    option httpchk GET /health
+    server fs1 10.0.0.11:8191 check
+    server fs2 10.0.0.12:8191 check
+    server fs3 10.0.0.13:8191 check
+```
+
+For a full configuration including Docker Compose, client integration notes, and operational considerations, see [HAPROXY.md](./HAPROXY.md).
 
 ## Related projects
 

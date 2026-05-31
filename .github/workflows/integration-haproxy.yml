@@ -1,0 +1,110 @@
+name: HAProxy Cluster Integration Test
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  haproxy-integration:
+    name: HAProxy Cluster (Docker)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build FlareSolverr Docker image
+        run: |
+          docker build -t flaresolverr:haproxy-test .
+
+      - name: Start HAProxy + FlareSolverr cluster
+        run: |
+          cat > docker-compose.haproxy.yml << 'EOF'
+          services:
+            haproxy:
+              image: haproxy:2.9-alpine
+              ports:
+                - "127.0.0.1:8191:8191"
+              volumes:
+                - ./tests/integration/docker/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+              depends_on:
+                flaresolverr-1:
+                  condition: service_healthy
+                flaresolverr-2:
+                  condition: service_healthy
+
+            flaresolverr-1:
+              image: flaresolverr:haproxy-test
+              environment:
+                - LOG_LEVEL=info
+              healthcheck:
+                test: ["CMD", "curl", "-fsS", "http://localhost:8191/health"]
+                interval: 5s
+                timeout: 10s
+                retries: 10
+
+            flaresolverr-2:
+              image: flaresolverr:haproxy-test
+              environment:
+                - LOG_LEVEL=info
+              healthcheck:
+                test: ["CMD", "curl", "-fsS", "http://localhost:8191/health"]
+                interval: 5s
+                timeout: 10s
+                retries: 10
+          EOF
+          docker compose -f docker-compose.haproxy.yml up -d
+
+      - name: Wait for HAProxy to be ready
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:8191/health >/dev/null 2>&1; then
+              echo "HAProxy cluster is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "HAProxy cluster failed to start"
+          docker compose -f docker-compose.haproxy.yml logs
+          exit 1
+
+      - name: Cache uv
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.cache/pip
+          key: uv-cache-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            uv-cache-
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync --group dev --extra test
+
+      - name: Run HAProxy end-to-end tests
+        env:
+          HAPROXY_URL: http://127.0.0.1:8191
+        run: |
+          uv run pytest -m integration tests/integration/test_haproxy.py::TestHAProxyFlareSolverrEndToEnd -vv
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.haproxy.yml logs
+
+      - name: Tear down services
+        if: always()
+        run: |
+          docker compose -f docker-compose.haproxy.yml down -v --remove-orphans
+          rm -f docker-compose.haproxy.yml

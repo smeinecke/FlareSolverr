@@ -37,7 +37,7 @@ def test_health_returns_serialized_endpoint_response(monkeypatch) -> None:
 def test_controller_v1_uses_env_proxy_url_only(monkeypatch) -> None:
     captured = {"req": None}
 
-    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={"cmd": "request.get"}))
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={"cmd": "request.get"}, get_header=lambda _name: None))
     monkeypatch.setattr(flaresolverr, "response", SimpleNamespace(status=200))
     monkeypatch.setattr(flaresolverr, "env_proxy_url", "http://proxy:8080")
     monkeypatch.setattr(flaresolverr, "env_proxy_username", None)
@@ -59,7 +59,7 @@ def test_controller_v1_uses_env_proxy_url_only(monkeypatch) -> None:
 def test_controller_v1_uses_env_proxy_with_credentials(monkeypatch) -> None:
     captured = {"req": None}
 
-    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={"cmd": "request.get"}))
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={"cmd": "request.get"}, get_header=lambda _name: None))
     monkeypatch.setattr(flaresolverr, "response", SimpleNamespace(status=200))
     monkeypatch.setattr(flaresolverr, "env_proxy_url", "http://proxy:8080")
     monkeypatch.setattr(flaresolverr, "env_proxy_username", "user")
@@ -81,7 +81,7 @@ def test_controller_v1_keeps_explicit_proxy_from_request(monkeypatch) -> None:
     explicit_proxy = {"url": "http://explicit:9999"}
     captured = {"req": None}
 
-    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={"cmd": "request.get", "proxy": explicit_proxy}))
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={"cmd": "request.get", "proxy": explicit_proxy}, get_header=lambda _name: None))
     monkeypatch.setattr(flaresolverr, "response", SimpleNamespace(status=200))
     monkeypatch.setattr(flaresolverr, "env_proxy_url", "http://env:8080")
     monkeypatch.setattr(flaresolverr, "env_proxy_username", "user")
@@ -100,7 +100,7 @@ def test_controller_v1_keeps_explicit_proxy_from_request(monkeypatch) -> None:
 
 
 def test_controller_v1_sets_500_status_when_error_flagged(monkeypatch) -> None:
-    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={}))
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={}, get_header=lambda _name: None))
     fake_response = SimpleNamespace(status=200)
     monkeypatch.setattr(flaresolverr, "response", fake_response)
     monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
@@ -117,7 +117,7 @@ def test_controller_v1_sets_500_status_when_error_flagged(monkeypatch) -> None:
 
 
 def test_controller_v1_sets_429_status_when_limit_reached(monkeypatch) -> None:
-    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={}))
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={}, get_header=lambda _name: None))
     fake_response = SimpleNamespace(status=200)
     monkeypatch.setattr(flaresolverr, "response", fake_response)
     monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
@@ -131,3 +131,81 @@ def test_controller_v1_sets_429_status_when_limit_reached(monkeypatch) -> None:
 
     assert fake_response.status == 429
     assert result == {"message": "too busy"}
+
+
+def test_controller_v1_uses_session_header_when_body_empty(monkeypatch) -> None:
+    captured = {"req": None}
+
+    monkeypatch.setattr(
+        flaresolverr,
+        "request",
+        SimpleNamespace(json={"cmd": "request.get"}, get_header=lambda name: "header-session-123" if name == "X-FlareSolverr-Session" else None),
+    )
+    monkeypatch.setattr(flaresolverr, "response", SimpleNamespace(status=200))
+    monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_username", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_password", None)
+
+    def fake_controller(req):
+        captured["req"] = req
+        return SimpleNamespace(__error_500__=False)
+
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "controller_v1_endpoint", fake_controller)
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda _res: {"ok": True})
+
+    flaresolverr.controller_v1()
+
+    assert captured["req"].session == "header-session-123"
+
+
+def test_controller_v1_prefers_body_session_over_header(monkeypatch) -> None:
+    captured = {"req": None}
+
+    monkeypatch.setattr(
+        flaresolverr,
+        "request",
+        SimpleNamespace(
+            json={"cmd": "request.get", "session": "body-session-456"},
+            get_header=lambda name: "header-session-123" if name == "X-FlareSolverr-Session" else None,
+        ),
+    )
+    monkeypatch.setattr(flaresolverr, "response", SimpleNamespace(status=200))
+    monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_username", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_password", None)
+
+    def fake_controller(req):
+        captured["req"] = req
+        return SimpleNamespace(__error_500__=False)
+
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "controller_v1_endpoint", fake_controller)
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda _res: {"ok": True})
+
+    flaresolverr.controller_v1()
+
+    assert captured["req"].session == "body-session-456"
+
+
+def test_controller_v1_ignores_missing_session_header(monkeypatch) -> None:
+    captured = {"req": None}
+
+    monkeypatch.setattr(
+        flaresolverr,
+        "request",
+        SimpleNamespace(json={"cmd": "request.get"}, get_header=lambda _name: None),
+    )
+    monkeypatch.setattr(flaresolverr, "response", SimpleNamespace(status=200))
+    monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_username", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_password", None)
+
+    def fake_controller(req):
+        captured["req"] = req
+        return SimpleNamespace(__error_500__=False)
+
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "controller_v1_endpoint", fake_controller)
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda _res: {"ok": True})
+
+    flaresolverr.controller_v1()
+
+    assert captured["req"].session is None

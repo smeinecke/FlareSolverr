@@ -58,6 +58,10 @@ def controller_v1() -> dict[str, Any]:  # noqa
     """
     request_json = cast(Any, request.json)
     data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
+    if not data.get("session"):
+        session_header = request.get_header("X-FlareSolverr-Session")
+        if session_header:
+            data["session"] = session_header
     if ("proxy" not in data or not data.get("proxy")) and env_proxy_url is not None and (env_proxy_username is None and env_proxy_password is None):
         logging.info("Using proxy URL ENV")
         data["proxy"] = {"url": env_proxy_url}
