@@ -757,8 +757,9 @@ def get_chrome_major_version() -> str:
         return CHROME_MAJOR_VERSION
 
     complete_version = _get_chrome_complete_version()
-    CHROME_MAJOR_VERSION = complete_version.split(".")[0].split(" ")[-1]
-    return CHROME_MAJOR_VERSION
+    result = complete_version.split(".")[0].split(" ")[-1]
+    CHROME_MAJOR_VERSION = result
+    return result
 
 
 def get_chrome_full_version() -> str:
@@ -768,8 +769,9 @@ def get_chrome_full_version() -> str:
 
     complete_version = _get_chrome_complete_version()
     match = re.search(r"(\d+\.\d+\.\d+\.\d+)", complete_version)
-    CHROME_FULL_VERSION = match.group(1) if match else ""
-    return CHROME_FULL_VERSION
+    result = match.group(1) if match else ""
+    CHROME_FULL_VERSION = result
+    return result
 
 
 def extract_version_nt_executable(exe_path: str) -> str:

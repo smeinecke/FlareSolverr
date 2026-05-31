@@ -71,12 +71,7 @@ class BraveService(ChallengeService):
                 button.click()
                 logging.debug("Brave button clicked, waiting for it to become clickable again or challenge to resolve...")
                 try:
-                    WebDriverWait(driver, SHORT_TIMEOUT).until(
-                        lambda d: (
-                            not self._page_has_captcha(d)
-                            or self._find_clickable_verify_button(d) is not None
-                        )
-                    )
+                    WebDriverWait(driver, SHORT_TIMEOUT).until(lambda d: not self._page_has_captcha(d) or self._find_clickable_verify_button(d) is not None)
                     # If challenge is resolved, the next loop iteration will break.
                     # If button became clickable again, we loop and click again.
                     continue

@@ -342,9 +342,7 @@ def _cmd_sessions_get(req: V1RequestBase) -> V1ResponseBase:
     result.title = _safe_driver_call(lambda: driver.title, None)
     result.response = _safe_driver_call(lambda: driver.page_source, None)
     result.cookies = _safe_driver_call(driver.get_cookies, [])
-    result.userAgent = _safe_driver_call(
-        lambda: driver.execute_script("return navigator.userAgent"), None
-    )
+    result.userAgent = _safe_driver_call(lambda: driver.execute_script("return navigator.userAgent"), None)
 
     res = V1ResponseBase({})
     res.status = STATUS_OK
