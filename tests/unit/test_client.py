@@ -244,7 +244,7 @@ class TestIndexResponse:
 
 
 # ---------------------------------------------------------------------------
-# FlareSolverrClient — _build_payload
+# FlareSolverrClient - _build_payload
 # ---------------------------------------------------------------------------
 
 class TestRequestManagerPayload:
@@ -331,7 +331,7 @@ class TestRequestManagerPayload:
 
 
 # ---------------------------------------------------------------------------
-# FlareSolverrClient — HTTP layer (mocked)
+# FlareSolverrClient - HTTP layer (mocked)
 # ---------------------------------------------------------------------------
 
 class TestFlareSolverrClientHTTP:

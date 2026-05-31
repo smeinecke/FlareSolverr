@@ -46,7 +46,7 @@ RUN uv sync --frozen --no-dev \
     && rm -rf /root/.cache /tmp/*
 
 # ---------------------------------------------------------------------------
-# Custom Chromium stage (amd64 / arm64 only — built separately).
+# Custom Chromium stage (amd64 / arm64 only - built separately).
 # Must be defined BEFORE the final stage so COPY --from=custom-chrome works.
 # The ARG was declared globally at the top of this file.
 # ---------------------------------------------------------------------------

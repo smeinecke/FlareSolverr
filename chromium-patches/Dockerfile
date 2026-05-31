@@ -31,7 +31,7 @@ ENV CCACHE_MAXSIZE=10G
 RUN mkdir -p /ccache
 
 # ---------------------------------------------------------------------------
-# Stage 2: Source sync only (no patches, no build — separate for caching)
+# Stage 2: Source sync only (no patches, no build - separate for caching)
 # ---------------------------------------------------------------------------
 FROM build-env AS source
 

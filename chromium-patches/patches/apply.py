@@ -251,7 +251,7 @@ class PatchApplier:
         #   • typeof null === "object"  (the old boolean? / std::nullopt approach)
         #   • detectable prototype getter overrides (JS-only workaround)
         #
-        # No C++ implementation changes needed — just the IDL attribute annotation.
+        # No C++ implementation changes needed - just the IDL attribute annotation.
         # Chrome 112+: moved to core/frame/navigator_automation_information.idl.
         # ──────────────────────────────────────────────────────────────────────────────
         print("Patch 2: navigator.webdriver → undefined via [RuntimeEnabled=AutomationControlled]")
@@ -267,7 +267,7 @@ class PatchApplier:
             "    [RuntimeEnabled=AutomationControlled] readonly attribute boolean webdriver;",
             "gate webdriver on AutomationControlled runtime feature",
             fallbacks=[
-                # Old Patch 2 left the IDL as boolean? — normalise it first.
+                # Old Patch 2 left the IDL as boolean? - normalise it first.
                 "    readonly attribute boolean? webdriver;",
                 # Older Chrome: modules/navigatorcontrolled/
                 "readonly attribute boolean webdriver;",
@@ -379,7 +379,7 @@ class PatchApplier:
 
         # Patch 3b: Forward webgl-unmasked-* switches from browser process to renderer.
         # Chrome's multi-process model does NOT automatically propagate custom switches
-        # to renderer processes — they must be explicitly copied in AppendRendererCommandLine
+        # to renderer processes - they must be explicitly copied in AppendRendererCommandLine
         # (or the equivalent AppendExtraCommandLineSwitches hook).
         # File: content/browser/renderer_host/render_process_host_impl.cc
         print("Patch 3b: forward webgl-unmasked-* switches to renderer processes")
@@ -412,7 +412,7 @@ class PatchApplier:
 
         # ──────────────────────────────────────────────────────────────────────────────
         # Patch 4: --preload-script flag (document_start injection via raw V8)
-        # Hook into RenderFrameImpl::DidCreateDocumentElement — fires AFTER V8 context
+        # Hook into RenderFrameImpl::DidCreateDocumentElement - fires AFTER V8 context
         # creation is complete, so it is safe to compile and run scripts.
         # DO NOT use DidCreateScriptContext: that fires DURING V8 context creation while
         # V8 holds internal spinlocks; calling Script::Compile there spins at 97% CPU.
@@ -482,7 +482,7 @@ class PatchApplier:
         # Main-frame preload injection is disabled: running v8::Script from
         # DidCreateDocumentElement causes 100% CPU spin (same as DidCreateScriptContext).
         # kDoNotRunMicrotasks does not fix it. Main frame uses CDP
-        # Page.addScriptToEvaluateOnNewDocument instead — see utils.py.
+        # Page.addScriptToEvaluateOnNewDocument instead - see utils.py.
         # _PRELOAD_INJECTION is kept above for future investigation.
 
         # ──────────────────────────────────────────────────────────────────────────────
@@ -562,7 +562,7 @@ class PatchApplier:
 
         # ──────────────────────────────────────────────────────────────────────────────
         # Patch 6: Remove "HeadlessChrome" product name token from UA string and
-        # userAgentData brand lists — replace with plain "Chrome" so headless mode
+        # userAgentData brand lists - replace with plain "Chrome" so headless mode
         # is indistinguishable from a normal browser UA.
         # File: headless/lib/browser/headless_browser_impl.cc
         # ──────────────────────────────────────────────────────────────────────────────
@@ -605,7 +605,7 @@ class PatchApplier:
                 "double VisualViewport::Width() const {\n"
                 "  // When stealth flag is set, return the layout viewport width to avoid\n"
                 "  // visualViewport vs innerWidth coherence mismatch detection.\n"
-                "  // Note: do NOT call window->innerWidth() here — that recurses back into\n"
+                "  // Note: do NOT call window->innerWidth() here - that recurses back into\n"
                 "  // VisualViewport::Width() via Page::GetVisualViewport().Width().\n"
                 "  static const bool stealth_viewport =\n"
                 '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
@@ -633,7 +633,7 @@ class PatchApplier:
                 "double VisualViewport::Height() const {\n"
                 "  // When stealth flag is set, return the layout viewport height to avoid\n"
                 "  // visualViewport vs innerHeight coherence mismatch detection.\n"
-                "  // Note: do NOT call window->innerHeight() here — that recurses back into\n"
+                "  // Note: do NOT call window->innerHeight() here - that recurses back into\n"
                 "  // VisualViewport::Height() via Page::GetVisualViewport().Height().\n"
                 "  static const bool stealth_viewport =\n"
                 '      base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-viewport-size");\n'
@@ -769,12 +769,12 @@ if __name__ == "__main__":
 
     if args.dry_run:
         applier.dry_run = True
-        print("*** DRY RUN — no files will be modified ***\n")
+        print("*** DRY RUN - no files will be modified ***\n")
 
     applier.run_patches()
 
     if applier.errors:
-        print(f"\n{applier.errors} patch(es) failed — see errors above.", file=sys.stderr)
+        print(f"\n{applier.errors} patch(es) failed - see errors above.", file=sys.stderr)
         sys.exit(1)
 
     if applier.dry_run:

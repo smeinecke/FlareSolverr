@@ -12,7 +12,7 @@ FlareSolverr accepts the session ID via the `X-FlareSolverr-Session` HTTP header
 
 ### Critical: Pre-Generate the Session ID
 
-Because HAProxy routes based on the session ID, **the client must pre-generate the session ID and send it via the `X-FlareSolverr-Session` header from the very first request** (including `sessions.create`). If you let the server assign a random UUID during `sessions.create`, the create request may land on backend A, but all subsequent requests carrying that server-generated ID may hash to backend B — where the session does not exist.
+Because HAProxy routes based on the session ID, **the client must pre-generate the session ID and send it via the `X-FlareSolverr-Session` header from the very first request** (including `sessions.create`). If you let the server assign a random UUID during `sessions.create`, the create request may land on backend A, but all subsequent requests carrying that server-generated ID may hash to backend B - where the session does not exist.
 
 Correct workflow:
 
@@ -24,13 +24,13 @@ Correct workflow:
 ### Example Request with Header
 
 ```bash
-# Create a session — header is present so HAProxy routes consistently from the start
+# Create a session - header is present so HAProxy routes consistently from the start
 curl -X POST http://flaresolverr-cluster:8191/v1 \
   -H "Content-Type: application/json" \
   -H "X-FlareSolverr-Session: my-session-id" \
   -d '{"cmd": "sessions.create"}'
 
-# Reuse the session — same header hits the same backend
+# Reuse the session - same header hits the same backend
 curl -X POST http://flaresolverr-cluster:8191/v1 \
   -H "Content-Type: application/json" \
   -H "X-FlareSolverr-Session: my-session-id" \
@@ -161,7 +161,7 @@ from flaresolverr import FlareSolverrClient
 
 client = FlareSolverrClient("http://haproxy:8191")
 
-# Create a session — client auto-generates a UUID and sends it in the body
+# Create a session - client auto-generates a UUID and sends it in the body
 resp = client.sessions.create()
 session_id = resp.session
 

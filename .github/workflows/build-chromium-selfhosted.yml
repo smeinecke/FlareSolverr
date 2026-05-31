@@ -2,9 +2,9 @@ name: Build Custom Chromium (Self-Hosted Runner)
 
 # Builds Chromium directly on the runner (no Docker for the compile step).
 # Persistent paths on the runner disk:
-#   /data/depot_tools  — depot_tools checkout (updated each run)
-#   /data/chromium/src — Chromium source tree (synced to version, never re-fetched)
-#   /data/ccache       — ccache directory (shared across all builds)
+#   /data/depot_tools  - depot_tools checkout (updated each run)
+#   /data/chromium/src - Chromium source tree (synced to version, never re-fetched)
+#   /data/ccache       - ccache directory (shared across all builds)
 #
 # First cold build: several hours depending on CPU count.
 # Subsequent builds of the same version: minutes (ccache hits).
@@ -96,7 +96,7 @@ jobs:
           fi
 
           if [ "$CURRENT_VERSION" = "$CHROMIUM_VERSION" ] && [ "${{ inputs.force_sync }}" != "true" ]; then
-            echo "Source already at $CHROMIUM_VERSION — skipping sync"
+            echo "Source already at $CHROMIUM_VERSION - skipping sync"
           elif [ -d "${{ env.CHROMIUM_ROOT }}/src/.git" ]; then
             echo "Updating existing source from $CURRENT_VERSION to $CHROMIUM_VERSION"
             cd "${{ env.CHROMIUM_ROOT }}/src"

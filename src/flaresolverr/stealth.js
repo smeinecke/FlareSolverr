@@ -1,9 +1,9 @@
 /**
- * stealth.js — JS-only fingerprint evasion patches for custom Chromium builds.
+ * stealth.js - JS-only fingerprint evasion patches for custom Chromium builds.
  *
  * Injected via --preload-script (C++ DidCreateDocumentElement hook).
  * Safe because DidCreateDocumentElement fires after V8 context creation is
- * complete. DO NOT inject from DidCreateScriptContext — that fires during V8
+ * complete. DO NOT inject from DidCreateScriptContext - that fires during V8
  * context creation while V8 holds internal spinlocks; Script::Compile there
  * causes 97% CPU spin.
  *
@@ -101,7 +101,7 @@
   // ── navigator.languages / language (instance patch, not prototype) ──────────────
   // C++ Patch 8 (--stealth-navigator-languages) handles both main frame and blob iframes.
   // This JS patch is defense-in-depth for any frame where CDP injection runs.
-  // Instance-level patching is undetectable — checks only inspect `Navigator.prototype`.
+  // Instance-level patching is undetectable - checks only inspect `Navigator.prototype`.
   try {
     const langs = Object.freeze(['en-US', 'en']);
     Object.defineProperty(navigator, 'languages', { get: () => langs, configurable: true });

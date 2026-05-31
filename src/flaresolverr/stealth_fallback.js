@@ -1,5 +1,5 @@
 /**
- * stealth_fallback.js — CDP/fingerprint evasion patches injected via
+ * stealth_fallback.js - CDP/fingerprint evasion patches injected via
  * Page.addScriptToEvaluateOnNewDocument. Used on 386/armv7 targets where
  * the custom patched Chromium binary is not available.
  *
@@ -218,7 +218,7 @@
 
       if (PATCH_WEBGL) {
         _preludeParts.push(
-          // WebGL spoof — must match main thread when PATCH_WEBGL=true
+          // WebGL spoof - must match main thread when PATCH_WEBGL=true
           'try{const GL_V="Intel Inc.",GL_R="Intel(R) Iris(TM) Graphics 6100";' +
           'const pg=p=>{const o=p.getParameter;p.getParameter=function(x){if(x===37445)return GL_V;if(x===37446)return GL_R;return o.call(this,x);};};' +
           'if(typeof WebGLRenderingContext!=="undefined")pg(WebGLRenderingContext.prototype);' +
