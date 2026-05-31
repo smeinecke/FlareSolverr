@@ -421,14 +421,29 @@ class TestFlareSolverrClientHTTP:
         client = FlareSolverrClient("http://localhost:8191/")
         assert client.base_url == "http://localhost:8191"
 
-    def test_session_create(self):
+    def test_session_create_with_explicit_id(self):
         client = FlareSolverrClient("http://localhost:8191")
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"status": "ok", "message": "Session created.", "session": "abc123"}
         mock_resp.raise_for_status = MagicMock()
-        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp):
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             r = client.sessions.create("abc123")
         assert r.session == "abc123"
+        payload = mock_post.call_args[1]["json"]
+        assert payload["session"] == "abc123"
+
+    def test_session_create_auto_generates_uuid(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"status": "ok", "message": "Session created.", "session": "auto-id"}
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            r = client.sessions.create()
+        assert r.session == "auto-id"
+        payload = mock_post.call_args[1]["json"]
+        assert payload["session"] is not None
+        assert isinstance(payload["session"], str)
+        assert len(payload["session"]) > 0
 
     def test_session_create_with_stealth(self):
         client = FlareSolverrClient("http://localhost:8191")
