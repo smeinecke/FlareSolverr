@@ -43,7 +43,7 @@ jobs:
               environment:
                 - LOG_LEVEL=info
               healthcheck:
-                test: ["CMD", "curl", "-fsS", "http://localhost:8191/health"]
+                test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8191/health').read()"]
                 interval: 5s
                 timeout: 10s
                 retries: 10
@@ -53,7 +53,7 @@ jobs:
               environment:
                 - LOG_LEVEL=info
               healthcheck:
-                test: ["CMD", "curl", "-fsS", "http://localhost:8191/health"]
+                test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8191/health').read()"]
                 interval: 5s
                 timeout: 10s
                 retries: 10
