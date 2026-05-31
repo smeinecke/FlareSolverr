@@ -1,5 +1,7 @@
 """Tests for raw POST data support (postDataRaw / postDataContentType)."""
 
+from unittest.mock import patch
+
 from flaresolverr.dtos import V1RequestBase
 
 
@@ -58,11 +60,12 @@ class TestPostRawValidation:
         from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({"cmd": "request.post", "url": "https://example.com"})
-        try:
-            service._cmd_request_post(req)
-            assert False, "Expected exception"
-        except Exception as e:
-            assert "postData" in str(e) and "postDataRaw" in str(e)
+        with patch.object(service, "_resolve_challenge"):
+            try:
+                service._cmd_request_post(req)
+                assert False, "Expected exception"
+            except Exception as e:
+                assert "postData" in str(e) and "postDataRaw" in str(e)
 
     def test_post_with_both_bodies_raises(self):
         from flaresolverr import flaresolverr_service as service
@@ -73,11 +76,12 @@ class TestPostRawValidation:
             "postData": "a=b",
             "postDataRaw": "{\"a\": \"b\"}",
         })
-        try:
-            service._cmd_request_post(req)
-            assert False, "Expected exception"
-        except Exception as e:
-            assert "Cannot use both" in str(e)
+        with patch.object(service, "_resolve_challenge"):
+            try:
+                service._cmd_request_post(req)
+                assert False, "Expected exception"
+            except Exception as e:
+                assert "Cannot use both" in str(e)
 
     def test_get_with_postDataRaw_raises(self):
         from flaresolverr import flaresolverr_service as service
@@ -87,11 +91,12 @@ class TestPostRawValidation:
             "url": "https://example.com",
             "postDataRaw": "test",
         })
-        try:
-            service._cmd_request_get(req)
-            assert False, "Expected exception"
-        except Exception as e:
-            assert "postDataRaw" in str(e)
+        with patch.object(service, "_resolve_challenge"):
+            try:
+                service._cmd_request_get(req)
+                assert False, "Expected exception"
+            except Exception as e:
+                assert "postDataRaw" in str(e)
 
     def test_post_with_postDataRaw_ok(self):
         """Validation should pass when only postDataRaw is provided."""
@@ -103,14 +108,9 @@ class TestPostRawValidation:
             "postDataRaw": "{\"key\": \"value\"}",
             "postDataContentType": "application/json",
         })
-        # _cmd_request_post calls _resolve_challenge which needs a real driver,
-        # so we only test validation indirectly by checking it doesn't raise here.
-        # The actual exception will be from _resolve_challenge (no driver), which is fine.
-        try:
+        with patch.object(service, "_resolve_challenge") as mock_resolve:
             service._cmd_request_post(req)
-        except Exception as e:
-            # Should NOT be a validation error
-            assert "postData" not in str(e) or "postDataRaw" not in str(e)
+            assert mock_resolve.called
 
 
 class TestPostRawCdpFlow:

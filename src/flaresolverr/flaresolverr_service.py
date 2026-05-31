@@ -1083,7 +1083,7 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
                             break
                         # Continue non-matching requests unchanged
                         driver.execute_cdp_cmd("Fetch.continueRequest", {"requestId": paused_id})
-                except Exception:
+                except Exception:  # nosec B112
                     continue
 
             if request_id is not None:
@@ -1129,7 +1129,7 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
     finally:
         try:
             driver.execute_cdp_cmd("Fetch.disable", {})
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
 
