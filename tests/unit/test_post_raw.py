@@ -6,50 +6,32 @@ from flaresolverr.dtos import V1RequestBase
 
 
 class MockDriverRawPost:
-    """Mock WebDriver that simulates CDP Fetch interception for raw POST."""
+    """Mock WebDriver that simulates JavaScript XHR raw POST."""
 
     def __init__(self, simulate_fail=False, missing_logs=False):
         self.current_url = "https://example.com"
         self.page_source = "<html><body>OK</body></html>"
-        self._cdp_calls = []
+        self._get_url = None
+        self._scripts = []
         self._simulate_fail = simulate_fail
         self._missing_logs = missing_logs
-        self._fetch_enabled = False
-        self._navigated = False
-        self._logs_consumed = False
+        self._xhr_done = False
 
-    def execute_cdp_cmd(self, cmd, params):
-        self._cdp_calls.append((cmd, params))
-        if cmd == "Fetch.enable":
-            self._fetch_enabled = True
-            return {}
-        if cmd == "Fetch.disable":
-            self._fetch_enabled = False
-            return {}
-        if cmd == "Page.navigate":
-            self._navigated = True
-            return {"frameId": "mock-frame", "loaderId": "mock-loader"}
-        if cmd == "Fetch.continueRequest":
-            return {}
-        return {}
-
-    def get_log(self, log_type):
-        if log_type != "performance":
-            return []
-        if self._missing_logs or self._logs_consumed:
-            return []
-        self._logs_consumed = True
-        if self._simulate_fail:
-            return []
-        return [
-            {
-                "message": '{"message": {"method": "Fetch.requestPaused", "params": {"requestId": "req-1", "request": {"url": "https://example.com/api"}, "resourceType": "Document"}}}'
-            }
-        ]
+    def get(self, url):
+        self._get_url = url
 
     def execute_script(self, script):
+        self._scripts.append(script)
         if "document.readyState" in script:
             return "complete"
+        if "__flaresolverr_raw_post_done" in script:
+            if not self._xhr_done:
+                self._xhr_done = True
+            return self._xhr_done
+        if "__flaresolverr_raw_post_error" in script:
+            if self._simulate_fail:
+                return "CORS error"
+            return None
         return None
 
 
@@ -113,10 +95,10 @@ class TestPostRawValidation:
             assert mock_resolve.called
 
 
-class TestPostRawCdpFlow:
-    """Tests for the CDP-based raw POST flow."""
+class TestPostRawJsFlow:
+    """Tests for the JavaScript XHR-based raw POST flow."""
 
-    def test_fetch_enable_and_navigate(self):
+    def test_navigates_to_target_url(self):
         from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
@@ -128,16 +110,9 @@ class TestPostRawCdpFlow:
         driver = MockDriverRawPost()
         service._post_request_raw(req, driver)
 
-        assert driver._navigated
-        # Check Fetch.enable was called with wildcard pattern
-        enable_cmd = [c for c in driver._cdp_calls if c[0] == "Fetch.enable"]
-        assert len(enable_cmd) == 1
-        assert enable_cmd[0][1]["patterns"][0]["urlPattern"] == "*"
-        # Fetch.disable should also be called for cleanup
-        disable_cmd = [c for c in driver._cdp_calls if c[0] == "Fetch.disable"]
-        assert len(disable_cmd) == 1
+        assert driver._get_url == "https://example.com/api"
 
-    def test_continue_request_with_headers(self):
+    def test_executes_xhr_script_with_headers(self):
         from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
@@ -150,17 +125,16 @@ class TestPostRawCdpFlow:
         driver = MockDriverRawPost()
         service._post_request_raw(req, driver)
 
-        continue_calls = [c for c in driver._cdp_calls if c[0] == "Fetch.continueRequest"]
-        assert len(continue_calls) == 1
-        params = continue_calls[0][1]
-        assert params["method"] == "POST"
-        assert params["requestId"] == "req-1"
-        # Check Content-Type header is present
-        header_names = {h["name"] for h in params["headers"]}
-        assert "Content-Type" in header_names
-        assert "X-Custom" in header_names
+        # The first script should be the XHR script
+        assert len(driver._scripts) >= 1
+        xhr_script = driver._scripts[0]
+        assert "XMLHttpRequest" in xhr_script
+        assert "https://example.com/api" in xhr_script
+        assert "Content-Type" in xhr_script
+        assert "X-Custom" in xhr_script
+        assert "\\\"key\\\": \\\"value\\\"" in xhr_script
 
-    def test_disable_called_after_completion(self):
+    def test_executes_xhr_script_with_default_content_type(self):
         from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
@@ -171,10 +145,10 @@ class TestPostRawCdpFlow:
         driver = MockDriverRawPost()
         service._post_request_raw(req, driver)
 
-        disable_calls = [c for c in driver._cdp_calls if c[0] == "Fetch.disable"]
-        assert len(disable_calls) == 1
+        xhr_script = driver._scripts[0]
+        assert "application/x-www-form-urlencoded" in xhr_script
 
-    def test_fails_when_intercept_not_found(self):
+    def test_fails_when_xhr_raises_error(self):
         from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
@@ -187,7 +161,7 @@ class TestPostRawCdpFlow:
             service._post_request_raw(req, driver)
             assert False, "Expected exception"
         except Exception as e:
-            assert "Failed to intercept" in str(e)
+            assert "Raw POST request failed" in str(e)
 
     def test_post_request_delegates_to_raw(self):
         from flaresolverr import flaresolverr_service as service
@@ -200,8 +174,8 @@ class TestPostRawCdpFlow:
         driver = MockDriverRawPost()
         service._post_request(req, driver)
 
-        # Should have gone through the raw path
-        assert driver._navigated
+        # Should have gone through the raw path (driver.get called)
+        assert driver._get_url == "https://example.com/api"
 
     def test_post_request_uses_form_for_postData(self):
         from flaresolverr import flaresolverr_service as service
