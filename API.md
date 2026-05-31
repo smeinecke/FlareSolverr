@@ -289,54 +289,6 @@ Multiple injections at the same or different points are supported in a single re
 
 ---
 
-## Request Flow
-
-```mermaid
-flowchart TD
-    A[API Client] -->|POST /v1| B[FlareSolverr API]
-    B --> C{Session?}
-    C -->|New session| D[Launch Chrome]
-    C -->|Existing| E[Reuse browser]
-    D --> F[Navigate to URL]
-    E --> F
-    F --> G{Challenge detected?}
-    G -->|No| H[Wait for page load]
-    G -->|Yes| I[Default Solver]
-    I --> J[Check page title<br/>for challenge markers]
-    J --> K[Check CSS selectors<br/>e.g., #cf-challenge-running]
-    K --> L{Challenge found?}
-    L -->|No| H
-    L -->|Yes| M[Wait for challenge<br/>elements to disappear]
-    M --> N[Click verify checkbox<br/>if needed]
-    N --> O[Wait for page redirect]
-    O --> P{Solve successful?}
-    P -->|No| Q[Return error response]
-    P -->|Yes| H
-    H --> AA{actions?}
-    AA -->|Yes| AB[Execute browser actions<br/>fill / click / wait_for / wait]
-    AA -->|No| R{waitInSeconds?}
-    AB --> R{waitInSeconds?}
-    R -->|Yes| S[Wait specified time]
-    R -->|No| T[returnScreenshot?]
-    S --> T
-    T -->|Yes| U[Capture screenshot]
-    T -->|No| V[Build response]
-    U --> V
-    V --> W[Return cookies, HTML,<br/>headers, userAgent]
-    W --> X[Send JSON response]
-    X --> A
-    Q --> X
-```
-
-The **default solver** handles Cloudflare challenges through browser automation:
-
-- Detects challenges by checking page titles ("Just a moment...") and CSS selectors
-- Waits for challenge elements to disappear from the DOM
-- Automatically clicks the verify checkbox when presented
-- Waits for page redirect after successful verification
-
----
-
 ## Response Format
 
 Example response from a `request.get`:
