@@ -4,10 +4,17 @@ on:
   push:
     tags:
       - "v*.*.*"
+    branches:
+      - master
   pull_request:
     branches:
       - master
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Docker image tag (default: unstable)"
+        required: false
+        default: "unstable"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -48,6 +55,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}},prefix=v
             type=ref,event=pr
+            type=raw,value=unstable,enable=${{ github.ref == 'refs/heads/master' }}
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
           flavor: |
             latest=auto
 
@@ -121,6 +130,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}},prefix=v
             type=ref,event=pr
+            type=raw,value=unstable,enable=${{ github.ref == 'refs/heads/master' }}
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
           flavor: |
             latest=auto
 
@@ -142,4 +153,4 @@ jobs:
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ghcr.io/${{ env.REPOSITORY }}:${{ steps.docker_meta.outputs.version }}
+          docker buildx imagetools inspect $(jq -cr '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
