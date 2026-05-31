@@ -8,10 +8,10 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.expected_conditions import presence_of_element_located, staleness_of, title_is
+from selenium.webdriver.support.expected_conditions import presence_of_element_located, title_is
 from selenium.webdriver.support.wait import WebDriverWait
 
-from flaresolverr.services.base import ChallengeService
+from flaresolverr.services.base import ChallengeService, _wait_for_redirect
 from flaresolverr.utils import _human_like_click, _random_delay
 
 SHORT_TIMEOUT = 1
@@ -40,20 +40,30 @@ class CloudflareService(ChallengeService):
     name = "cloudflare"
 
     def detect(self, driver: WebDriver) -> bool:
-        page_title = (driver.title or "").strip()
+        try:
+            page_title = (driver.title or "").strip()
+        except Exception:
+            logging.debug("Cloudflare detect: failed to read title during navigation")
+            return False
         for title in CLOUDFLARE_TITLES:
             if title.lower() == page_title.lower():
                 logging.info("Challenge detected. Title found: " + page_title)
                 return True
         for selector in CLOUDFLARE_SELECTORS:
-            found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            try:
+                found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            except Exception:
+                logging.debug("Cloudflare detect: failed to query selector during navigation")
+                return False
             if len(found_elements) > 0:
                 logging.info("Challenge detected. Selector found: " + selector)
                 return True
         return False
 
     def resolve(self, driver: WebDriver) -> None:
-        html_element = driver.find_element(By.TAG_NAME, "html")
+        html_element = self._get_html_element(driver)
+        if html_element is None:
+            return
         attempt = 0
         last_verify_click_ts = 0.0
         click_cooldown_seconds = 10.0
@@ -70,7 +80,12 @@ class CloudflareService(ChallengeService):
                 break
             except TimeoutException:
                 logging.debug("Timeout waiting for selector")
-                if HARD_BLOCK_TEXT in driver.page_source:
+                page_source = ""
+                try:
+                    page_source = driver.page_source
+                except Exception:
+                    logging.debug("Could not read page source during navigation")
+                if HARD_BLOCK_TEXT in page_source:
                     raise Exception("Cloudflare hard block: Incompatible browser extension or network configuration")
                 now = time.time()
                 if self._should_attempt_verify_click(driver):
@@ -82,13 +97,11 @@ class CloudflareService(ChallengeService):
                         logging.debug("Skipping verify click due to cooldown (%.1fs remaining)", remaining)
                 else:
                     logging.debug("Skipping verify click: challenge appears to be in automatic verification mode")
-                html_element = driver.find_element(By.TAG_NAME, "html")
+                html_element = self._get_html_element(driver)
+                if html_element is None:
+                    continue
 
-        logging.debug("Waiting for redirect")
-        try:
-            WebDriverWait(driver, SHORT_TIMEOUT).until(staleness_of(html_element))
-        except Exception:
-            logging.debug("Timeout waiting for redirect")
+        _wait_for_redirect(driver, html_element, SHORT_TIMEOUT)
 
     def _should_attempt_verify_click(self, driver: WebDriver) -> bool:
         try:

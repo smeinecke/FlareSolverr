@@ -26,6 +26,23 @@ class _FakeSession:
         self.idle_timeout = sessions.utils.get_config_session_idle_timeout()
 
 
+def _make_session_driver(return_values=None, **kwargs):
+    """Create a MagicMock driver with common session-test defaults."""
+    driver = MagicMock()
+    driver.current_url = "https://example.com"
+    for k, v in kwargs.items():
+        setattr(driver, k, v)
+    if return_values:
+        for method, ret in return_values.items():
+            getattr(driver, method).return_value = ret
+    return driver
+
+
+def _register_session(storage, driver, sid="s1"):
+    """Register a fake session with the given driver in storage."""
+    storage.sessions[sid] = _FakeSession(driver)
+
+
 @pytest.fixture(autouse=True)
 def _patch_sessions_storage(monkeypatch):
     """Replace the global SESSIONS_STORAGE with a fresh in-memory storage."""
@@ -36,14 +53,12 @@ def _patch_sessions_storage(monkeypatch):
 
 class TestSessionsGet:
     def test_get_returns_url_title_cookies(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.current_url = "https://example.com"
-        driver.title = "Test Page"
-        driver.page_source = "<html><body>hi</body></html>"
-        driver.get_cookies.return_value = [{"name": "x", "value": "y"}]
-        driver.execute_script.return_value = "Mozilla/5.0"
-
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(
+            title="Test Page",
+            page_source="<html><body>hi</body></html>",
+            return_values={"get_cookies": [{"name": "x", "value": "y"}], "execute_script": "Mozilla/5.0"},
+        )
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.get", "session": "s1"})
         res = svc._cmd_sessions_get(req)
@@ -67,14 +82,13 @@ class TestSessionsGet:
             svc._cmd_sessions_get(req)
 
     def test_get_gracefully_handles_page_source_exception(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.current_url = "https://example.com"
-        driver.title = "Title"
-        driver.page_source = "<html></html>"
-        driver.get_cookies.return_value = []
-        driver.execute_script.side_effect = Exception("boom")
-
-        _patch_sessions_storage.sessions["s2"] = _FakeSession(driver)
+        driver = _make_session_driver(
+            title="Title",
+            page_source="<html></html>",
+            return_values={"get_cookies": []},
+            execute_script=Exception("boom"),
+        )
+        _register_session(_patch_sessions_storage, driver, "s2")
 
         req = V1RequestBase({"cmd": "sessions.get", "session": "s2"})
         res = svc._cmd_sessions_get(req)
@@ -85,12 +99,10 @@ class TestSessionsGet:
 
 class TestSessionsEval:
     def test_eval_executes_script(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.execute_script.return_value = "script result"
-        driver.current_url = "https://example.com"
-        driver.get_cookies.return_value = []
-
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(
+            return_values={"execute_script": "script result", "get_cookies": []},
+        )
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.eval", "session": "s1", "script": "return 42"})
         res = svc._cmd_sessions_eval(req)
@@ -101,17 +113,16 @@ class TestSessionsEval:
         driver.execute_script.assert_called_once_with("return 42")
 
     def test_eval_missing_script_raises(self, _patch_sessions_storage):
-        driver = MagicMock()
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver()
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.eval", "session": "s1"})
         with pytest.raises(Exception, match="'script' is mandatory"):
             svc._cmd_sessions_eval(req)
 
     def test_eval_script_error_raises(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.execute_script.side_effect = Exception("JS error")
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(execute_script=Exception("JS error"))
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.eval", "session": "s1", "script": "bad"})
         with pytest.raises(Exception, match="Error executing script"):
@@ -120,14 +131,13 @@ class TestSessionsEval:
 
 class TestSessionsNetwork:
     def test_network_returns_logs(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.get_log.return_value = [
-            {"message": '{"message": {"method": "Network.requestWillBeSent", "params": {}}}'},
-            {"message": '{"message": {"method": "Network.responseReceived", "params": {}}}'},
-        ]
-        driver.current_url = "https://example.com"
-
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(
+            return_values={"get_log": [
+                {"message": '{"message": {"method": "Network.requestWillBeSent", "params": {}}}'},
+                {"message": '{"message": {"method": "Network.responseReceived", "params": {}}}'},
+            ]},
+        )
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.network", "session": "s1"})
         res = svc._cmd_sessions_network(req)
@@ -150,12 +160,8 @@ class TestSessionsClick:
         element.is_displayed.return_value = True
         element.get_attribute.return_value = None
 
-        driver = MagicMock()
-        driver.find_element.return_value = element
-        driver.current_url = "https://example.com"
-        driver.get_cookies.return_value = []
-
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(return_values={"find_element": element, "get_cookies": []})
+        _register_session(_patch_sessions_storage, driver)
 
         with patch.object(svc, "_human_like_click") as mock_hlc:
             req = V1RequestBase({"cmd": "sessions.click", "session": "s1", "selector": "//button"})
@@ -169,9 +175,8 @@ class TestSessionsClick:
         element = MagicMock()
         element.is_displayed.return_value = False
 
-        driver = MagicMock()
-        driver.find_element.return_value = element
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(return_values={"find_element": element})
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.click", "session": "s1", "selector": "//button"})
         with pytest.raises(Exception, match="not displayed"):
@@ -182,17 +187,16 @@ class TestSessionsClick:
         element.is_displayed.return_value = True
         element.get_attribute.return_value = "disabled"
 
-        driver = MagicMock()
-        driver.find_element.return_value = element
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(return_values={"find_element": element})
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.click", "session": "s1", "selector": "//button"})
         with pytest.raises(Exception, match="disabled"):
             svc._cmd_sessions_click(req)
 
     def test_click_missing_selector_raises(self, _patch_sessions_storage):
-        driver = MagicMock()
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver()
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.click", "session": "s1"})
         with pytest.raises(Exception, match="'selector' is mandatory"):
@@ -201,12 +205,11 @@ class TestSessionsClick:
 
 class TestSessionsAction:
     def test_action_executes_actions(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.current_url = "https://example.com"
-        driver.title = "Action Page"
-        driver.get_cookies.return_value = []
-
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(
+            title="Action Page",
+            return_values={"get_cookies": []},
+        )
+        _register_session(_patch_sessions_storage, driver)
 
         actions = [{"type": "wait", "seconds": 0.5}]
         with patch.object(svc, "_execute_actions") as mock_exec:
@@ -218,21 +221,19 @@ class TestSessionsAction:
         mock_exec.assert_called_once_with(driver, actions)
 
     def test_action_missing_actions_raises(self, _patch_sessions_storage):
-        driver = MagicMock()
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver()
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.action", "session": "s1"})
         with pytest.raises(Exception, match="'actions' is mandatory"):
             svc._cmd_sessions_action(req)
 
     def test_action_eval_returns_result(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.execute_script.return_value = "token123"
-        driver.current_url = "https://example.com"
-        driver.title = "Page"
-        driver.get_cookies.return_value = []
-
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(
+            title="Page",
+            return_values={"execute_script": "token123", "get_cookies": []},
+        )
+        _register_session(_patch_sessions_storage, driver)
 
         actions = [{"type": "eval", "script": "return localStorage.getItem('key')"}]
         req = V1RequestBase({"cmd": "sessions.action", "session": "s1", "actions": actions})
@@ -243,13 +244,12 @@ class TestSessionsAction:
         driver.execute_script.assert_called_once_with("return localStorage.getItem('key')")
 
     def test_action_eval_multiple_returns_list(self, _patch_sessions_storage):
-        driver = MagicMock()
+        driver = _make_session_driver(
+            title="Page",
+            return_values={"get_cookies": [], "execute_script": ["a", "b"]},
+        )
         driver.execute_script.side_effect = ["a", "b"]
-        driver.current_url = "https://example.com"
-        driver.title = "Page"
-        driver.get_cookies.return_value = []
-
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        _register_session(_patch_sessions_storage, driver)
 
         actions = [
             {"type": "eval", "script": "return 1"},
@@ -263,9 +263,8 @@ class TestSessionsAction:
         assert res.solution.evalResult == ["a", "b"]
 
     def test_action_eval_error_raises(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.execute_script.side_effect = Exception("JS error")
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(execute_script=Exception("JS error"))
+        _register_session(_patch_sessions_storage, driver)
 
         actions = [{"type": "eval", "script": "bad"}]
         req = V1RequestBase({"cmd": "sessions.action", "session": "s1", "actions": actions})
@@ -275,12 +274,11 @@ class TestSessionsAction:
 
 class TestSessionsScreenshot:
     def test_screenshot_returns_base64(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.get_screenshot_as_base64.return_value = "aGVsbG8="
-        driver.current_url = "https://example.com"
-        driver.title = "Page"
-
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(
+            title="Page",
+            return_values={"get_screenshot_as_base64": "aGVsbG8="},
+        )
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.screenshot", "session": "s1"})
         res = svc._cmd_sessions_screenshot(req)
@@ -296,9 +294,9 @@ class TestSessionsScreenshot:
             svc._cmd_sessions_screenshot(req)
 
     def test_screenshot_error_raises(self, _patch_sessions_storage):
-        driver = MagicMock()
+        driver = _make_session_driver()
         driver.get_screenshot_as_base64.side_effect = Exception("screenshot failed")
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.screenshot", "session": "s1"})
         with pytest.raises(Exception, match="Error capturing screenshot"):
@@ -307,11 +305,10 @@ class TestSessionsScreenshot:
 
 class TestSessionsCdp:
     def test_cdp_executes_command(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.execute_cdp_cmd.return_value = {"result": {"value": "ok"}}
-        driver.current_url = "https://example.com"
-
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(
+            return_values={"execute_cdp_cmd": {"result": {"value": "ok"}}},
+        )
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({
             "cmd": "sessions.cdp",
@@ -327,11 +324,8 @@ class TestSessionsCdp:
         driver.execute_cdp_cmd.assert_called_once_with("Runtime.evaluate", {"expression": "1+1"})
 
     def test_cdp_without_params(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.execute_cdp_cmd.return_value = {}
-        driver.current_url = "https://example.com"
-
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(return_values={"execute_cdp_cmd": {}})
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1", "cdp_cmd": "Runtime.enable"})
         res = svc._cmd_sessions_cdp(req)
@@ -345,18 +339,16 @@ class TestSessionsCdp:
             svc._cmd_sessions_cdp(req)
 
     def test_cdp_missing_cmd_raises(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.execute_cdp_cmd.side_effect = Exception("invalid command name")
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(execute_cdp_cmd=Exception("invalid command name"))
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1"})
         with pytest.raises(Exception, match="Error executing CDP command"):
             svc._cmd_sessions_cdp(req)
 
     def test_cdp_command_error_raises(self, _patch_sessions_storage):
-        driver = MagicMock()
-        driver.execute_cdp_cmd.side_effect = Exception("invalid command")
-        _patch_sessions_storage.sessions["s1"] = _FakeSession(driver)
+        driver = _make_session_driver(execute_cdp_cmd=Exception("invalid command"))
+        _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1", "cdp_cmd": "Bad.command"})
         with pytest.raises(Exception, match="Error executing CDP command"):

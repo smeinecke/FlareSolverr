@@ -4,11 +4,10 @@ import logging
 
 from selenium.common import TimeoutException
 from selenium.webdriver.chrome.webdriver import WebDriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.expected_conditions import staleness_of, title_is
+from selenium.webdriver.support.expected_conditions import title_is
 from selenium.webdriver.support.wait import WebDriverWait
 
-from flaresolverr.services.base import ChallengeService
+from flaresolverr.services.base import ChallengeService, _wait_for_redirect
 
 SHORT_TIMEOUT = 1
 
@@ -21,7 +20,11 @@ class DDoSGuardService(ChallengeService):
     name = "ddos_guard"
 
     def detect(self, driver: WebDriver) -> bool:
-        page_title = (driver.title or "").strip()
+        try:
+            page_title = (driver.title or "").strip()
+        except Exception:
+            logging.debug("DDoS-Guard detect: failed to read title during navigation")
+            return False
         for title in DDOS_GUARD_TITLES:
             if title.lower() == page_title.lower():
                 logging.info("Challenge detected. Title found: " + page_title)
@@ -29,7 +32,9 @@ class DDoSGuardService(ChallengeService):
         return False
 
     def resolve(self, driver: WebDriver) -> None:
-        html_element = driver.find_element(By.TAG_NAME, "html")
+        html_element = self._get_html_element(driver)
+        if html_element is None:
+            return
         attempt = 0
 
         while True:
@@ -41,10 +46,8 @@ class DDoSGuardService(ChallengeService):
                 break
             except TimeoutException:
                 logging.debug("Timeout waiting for selector")
-                html_element = driver.find_element(By.TAG_NAME, "html")
+                html_element = self._get_html_element(driver)
+                if html_element is None:
+                    continue
 
-        logging.debug("Waiting for redirect")
-        try:
-            WebDriverWait(driver, SHORT_TIMEOUT).until(staleness_of(html_element))
-        except Exception:
-            logging.debug("Timeout waiting for redirect")
+        _wait_for_redirect(driver, html_element, SHORT_TIMEOUT)

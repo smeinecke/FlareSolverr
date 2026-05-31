@@ -13,6 +13,8 @@ from flaresolverr.services.base import ChallengeService
 
 SHORT_TIMEOUT = 10
 
+BRAVE_CAPTCHA_RE = re.compile(r"Brave\s+Search\s+decided\s+to\s+schedule\s+a\s+captcha")
+
 BRAVE_VERIFY_XPATHS = [
     # Text-based matchers (need full-alphabet translate for case-insensitive)
     "//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'verify')]",
@@ -32,27 +34,33 @@ class BraveService(ChallengeService):
     name = "brave"
 
     def detect(self, driver: WebDriver) -> bool:
-        current_url = driver.current_url or ""
-        if not current_url.startswith("https://search.brave.com/"):
-            return False
+        try:
+            current_url = driver.current_url or ""
+            if not current_url.startswith("https://search.brave.com/"):
+                return False
 
-        src = driver.page_source
-        if re.search(r"Brave\s+Search\s+decided\sto\s+schedule\sa\s+captcha", src):
-            logging.info("Challenge detected. Brave captcha page found.")
-            return True
-        return False
+            if self._page_has_captcha(driver):
+                logging.info("Challenge detected. Brave captcha page found.")
+                return True
+            return False
+        except Exception:
+            logging.debug("Brave detect failed due to navigation in progress, assuming not detected")
+            return False
 
     def resolve(self, driver: WebDriver) -> None:
         attempt = 0
 
         while True:
             attempt += 1
-            src = driver.page_source
-            current_url = driver.current_url or ""
+            try:
+                current_url = driver.current_url or ""
+            except Exception:
+                logging.debug("Brave resolve: page navigation in progress, breaking")
+                break
             if not current_url.startswith("https://search.brave.com/"):
                 break
 
-            if not re.search(r"Brave\s+Search\s+decided\sto\s+schedule\sa\s+captcha", src):
+            if not self._page_has_captcha(driver):
                 break
 
             logging.debug("Brave challenge active (attempt %d)", attempt)
@@ -65,7 +73,7 @@ class BraveService(ChallengeService):
                 try:
                     WebDriverWait(driver, SHORT_TIMEOUT).until(
                         lambda d: (
-                            not re.search(r"Brave\s+Search\s+decided\sto\s+schedule\sa\s+captcha", d.page_source)
+                            not self._page_has_captcha(d)
                             or self._find_clickable_verify_button(d) is not None
                         )
                     )
@@ -79,6 +87,12 @@ class BraveService(ChallengeService):
                 logging.debug("Brave Verify button not clickable (not visible or disabled), waiting...")
                 time.sleep(2)
                 continue
+
+    def _page_has_captcha(self, driver: WebDriver) -> bool:
+        try:
+            return bool(BRAVE_CAPTCHA_RE.search(driver.page_source))
+        except Exception:
+            return False
 
     def _find_clickable_verify_button(self, driver: WebDriver):
         """Find a verify button that is visible and not disabled."""

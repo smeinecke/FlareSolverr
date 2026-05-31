@@ -731,31 +731,32 @@ def get_chrome_exe_path() -> str | None:
     return CHROME_EXE_PATH
 
 
-def get_chrome_major_version() -> str:
-    global CHROME_MAJOR_VERSION
-    if CHROME_MAJOR_VERSION is not None:
-        return CHROME_MAJOR_VERSION
-
+def _get_chrome_complete_version() -> str:
+    """Fetch the raw Chrome version string (Windows or Linux)."""
     if os.name == "nt":
-        # Example: '104.0.5112.79'
         try:
-            complete_version = extract_version_nt_executable(get_chrome_exe_path())
+            return extract_version_nt_executable(get_chrome_exe_path())
         except Exception:
             try:
-                complete_version = extract_version_nt_registry()
+                return extract_version_nt_registry()
             except Exception:
-                # Example: '104.0.5112.79'
-                complete_version = extract_version_nt_folder()
+                return extract_version_nt_folder()
     else:
         chrome_path = get_chrome_exe_path()
         if chrome_path is None:
             return ""
         process = os.popen(f'"{chrome_path}" --version')
-        # Example 1: 'Chromium 104.0.5112.79 Arch Linux\n'
-        # Example 2: 'Google Chrome 104.0.5112.79 Arch Linux\n'
         complete_version = process.read()
         process.close()
+        return complete_version
 
+
+def get_chrome_major_version() -> str:
+    global CHROME_MAJOR_VERSION
+    if CHROME_MAJOR_VERSION is not None:
+        return CHROME_MAJOR_VERSION
+
+    complete_version = _get_chrome_complete_version()
     CHROME_MAJOR_VERSION = complete_version.split(".")[0].split(" ")[-1]
     return CHROME_MAJOR_VERSION
 
@@ -765,27 +766,9 @@ def get_chrome_full_version() -> str:
     if CHROME_FULL_VERSION is not None:
         return CHROME_FULL_VERSION
 
-    if os.name == "nt":
-        try:
-            CHROME_FULL_VERSION = extract_version_nt_executable(get_chrome_exe_path())
-        except Exception:
-            try:
-                CHROME_FULL_VERSION = extract_version_nt_registry()
-            except Exception:
-                CHROME_FULL_VERSION = extract_version_nt_folder()
-    else:
-        chrome_path = get_chrome_exe_path()
-        if chrome_path is None:
-            return ""
-        process = os.popen(f'"{chrome_path}" --version')
-        complete_version = process.read()
-        process.close()
-        # Extract version from strings like "Chromium 148.0.7778.168 Arch Linux"
-        match = re.search(r"(\d+\.\d+\.\d+\.\d+)", complete_version)
-        CHROME_FULL_VERSION = match.group(1) if match else ""
-
-    if CHROME_FULL_VERSION is None:
-        CHROME_FULL_VERSION = ""
+    complete_version = _get_chrome_complete_version()
+    match = re.search(r"(\d+\.\d+\.\d+\.\d+)", complete_version)
+    CHROME_FULL_VERSION = match.group(1) if match else ""
     return CHROME_FULL_VERSION
 
 
@@ -825,15 +808,19 @@ def extract_version_nt_folder() -> str:
     return ""
 
 
+def _fetch_user_agent(driver: WebDriver) -> str:
+    """Execute JS to get navigator.userAgent and validate it."""
+    user_agent_value = driver.execute_script("return navigator.userAgent")
+    if not isinstance(user_agent_value, str):
+        raise Exception("Error getting browser User-Agent. The returned value is not a string.")
+    return user_agent_value
+
+
 def get_user_agent(driver=None) -> str:
     global USER_AGENT
     if driver is not None:
         try:
-            user_agent_value = driver.execute_script("return navigator.userAgent")
-            if not isinstance(user_agent_value, str):
-                raise Exception("Error getting browser User-Agent. The returned value is not a string.")
-            # Keep parity with previous behavior and remove HEADLESS token if present.
-            return re.sub("HEADLESS", "", user_agent_value, flags=re.IGNORECASE)
+            return re.sub("HEADLESS", "", _fetch_user_agent(driver), flags=re.IGNORECASE)
         except Exception as e:
             raise Exception("Error getting browser User-Agent. " + str(e))
 
@@ -843,12 +830,9 @@ def get_user_agent(driver=None) -> str:
     try:
         if driver is None:
             driver = get_webdriver()
-        user_agent_value = driver.execute_script("return navigator.userAgent")
-        if not isinstance(user_agent_value, str):
-            raise Exception("Error getting browser User-Agent. The returned value is not a string.")
-        USER_AGENT = user_agent_value
+        raw_ua = _fetch_user_agent(driver)
         # Fix for Chrome 117 | https://github.com/FlareSolverr/FlareSolverr/issues/910
-        USER_AGENT = re.sub("HEADLESS", "", USER_AGENT, flags=re.IGNORECASE)
+        USER_AGENT = re.sub("HEADLESS", "", raw_ua, flags=re.IGNORECASE)
         # Replace reduced version (e.g. Chrome/148.0.0.0) with the full binary version
         full_version = get_chrome_full_version()
         if full_version:

@@ -227,43 +227,50 @@ def _controller_v1_handler(req: V1RequestBase) -> V1ResponseBase:
     return res
 
 
+def _validate_common_request_params(req: V1RequestBase) -> None:
+    """Validate request parameters shared between GET and POST commands."""
+    if req.returnRawHtml is not None:
+        logging.warning("Request parameter 'returnRawHtml' was removed in FlareSolverr v2.")
+    if req.download is not None:
+        logging.warning("Request parameter 'download' was removed in FlareSolverr v2.")
+    if req.captchaSolver is not None:
+        available = get_available_solvers()
+        if req.captchaSolver not in available:
+            raise Exception(f"Request parameter 'captchaSolver' = '{req.captchaSolver}' is invalid. Available solvers: {available}")
+
+
+def _safe_driver_call(callable_, default):
+    """Safely call a driver method/property, returning default on failure."""
+    try:
+        return callable_()
+    except Exception:
+        return default
+
+
 def _cmd_request_get(req: V1RequestBase) -> V1ResponseBase:
     # do some validations
     if req.url is None:
         raise Exception("Request parameter 'url' is mandatory in 'request.get' command.")
     if req.postData is not None:
         raise Exception("Cannot use 'postBody' when sending a GET request.")
-    if req.returnRawHtml is not None:
-        logging.warning("Request parameter 'returnRawHtml' was removed in FlareSolverr v2.")
-    if req.download is not None:
-        logging.warning("Request parameter 'download' was removed in FlareSolverr v2.")
-    if req.captchaSolver is not None:
-        available = get_available_solvers()
-        if req.captchaSolver not in available:
-            raise Exception(f"Request parameter 'captchaSolver' = '{req.captchaSolver}' is invalid. Available solvers: {available}")
+    _validate_common_request_params(req)
 
     challenge_res = _resolve_challenge(req, "GET")
-    res = V1ResponseBase({})
-    res.status = challenge_res.status
-    res.message = challenge_res.message
-    res.solution = challenge_res.result
-    return res
+    return _build_response_from_challenge(challenge_res)
 
 
 def _cmd_request_post(req: V1RequestBase) -> V1ResponseBase:
     # do some validations
     if req.postData is None:
         raise Exception("Request parameter 'postData' is mandatory in 'request.post' command.")
-    if req.returnRawHtml is not None:
-        logging.warning("Request parameter 'returnRawHtml' was removed in FlareSolverr v2.")
-    if req.download is not None:
-        logging.warning("Request parameter 'download' was removed in FlareSolverr v2.")
-    if req.captchaSolver is not None:
-        available = get_available_solvers()
-        if req.captchaSolver not in available:
-            raise Exception(f"Request parameter 'captchaSolver' = '{req.captchaSolver}' is invalid. Available solvers: {available}")
+    _validate_common_request_params(req)
 
     challenge_res = _resolve_challenge(req, "POST")
+    return _build_response_from_challenge(challenge_res)
+
+
+def _build_response_from_challenge(challenge_res: ChallengeResolutionT) -> V1ResponseBase:
+    """Build a V1ResponseBase from a challenge resolution result."""
     res = V1ResponseBase({})
     res.status = challenge_res.status
     res.message = challenge_res.message
@@ -332,22 +339,12 @@ def _cmd_sessions_get(req: V1RequestBase) -> V1ResponseBase:
 
     result = ChallengeResolutionResultT({})
     result.url = driver.current_url
-    try:
-        result.title = driver.title
-    except Exception:
-        result.title = None
-    try:
-        result.response = driver.page_source
-    except Exception:
-        result.response = None
-    try:
-        result.cookies = driver.get_cookies()
-    except Exception:
-        result.cookies = []
-    try:
-        result.userAgent = driver.execute_script("return navigator.userAgent")
-    except Exception:
-        result.userAgent = None
+    result.title = _safe_driver_call(lambda: driver.title, None)
+    result.response = _safe_driver_call(lambda: driver.page_source, None)
+    result.cookies = _safe_driver_call(driver.get_cookies, [])
+    result.userAgent = _safe_driver_call(
+        lambda: driver.execute_script("return navigator.userAgent"), None
+    )
 
     res = V1ResponseBase({})
     res.status = STATUS_OK
@@ -379,10 +376,7 @@ def _cmd_sessions_eval(req: V1RequestBase) -> V1ResponseBase:
     result_obj = ChallengeResolutionResultT({})
     result_obj.evalResult = result
     result_obj.url = driver.current_url
-    try:
-        result_obj.cookies = driver.get_cookies()
-    except Exception:
-        result_obj.cookies = []
+    result_obj.cookies = _safe_driver_call(driver.get_cookies, [])
 
     res = V1ResponseBase({})
     res.status = STATUS_OK
@@ -458,10 +452,7 @@ def _cmd_sessions_click(req: V1RequestBase) -> V1ResponseBase:
 
     result = ChallengeResolutionResultT({})
     result.url = driver.current_url
-    try:
-        result.cookies = driver.get_cookies()
-    except Exception:
-        result.cookies = []
+    result.cookies = _safe_driver_call(driver.get_cookies, [])
 
     res = V1ResponseBase({})
     res.status = STATUS_OK
@@ -492,14 +483,8 @@ def _cmd_sessions_action(req: V1RequestBase) -> V1ResponseBase:
 
     result = ChallengeResolutionResultT({})
     result.url = driver.current_url
-    try:
-        result.title = driver.title
-    except Exception:
-        result.title = None
-    try:
-        result.cookies = driver.get_cookies()
-    except Exception:
-        result.cookies = []
+    result.title = _safe_driver_call(lambda: driver.title, None)
+    result.cookies = _safe_driver_call(driver.get_cookies, [])
     eval_values = [r for r in action_results if r is not None]
     if eval_values:
         result.evalResult = eval_values if len(eval_values) > 1 else eval_values[0]
@@ -530,10 +515,7 @@ def _cmd_sessions_screenshot(req: V1RequestBase) -> V1ResponseBase:
     result = ChallengeResolutionResultT({})
     result.screenshot = screenshot_b64
     result.url = driver.current_url
-    try:
-        result.title = driver.title
-    except Exception:
-        result.title = None
+    result.title = _safe_driver_call(lambda: driver.title, None)
 
     res = V1ResponseBase({})
     res.status = STATUS_OK
@@ -796,6 +778,14 @@ def _raise_if_navigation_error(driver: WebDriver) -> None:
     raise Exception("Message: unknown error: net::ERR_FAILED")
 
 
+def _find_and_scroll_element(driver, selector, timeout, delay_min, delay_max):
+    """Wait for element by XPath, scroll it into view, and pause."""
+    el = WebDriverWait(driver, timeout).until(presence_of_element_located((By.XPATH, selector)))
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+    time.sleep(_random_delay(delay_min, delay_max))
+    return el
+
+
 def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
     """Execute a list of browser actions after page load (fill forms, click, wait, eval).
 
@@ -809,9 +799,7 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
         if action_type == "fill":
             import random
 
-            el = WebDriverWait(driver, default_action_timeout).until(presence_of_element_located((By.XPATH, selector)))
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
-            time.sleep(_random_delay(0.3, 0.6))
+            el = _find_and_scroll_element(driver, selector, default_action_timeout, 0.3, 0.6)
             # Click with a random non-zero offset from center so that
             # hasClickedEmailFieldExactCenter / hasClickedFieldSmallMargin
             # bot-detection checks don't flag the exact-center pattern.
@@ -831,10 +819,8 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
             logging.debug(f"Action fill: selector={selector}")
         elif action_type == "click":
             logging.debug(f"Action click: waiting for selector={selector}")
-            el = WebDriverWait(driver, default_action_timeout).until(presence_of_element_located((By.XPATH, selector)))
+            el = _find_and_scroll_element(driver, selector, default_action_timeout, 0.2, 0.4)
             logging.debug("Action click: element found, scrolling")
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
-            time.sleep(_random_delay(0.2, 0.4))
             if action.get("humanLike"):
                 _human_like_click(driver, el)
             else:

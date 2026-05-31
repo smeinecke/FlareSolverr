@@ -1,5 +1,5 @@
 import pytest
-from selenium.common import TimeoutException
+from selenium.common import TimeoutException, WebDriverException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -8,6 +8,22 @@ from flaresolverr.services.manager import ServiceManager
 from flaresolverr.services.cloudflare import CloudflareService
 from flaresolverr.services.ddos_guard import DDoSGuardService
 from flaresolverr.services.brave import BraveService
+
+
+def _make_driver(title="Some Page", find_elements=None, **kwargs):
+    """Create a MagicMock driver with common attrs pre-set."""
+    driver = MagicMock()
+    driver.title = title
+    if find_elements is not None:
+        driver.find_elements.return_value = find_elements
+    for k, v in kwargs.items():
+        setattr(driver, k, v)
+    return driver
+
+
+def _patch_page_source_error(driver):
+    """Simulate navigation-in-progress error on page_source access."""
+    type(driver).page_source = PropertyMock(side_effect=WebDriverException("aborted by navigation"))
 
 
 class _BraveDriverMock:
@@ -119,21 +135,15 @@ class TestCloudflareService:
         assert svc.name == "cloudflare"
 
     def test_detect_by_title(self, svc):
-        driver = MagicMock()
-        driver.title = "Just a moment..."
-        driver.find_elements.return_value = []
+        driver = _make_driver(title="Just a moment...", find_elements=[])
         assert svc.detect(driver) is True
 
     def test_detect_by_selector(self, svc):
-        driver = MagicMock()
-        driver.title = "Some Page"
-        driver.find_elements.return_value = [MagicMock()]
+        driver = _make_driver(find_elements=[MagicMock()])
         assert svc.detect(driver) is True
 
     def test_detect_no_challenge(self, svc):
-        driver = MagicMock()
-        driver.title = "Some Page"
-        driver.find_elements.return_value = []
+        driver = _make_driver(find_elements=[])
         assert svc.detect(driver) is False
 
     @patch("flaresolverr.services.cloudflare.time.sleep")
@@ -175,13 +185,11 @@ class TestDDoSGuardService:
         assert svc.name == "ddos_guard"
 
     def test_detect_by_title(self, svc):
-        driver = MagicMock()
-        driver.title = "DDoS-Guard"
+        driver = _make_driver(title="DDoS-Guard")
         assert svc.detect(driver) is True
 
     def test_detect_no_challenge(self, svc):
-        driver = MagicMock()
-        driver.title = "Some Page"
+        driver = _make_driver()
         assert svc.detect(driver) is False
 
     @patch("flaresolverr.services.ddos_guard.WebDriverWait")
@@ -217,24 +225,30 @@ class TestBraveService:
         assert svc.name == "brave"
 
     def test_detect_by_url_and_text(self, svc):
-        driver = MagicMock()
-        driver.title = "Some Page"
-        driver.current_url = "https://search.brave.com/captcha"
-        driver.page_source = "Brave Search decided to schedule a captcha"
+        driver = _make_driver(
+            current_url="https://search.brave.com/captcha",
+            page_source="Brave Search decided to schedule a captcha",
+        )
         assert svc.detect(driver) is True
 
     def test_detect_no_brave_text(self, svc):
-        driver = MagicMock()
-        driver.title = "Some Page"
-        driver.current_url = "https://search.brave.com/"
-        driver.page_source = '<script>"page":"/captcha"</script>'
+        driver = _make_driver(
+            current_url="https://search.brave.com/",
+            page_source='<script>"page":"/captcha"</script>',
+        )
         assert svc.detect(driver) is False
 
     def test_detect_no_challenge(self, svc):
+        driver = _make_driver(
+            current_url="https://example.com",
+            page_source="<html><body>ok</body></html>",
+        )
+        assert svc.detect(driver) is False
+
+    def test_detect_navigation_error_returns_false(self, svc):
         driver = MagicMock()
-        driver.title = "Some Page"
-        driver.current_url = "https://example.com"
-        driver.page_source = "<html><body>ok</body></html>"
+        driver.current_url = "https://search.brave.com/captcha"
+        _patch_page_source_error(driver)
         assert svc.detect(driver) is False
 
     @patch("flaresolverr.services.brave.BraveService._find_clickable_verify_button")
@@ -287,3 +301,15 @@ class TestBraveService:
 
         svc.resolve(driver)
         mock_button.click.assert_called_once()
+
+    def test_resolve_navigation_error_breaks_loop(self, svc):
+        driver = MagicMock()
+        driver.current_url = "https://search.brave.com/captcha"
+        _patch_page_source_error(driver)
+        # Should break the loop instead of propagating the exception
+        svc.resolve(driver)
+
+    def test_page_has_captcha_navigation_error_returns_false(self, svc):
+        driver = MagicMock()
+        _patch_page_source_error(driver)
+        assert svc._page_has_captcha(driver) is False
