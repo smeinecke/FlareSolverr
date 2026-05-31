@@ -776,7 +776,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual("Session created successfully.", body.message)
         self.assertEqual(body.session, "test_create_session")
 
-    def test_v1_endpoint_sessions_create_with_proxy(self):
+    def test_v1_endpoint_sessions_create_proxy_http_param(self):
         if not _proxy_reachable(self.proxy_http_check_url):
             self.skipTest(f"Proxy not reachable: {self.proxy_http_check_url}")
         res = self._request("POST", "/v1", {"cmd": "sessions.create", "proxy": {"url": self.proxy_url}})

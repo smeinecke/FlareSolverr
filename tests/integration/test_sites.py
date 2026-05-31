@@ -78,7 +78,7 @@ class TestFlareSolverr(unittest.TestCase):
         ]
         for site_name, site_url, site_text, site_url_pattern in sites_get:
             with self.subTest(msg=site_name):
-                res = self.app.post_json("/v1", {"cmd": "request.get", "url": site_url, "maxTimeout": 120000})
+                res = self.app.post_json("/v1", {"cmd": "request.get", "url": site_url, "maxTimeout": 120000}, expect_errors=True)
                 asset_cloudflare_solution(self, res, site_url, site_text, site_url_pattern)
 
     def test_v1_endpoint_request_post_cloudflare(self):
@@ -93,5 +93,5 @@ class TestFlareSolverr(unittest.TestCase):
 
         for site_name, site_url, site_text, post_data in sites_post:
             with self.subTest(msg=site_name):
-                res = self.app.post_json("/v1", {"cmd": "request.post", "url": site_url, "postData": post_data, "maxTimeout": 120000})
+                res = self.app.post_json("/v1", {"cmd": "request.post", "url": site_url, "postData": post_data, "maxTimeout": 120000}, expect_errors=True)
                 asset_cloudflare_solution(self, res, site_url, site_text)

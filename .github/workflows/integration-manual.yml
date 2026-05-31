@@ -119,6 +119,8 @@ jobs:
           FLARESOLVERR_URL: http://127.0.0.1:8191
           PROXY_HTTP_URL: http://proxy-http:8888
           PROXY_SOCKS_URL: socks5://proxy-socks:1080
+          PROXY_HTTP_CHECK_URL: http://127.0.0.1:8888
+          PROXY_SOCKS_CHECK_URL: socks5://127.0.0.1:1080
         run: |
           uv run pytest -m integration tests/integration/test_api.py -k "proxy_http_param or proxy_http_param_with_credentials or proxy_socks_param" -vv
 

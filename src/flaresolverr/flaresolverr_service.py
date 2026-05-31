@@ -1139,11 +1139,11 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
                         params = msg.get("params", {})
                         paused_url = params.get("request", {}).get("url")
                         paused_id = params["requestId"]
-                        if paused_url == target_url:
+                        if paused_url == target_url and request_id is None:
                             request_id = paused_id
-                            break
-                        # Continue non-matching requests unchanged
-                        driver.execute_cdp_cmd("Fetch.continueRequest", {"requestId": paused_id})
+                        else:
+                            # Continue non-matching requests unchanged
+                            driver.execute_cdp_cmd("Fetch.continueRequest", {"requestId": paused_id})
                 except Exception:  # nosec B112
                     continue
 
@@ -1176,10 +1176,23 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
             },
         )
 
-        # Wait for the page to finish loading
+        # Wait for the page to finish loading, continuing any additional paused requests
         load_timeout = 60
         load_start = time.time()
         while time.time() - load_start < load_timeout:
+            try:
+                logs = driver.get_log("performance")
+            except Exception:
+                logs = []
+            for entry in logs:
+                try:
+                    msg = json.loads(entry["message"])["message"]
+                    if msg.get("method") == "Fetch.requestPaused":
+                        paused_id = msg["params"]["requestId"]
+                        driver.execute_cdp_cmd("Fetch.continueRequest", {"requestId": paused_id})
+                except Exception:
+                    continue
+
             try:
                 ready_state = driver.execute_script("return document.readyState")
             except Exception:
