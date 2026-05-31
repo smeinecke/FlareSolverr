@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - "v*.*.*"
-    branches:
-      - master
   pull_request:
     branches:
       - master
@@ -15,6 +13,12 @@ on:
         description: "Docker image tag (default: unstable)"
         required: false
         default: "unstable"
+  workflow_run:
+    workflows: ["Python Code Checks"]
+    types:
+      - completed
+    branches:
+      - master
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -22,7 +26,9 @@ concurrency:
 
 jobs:
   build-docker-images:
-    if: ${{ !github.event.pull_request.head.repo.fork }}
+    if: |
+      !github.event.pull_request.head.repo.fork &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -42,6 +48,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Downcase repo
         run: echo REPOSITORY=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]') >> $GITHUB_ENV
@@ -55,7 +63,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}},prefix=v
             type=ref,event=pr
-            type=raw,value=unstable,enable=${{ github.ref == 'refs/heads/master' }}
+            type=raw,value=unstable,enable=${{ github.ref == 'refs/heads/master' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'master') }}
             type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
           flavor: |
             latest=auto
@@ -130,7 +138,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}},prefix=v
             type=ref,event=pr
-            type=raw,value=unstable,enable=${{ github.ref == 'refs/heads/master' }}
+            type=raw,value=unstable,enable=${{ github.ref == 'refs/heads/master' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'master') }}
             type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
           flavor: |
             latest=auto
