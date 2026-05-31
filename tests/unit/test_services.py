@@ -9,6 +9,8 @@ from flaresolverr.services.cloudflare import CloudflareService
 from flaresolverr.services.ddos_guard import DDoSGuardService
 from flaresolverr.services.brave import BraveService
 
+from selenium.common import TimeoutException
+
 
 def _make_driver(title="Some Page", find_elements=None, **kwargs):
     """Create a MagicMock driver with common attrs pre-set."""
@@ -158,7 +160,6 @@ class TestCloudflareService:
         driver.find_elements.return_value = []
 
         # Make WebDriverWait.until_not raise TimeoutException once, then succeed
-        from selenium.common import TimeoutException
 
         call_count = [0]
 

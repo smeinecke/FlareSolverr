@@ -20,7 +20,9 @@ from __future__ import annotations
 
 __version__ = "3.5.5"
 
+import inspect
 import json
+import locale
 import logging
 import os
 import pathlib
@@ -30,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import warnings
 from weakref import finalize
 
 import selenium.webdriver.chrome.service
@@ -44,6 +47,7 @@ from .options import ChromeOptions
 from .patcher import IS_POSIX
 from .patcher import Patcher
 from .reactor import Reactor
+from selenium.webdriver.common.service import utils as service_utils
 from .webelement import UCWebElement
 from .webelement import WebElement
 
@@ -331,7 +335,6 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
     def _configure_debugger(self, options, port, enable_cdp_events):
         if not options.debugger_address:
-            from selenium.webdriver.common.service import utils as service_utils
             debug_port = port if port != 0 else service_utils.free_port()
             debug_host = "127.0.0.1"
             options.debugger_address = "%s:%d" % (debug_host, debug_port)
@@ -381,8 +384,6 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         # backward compatiblity
         # check if an old uc.ChromeOptions is used, and extract the user data dir
         if hasattr(options, "user_data_dir") and getattr(options, "user_data_dir", None):
-            import warnings
-
             warnings.warn(
                 "using ChromeOptions.user_data_dir might stop working in future versions."
                 "use uc.Chrome(user_data_dir='/xyz/some/data') in case you need existing profile folder"
@@ -406,8 +407,6 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         if language:
             return language
         try:
-            import locale
-
             default_locale = locale.getdefaultlocale()[0]
             if default_locale:
                 language = default_locale.replace("_", "-")
@@ -694,8 +693,6 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
         """
         if not hasattr(self, "cdp"):
-            from .cdp import CDP
-
             cdp = CDP(self.options)
             cdp.tab_new(url)
 
@@ -804,8 +801,6 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         if not super().__getattribute__("debug"):
             return super().__getattribute__(item)
         else:
-            import inspect
-
             original = super().__getattribute__(item)
             if inspect.ismethod(original) and not inspect.isclass(original):
 

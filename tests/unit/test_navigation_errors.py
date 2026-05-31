@@ -1,5 +1,7 @@
 import pytest
 
+from flaresolverr import flaresolverr_service as svc
+
 
 class _DummyDriver:
     def __init__(self, current_url: str, title: str, page_source: str):
@@ -9,7 +11,6 @@ class _DummyDriver:
 
 
 def test_raise_if_navigation_error_detects_chrome_net_error():
-    from flaresolverr import flaresolverr_service as svc
 
     driver = _DummyDriver(
         "chrome-error://chromewebdata/",
@@ -22,7 +23,6 @@ def test_raise_if_navigation_error_detects_chrome_net_error():
 
 
 def test_raise_if_navigation_error_detects_by_page_title():
-    from flaresolverr import flaresolverr_service as svc
 
     for title in ("This site can't be reached", "This page can't be reached"):
         driver = _DummyDriver(
@@ -35,7 +35,6 @@ def test_raise_if_navigation_error_detects_by_page_title():
 
 
 def test_raise_if_navigation_error_ignores_regular_pages():
-    from flaresolverr import flaresolverr_service as svc
 
     driver = _DummyDriver(
         "https://example.com",

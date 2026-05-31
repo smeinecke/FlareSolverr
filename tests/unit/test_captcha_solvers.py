@@ -17,6 +17,12 @@ from flaresolverr.captcha_solvers import (
     get_available_solvers,
     SOLVER_MANAGER,
 )
+from flaresolverr import captcha_solvers as cs
+from flaresolverr.dtos import V1RequestBase
+from flaresolverr import flaresolverr_service as svc
+from flaresolverr.flaresolverr_service import _cmd_request_get
+from flaresolverr.flaresolverr_service import _cmd_request_post
+from flaresolverr.flaresolverr_service import _detect_captcha_type
 
 
 class MockWebDriver:
@@ -176,7 +182,6 @@ class TestCaptchaDetection:
 
     def test_detect_captcha_type_hcaptcha(self, monkeypatch):
         """Test detection of hCaptcha on page."""
-        from flaresolverr.flaresolverr_service import _detect_captcha_type
 
         mock_driver = MockWebDriver()
 
@@ -193,7 +198,6 @@ class TestCaptchaDetection:
 
     def test_detect_captcha_type_recaptcha(self, monkeypatch):
         """Test detection of reCAPTCHA on page."""
-        from flaresolverr.flaresolverr_service import _detect_captcha_type
 
         mock_driver = MockWebDriver()
 
@@ -210,7 +214,6 @@ class TestCaptchaDetection:
 
     def test_detect_captcha_type_turnstile(self, monkeypatch):
         """Test detection of Turnstile on page."""
-        from flaresolverr.flaresolverr_service import _detect_captcha_type
 
         mock_driver = MockWebDriver()
 
@@ -227,7 +230,6 @@ class TestCaptchaDetection:
 
     def test_detect_captcha_type_none(self, monkeypatch):
         """Test detection when no captcha present."""
-        from flaresolverr.flaresolverr_service import _detect_captcha_type
 
         mock_driver = MockWebDriver()
 
@@ -272,13 +274,10 @@ class TestPerRequestCaptchaSolverValidation:
     """Unit tests for captchaSolver request parameter validation."""
 
     def _make_service(self):
-        from flaresolverr import flaresolverr_service as svc
         return svc
 
     def test_invalid_solver_raises_on_request_get(self):
         """_cmd_request_get raises Exception for unknown captchaSolver."""
-        from flaresolverr.flaresolverr_service import _cmd_request_get
-        from flaresolverr.dtos import V1RequestBase
 
         req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "captchaSolver": "no-such-solver"})
         with pytest.raises(Exception, match="no-such-solver"):
@@ -286,8 +285,6 @@ class TestPerRequestCaptchaSolverValidation:
 
     def test_invalid_solver_raises_on_request_post(self):
         """_cmd_request_post raises Exception for unknown captchaSolver."""
-        from flaresolverr.flaresolverr_service import _cmd_request_post
-        from flaresolverr.dtos import V1RequestBase
 
         req = V1RequestBase({"cmd": "request.post", "url": "https://example.com", "postData": "a=b", "captchaSolver": "no-such-solver"})
         with pytest.raises(Exception, match="no-such-solver"):
@@ -295,8 +292,6 @@ class TestPerRequestCaptchaSolverValidation:
 
     def test_invalid_solver_error_lists_available(self):
         """Error message for invalid captchaSolver includes available solvers."""
-        from flaresolverr.flaresolverr_service import _cmd_request_get
-        from flaresolverr.dtos import V1RequestBase
 
         req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "captchaSolver": "no-such-solver"})
         with pytest.raises(Exception, match="default"):
@@ -304,8 +299,6 @@ class TestPerRequestCaptchaSolverValidation:
 
     def test_valid_default_solver_passes_validation(self, monkeypatch):
         """captchaSolver='default' passes validation and reaches _resolve_challenge."""
-        from flaresolverr.flaresolverr_service import _cmd_request_get
-        from flaresolverr.dtos import V1RequestBase
 
         req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "captchaSolver": "default"})
         monkeypatch.setattr("flaresolverr.flaresolverr_service._resolve_challenge", lambda req, method: (_ for _ in ()).throw(StopIteration("reached")))
@@ -314,8 +307,6 @@ class TestPerRequestCaptchaSolverValidation:
 
     def test_none_captcha_solver_passes_validation(self, monkeypatch):
         """captchaSolver=None (absent) passes validation and reaches _resolve_challenge."""
-        from flaresolverr.flaresolverr_service import _cmd_request_get
-        from flaresolverr.dtos import V1RequestBase
 
         req = V1RequestBase({"cmd": "request.get", "url": "https://example.com"})
         monkeypatch.setattr("flaresolverr.flaresolverr_service._resolve_challenge", lambda req, method: (_ for _ in ()).throw(StopIteration("reached")))
@@ -327,7 +318,6 @@ class TestEffectiveSolverSelection:
     """Unit tests for per-request vs global solver resolution in _evil_logic."""
 
     def _make_req(self, captcha_solver=None):
-        from flaresolverr.dtos import V1RequestBase
         payload = {"cmd": "request.get", "url": "https://example.com"}
         if captcha_solver is not None:
             payload["captchaSolver"] = captcha_solver
@@ -335,8 +325,6 @@ class TestEffectiveSolverSelection:
 
     def _stub_evil_logic_deps(self, monkeypatch, *, challenge_found=True, captcha_type="hcaptcha"):
         """Patch all I/O-touching helpers in _evil_logic so it runs without a browser."""
-        from flaresolverr import captcha_solvers as cs
-        from flaresolverr import flaresolverr_service as svc
 
         calls = []
 
@@ -368,8 +356,6 @@ class TestEffectiveSolverSelection:
     def test_per_request_solver_overrides_global_on_challenge(self, monkeypatch):
         """When captchaSolver is set on req and a challenge is found, that solver
         name is passed to SOLVER_MANAGER.solve instead of the global env var."""
-        from flaresolverr import captcha_solvers as cs
-        from flaresolverr import flaresolverr_service as svc
 
         class _CustomSolverA(cs.CaptchaSolver):
             name = "custom-solver-a"
@@ -395,8 +381,6 @@ class TestEffectiveSolverSelection:
     def test_absent_captcha_solver_uses_global_on_challenge(self, monkeypatch):
         """When captchaSolver is None and a challenge is found, the global
         CAPTCHA_SOLVER env var name is passed to SOLVER_MANAGER.solve."""
-        from flaresolverr import captcha_solvers as cs
-        from flaresolverr import flaresolverr_service as svc
 
         class _CustomSolverC(cs.CaptchaSolver):
             name = "custom-solver-c"

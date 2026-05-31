@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 from flaresolverr.dtos import V1RequestBase
 
+from flaresolverr import flaresolverr_service as service
+
 
 class MockDriverRawPost:
     """Mock WebDriver that simulates JavaScript XHR raw POST."""
@@ -39,7 +41,6 @@ class TestPostRawValidation:
     """Tests for request validation with postDataRaw."""
 
     def test_post_missing_body_raises(self):
-        from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({"cmd": "request.post", "url": "https://example.com"})
         with patch.object(service, "_resolve_challenge"):
@@ -50,7 +51,6 @@ class TestPostRawValidation:
                 assert "postData" in str(e) and "postDataRaw" in str(e)
 
     def test_post_with_both_bodies_raises(self):
-        from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
             "cmd": "request.post",
@@ -66,7 +66,6 @@ class TestPostRawValidation:
                 assert "Cannot use both" in str(e)
 
     def test_get_with_postDataRaw_raises(self):
-        from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
             "cmd": "request.get",
@@ -82,7 +81,6 @@ class TestPostRawValidation:
 
     def test_post_with_postDataRaw_ok(self):
         """Validation should pass when only postDataRaw is provided."""
-        from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
             "cmd": "request.post",
@@ -99,7 +97,6 @@ class TestPostRawJsFlow:
     """Tests for the JavaScript XHR-based raw POST flow."""
 
     def test_navigates_to_target_url(self):
-        from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
             "cmd": "request.post",
@@ -113,7 +110,6 @@ class TestPostRawJsFlow:
         assert driver._get_url == "https://example.com/api"
 
     def test_executes_xhr_script_with_headers(self):
-        from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
             "cmd": "request.post",
@@ -135,7 +131,6 @@ class TestPostRawJsFlow:
         assert "\\\"key\\\": \\\"value\\\"" in xhr_script
 
     def test_executes_xhr_script_with_default_content_type(self):
-        from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
             "cmd": "request.post",
@@ -149,7 +144,6 @@ class TestPostRawJsFlow:
         assert "application/x-www-form-urlencoded" in xhr_script
 
     def test_fails_when_xhr_raises_error(self):
-        from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
             "cmd": "request.post",
@@ -164,7 +158,6 @@ class TestPostRawJsFlow:
             assert "Raw POST request failed" in str(e)
 
     def test_post_request_delegates_to_raw(self):
-        from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
             "cmd": "request.post",
@@ -178,7 +171,6 @@ class TestPostRawJsFlow:
         assert driver._get_url == "https://example.com/api"
 
     def test_post_request_uses_form_for_postData(self):
-        from flaresolverr import flaresolverr_service as service
 
         req = V1RequestBase({
             "cmd": "request.post",

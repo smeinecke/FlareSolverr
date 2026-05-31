@@ -4,6 +4,9 @@ from datetime import datetime, timedelta
 
 from flaresolverr import sessions
 
+import os
+import time
+
 
 class DummyDriver:
     def __init__(self) -> None:
@@ -258,7 +261,6 @@ def test_cleanup_respects_max_count(monkeypatch) -> None:
 
 
 def test_process_alive_detects_existing_process() -> None:
-    import os
     assert sessions._process_alive(os.getpid()) is True
 
 
@@ -267,7 +269,6 @@ def test_process_alive_detects_missing_process() -> None:
 
 
 def test_ensure_process_dead_waits_then_force_kills(monkeypatch) -> None:
-    import time
     killed = {"sigkill": False}
 
     def fake_kill(pid, sig):

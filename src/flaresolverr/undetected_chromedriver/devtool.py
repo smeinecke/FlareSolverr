@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from functools import wraps
 import os
 import logging
+import sys
 import threading
 import time
 import traceback
@@ -12,6 +13,8 @@ from typing import Awaitable
 from typing import Callable
 from typing import List
 from typing import Optional
+
+from flaresolverr import undetected_chromedriver as uc  # type: ignore[import-untyped]
 
 
 class Structure(dict):
@@ -102,12 +105,6 @@ def timeout(seconds=3, on_timeout: Optional[Callable[[Callable], Any]] = None):
 
 
 def test():
-    import sys
-
-    sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-    from flaresolverr import undetected_chromedriver as uc  # type: ignore[import-untyped]
-    import threading
-
     def collector(
         driver,
         stop_event,

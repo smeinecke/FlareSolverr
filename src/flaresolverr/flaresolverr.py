@@ -1,11 +1,13 @@
 import json
 import logging
+import multiprocessing
 import os
 import sys
 from typing import Any, cast
 
 import certifi
 from bottle import run, response, Bottle, request, ServerAdapter
+from waitress import serve
 
 from flaresolverr.bottle_plugins.error_plugin import error_plugin
 from flaresolverr.bottle_plugins.logger_plugin import logger_plugin
@@ -85,8 +87,6 @@ if __name__ == "__main__":
     # fix for HEADLESS=false in Windows binary
     # https://stackoverflow.com/a/27694505
     if os.name == "nt":
-        import multiprocessing
-
         multiprocessing.freeze_support()
 
     # fix ssl certificates for compiled binaries
@@ -147,8 +147,6 @@ if __name__ == "__main__":
     # https://github.com/Pylons/waitress/issues/31
     class WaitressServerPoll(ServerAdapter):
         def run(self, handler) -> None:
-            from waitress import serve
-
             serve(handler, host=self.host, port=self.port, asyncore_use_poll=True)
 
     run(app, host=server_host, port=server_port, quiet=True, server=WaitressServerPoll)  # pyright: ignore[reportArgumentType]

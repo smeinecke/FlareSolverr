@@ -9,6 +9,9 @@ import requests
 from flaresolverr.dtos import IndexResponse, HealthResponse, V1ResponseBase, STATUS_OK, STATUS_ERROR
 from flaresolverr import utils
 
+import urllib.parse, socket
+import time
+
 pytestmark = pytest.mark.integration
 
 
@@ -20,7 +23,6 @@ def _find_obj_by_key(key: str, value: str, _list: list) -> Optional[dict]:
 
 
 def _proxy_reachable(proxy_url: str) -> bool:
-    import urllib.parse, socket
     try:
         parsed = urllib.parse.urlparse(proxy_url)
         if not parsed.hostname or not parsed.port:
@@ -65,7 +67,6 @@ class TestFlareSolverr(unittest.TestCase):
             except requests.exceptions.ConnectionError:
                 if i == 29:
                     raise
-                import time
                 time.sleep(1)
 
     @classmethod

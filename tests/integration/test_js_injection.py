@@ -13,6 +13,8 @@ import requests
 
 from flaresolverr.dtos import V1ResponseBase, STATUS_OK, STATUS_ERROR
 
+import time
+
 pytestmark = pytest.mark.integration
 
 
@@ -30,7 +32,6 @@ class TestJsInjection(unittest.TestCase):
             except requests.exceptions.ConnectionError:
                 if i == 29:
                     raise
-                import time
                 time.sleep(1)
 
     @classmethod

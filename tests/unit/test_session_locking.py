@@ -11,6 +11,9 @@ import pytest
 
 from flaresolverr import sessions
 
+from flaresolverr.dtos import V1RequestBase
+from unittest.mock import MagicMock
+
 
 class DummyDriver:
     """Mock WebDriver for testing."""
@@ -213,8 +216,6 @@ class TestSessionLockIntegration:
 
         This tests the actual integration with flaresolverr_service.
         """
-        from flaresolverr.dtos import V1RequestBase
-        from unittest.mock import MagicMock
 
         # Mock the webdriver creation
         monkeypatch.setattr(

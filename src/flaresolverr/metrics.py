@@ -1,4 +1,5 @@
 import logging
+from threading import Thread
 
 from prometheus_client import Counter, Histogram, start_http_server
 import time
@@ -15,8 +16,6 @@ def serve(port: int) -> None:
 
 def start_metrics_http_server(prometheus_port: int) -> None:
     logging.info(f"Serving Prometheus exporter on http://0.0.0.0:{prometheus_port}/metrics")
-    from threading import Thread
-
     Thread(
         target=serve,
         kwargs=dict(port=prometheus_port),

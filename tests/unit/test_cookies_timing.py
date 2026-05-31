@@ -13,6 +13,10 @@ import pytest
 
 from flaresolverr.dtos import V1RequestBase
 
+from flaresolverr import flaresolverr_service as service
+import threading
+from flaresolverr.sessions import SessionsStorage
+
 
 class MockWebDriver:
     """Mock WebDriver for testing cookies behavior."""
@@ -58,7 +62,6 @@ class TestCookiesTiming:
 the waitInSeconds delay, missing challenge cookies.
         """
         # Import here to avoid dependency issues
-        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
 
@@ -91,7 +94,6 @@ the waitInSeconds delay, missing challenge cookies.
 
     def test_cookies_not_captured_before_wait(self):
         """Test that cookies capture happens after wait, not before."""
-        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         cookies_captured = []
@@ -117,7 +119,6 @@ the waitInSeconds delay, missing challenge cookies.
             time.sleep(0.005)
             mock_driver._cookies = [{"name": "new_cookie", "value": "added_during_wait"}]
 
-        import threading
         thread = threading.Thread(target=add_cookie_later)
 
         # Store original sleep before patching to avoid recursion
@@ -132,7 +133,6 @@ the waitInSeconds delay, missing challenge cookies.
 
     def test_cookies_include_all_after_wait(self):
         """Test that all cookies including late ones are captured."""
-        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
 
@@ -150,7 +150,6 @@ the waitInSeconds delay, missing challenge cookies.
             time.sleep(0.02)
             mock_driver._cookies.append({"name": "cf_clearance", "value": "challenge"})
 
-        import threading
         thread = threading.Thread(target=add_challenge_cookie)
         thread.start()
 
@@ -168,7 +167,6 @@ the waitInSeconds delay, missing challenge cookies.
 
     def test_return_only_cookies_still_works(self):
         """Test that returnOnlyCookies mode works correctly with timing fix."""
-        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         mock_driver._cookies = [{"name": "test", "value": "value"}]
@@ -197,8 +195,6 @@ class TestCookiesTimingIntegration:
         This simulates the scenario from issue #1652 where a website sends a
 challenge that the browser solves, and cookies are set during the wait period.
         """
-        from flaresolverr import flaresolverr_service as service
-        from flaresolverr.sessions import SessionsStorage
 
         # Mock WebDriver that simulates challenge behavior
         class ChallengeWebDriver:
@@ -251,7 +247,6 @@ class TestCookiesEdgeCases:
 
     def test_empty_cookies_after_wait(self):
         """Test handling when no cookies exist after wait."""
-        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         mock_driver._cookies = []
@@ -269,7 +264,6 @@ class TestCookiesEdgeCases:
 
     def test_no_wait_cookies_still_captured(self):
         """Test that cookies are still captured when waitInSeconds is not set."""
-        from flaresolverr import flaresolverr_service as service
 
         mock_driver = MockWebDriver()
         mock_driver._cookies = [{"name": "test", "value": "value"}]

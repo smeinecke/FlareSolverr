@@ -36,7 +36,7 @@ def test_start_metrics_http_server_starts_daemon_thread(monkeypatch) -> None:
             captured["started"] = True
 
     monkeypatch.setattr(metrics.logging, "info", lambda message: captured.__setitem__("log", message))
-    monkeypatch.setattr("threading.Thread", DummyThread)
+    monkeypatch.setattr(metrics, "Thread", DummyThread)
 
     metrics.start_metrics_http_server(8192)
 

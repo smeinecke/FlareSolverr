@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
+import inspect
+
 from flaresolverr.client import ActionQueue, FlareSolverrClient, FlareSolverrError
 from flaresolverr.client.models import (
     Action,
@@ -325,7 +327,6 @@ class TestRequestManagerPayload:
 
     def test_post_method_has_tabs_till_verify(self):
         """post() exposes tabs_till_verify just like get()."""
-        import inspect
         sig = inspect.signature(self.client.request.post)
         assert "tabs_till_verify" in sig.parameters
 

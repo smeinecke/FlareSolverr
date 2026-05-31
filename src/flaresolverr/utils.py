@@ -12,11 +12,22 @@ import time
 import urllib.parse
 from typing import Any
 from datetime import timedelta
+from importlib.metadata import version
 
 try:
     import tomllib
 except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore[no-redef]
+
+try:
+    import pefile  # pyright: ignore[reportMissingImports]
+except ModuleNotFoundError:
+    pefile = None  # type: ignore[misc]
+
+try:
+    from xvfbwrapper import Xvfb
+except ModuleNotFoundError:
+    Xvfb = None  # type: ignore[misc,assignment]
 
 from selenium import webdriver
 from selenium.webdriver.chrome.webdriver import WebDriver
@@ -281,8 +292,6 @@ def get_flaresolverr_version() -> str:
 
     # Prefer installed package metadata (works in Docker and after pip install).
     try:
-        from importlib.metadata import version
-
         FLARESOLVERR_VERSION = version("flaresolverr")
         return FLARESOLVERR_VERSION
     except Exception:
@@ -801,8 +810,8 @@ def get_chrome_full_version() -> str:
 
 
 def extract_version_nt_executable(exe_path: str) -> str:
-    import pefile  # pyright: ignore[reportMissingImports]
-
+    if pefile is None:
+        raise RuntimeError("pefile is required to extract version from Windows executables")
     pe = pefile.PE(exe_path, fast_load=True)
     pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_RESOURCE"]])
     return pe.FileInfo[0][0].StringTable[0].entries[b"FileVersion"].decode("utf-8")
@@ -879,8 +888,8 @@ def get_user_agent(driver=None) -> str:
 def start_xvfb_display() -> None:
     global XVFB_DISPLAY
     if XVFB_DISPLAY is None:
-        from xvfbwrapper import Xvfb
-
+        if Xvfb is None:
+            raise RuntimeError("xvfbwrapper is required to start a virtual display")
         width = int(os.environ.get("XVFB_WIDTH", "1920"))
         height = int(os.environ.get("XVFB_HEIGHT", "1080"))
         colordepth = int(os.environ.get("XVFB_COLORDEPTH", "24"))

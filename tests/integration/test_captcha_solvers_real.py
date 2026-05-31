@@ -18,6 +18,12 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+from selenium.webdriver.chrome.webdriver import WebDriver
+from urllib.parse import urlparse
+
+from flaresolverr.captcha_solvers import get_config_captcha_solver
+from flaresolverr.captcha_solvers import SolverManager
+from flaresolverr.flaresolverr_service import _detect_captcha_type
 
 # Mark all tests in this file as integration tests
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -72,7 +78,6 @@ def mock_webdriver_with_hcaptcha():
                 elements.append(MagicMock())
             # Use proper URL parsing to check for hCaptcha domain
             if "iframe" in value:
-                from urllib.parse import urlparse
                 parsed = urlparse(value)
                 if parsed.hostname and parsed.hostname.endswith(".hcaptcha.com"):
                     elements.append(MagicMock())
@@ -115,7 +120,6 @@ def mock_webdriver_with_recaptcha():
                 elements.append(MagicMock())
             # Use proper URL parsing to check for reCAPTCHA domain
             if "iframe" in value:
-                from urllib.parse import urlparse
                 parsed = urlparse(value)
                 if parsed.hostname and parsed.hostname == "www.google.com" and "/recaptcha/" in parsed.path:
                     elements.append(MagicMock())
@@ -178,7 +182,6 @@ class TestHCaptchaRealIntegration:
 
     def test_hcaptcha_detection_on_page(self, mock_webdriver_with_hcaptcha):
         """Test that hCaptcha is correctly detected on a page."""
-        from flaresolverr.flaresolverr_service import _detect_captcha_type
 
         driver = mock_webdriver_with_hcaptcha
         captcha_type = _detect_captcha_type(driver)
@@ -219,7 +222,6 @@ class TestHCaptchaRealIntegration:
 
             # Verify site link generation works
             site_link = SiteKey.as_site_link(SiteKey.user_easy)
-            from urllib.parse import urlparse
             parsed = urlparse(site_link)
             assert parsed.hostname and (
                 parsed.hostname == "hcaptcha.com"
@@ -270,7 +272,6 @@ class TestReCaptchaRealIntegration:
 
     def test_recaptcha_detection_on_page(self, mock_webdriver_with_recaptcha):
         """Test that reCAPTCHA is correctly detected on a page."""
-        from flaresolverr.flaresolverr_service import _detect_captcha_type
 
         driver = mock_webdriver_with_recaptcha
         captcha_type = _detect_captcha_type(driver)
@@ -301,7 +302,6 @@ class TestReCaptchaRealIntegration:
 
         # In a real integration test, we would verify the page loads
         # For this test, we just verify the URL pattern
-        from urllib.parse import urlparse
         parsed = urlparse(demo_url)
         assert parsed.hostname == "www.google.com"
         assert parsed.path.startswith("/recaptcha/")
@@ -313,7 +313,6 @@ class TestSolverManagerIntegration:
 
     def test_manager_detects_installed_solvers(self, check_solver_libraries):
         """Test that SolverManager correctly detects installed solvers."""
-        from flaresolverr.captcha_solvers import SolverManager
 
         manager = SolverManager()
         available = manager.list_available_solvers()
@@ -330,7 +329,6 @@ class TestSolverManagerIntegration:
 
     def test_manager_routes_to_hcaptcha_solver(self, mock_webdriver_with_hcaptcha, check_solver_libraries):
         """Test SolverManager routes hCaptcha challenges correctly."""
-        from flaresolverr.captcha_solvers import SolverManager
 
         manager = SolverManager()
         driver = mock_webdriver_with_hcaptcha
@@ -342,7 +340,6 @@ class TestSolverManagerIntegration:
 
     def test_manager_routes_to_recaptcha_solver(self, mock_webdriver_with_recaptcha, check_solver_libraries):
         """Test SolverManager routes reCAPTCHA challenges correctly."""
-        from flaresolverr.captcha_solvers import SolverManager
 
         manager = SolverManager()
         driver = mock_webdriver_with_recaptcha
@@ -357,7 +354,6 @@ class TestEnvironmentSetup:
 
     def test_captcha_solver_env_variable(self, monkeypatch):
         """Test CAPTCHA_SOLVER environment variable is read correctly."""
-        from flaresolverr.captcha_solvers import get_config_captcha_solver
 
         # Test default
         monkeypatch.delenv("CAPTCHA_SOLVER", raising=False)
@@ -377,7 +373,6 @@ class TestEnvironmentSetup:
 
     def test_selenium_webdriver_available(self):
         """Test that selenium WebDriver is available."""
-        from selenium.webdriver.chrome.webdriver import WebDriver
         assert WebDriver is not None
 
 

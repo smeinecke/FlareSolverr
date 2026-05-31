@@ -9,6 +9,12 @@ from unittest.mock import MagicMock
 from flaresolverr import flaresolverr_service as svc
 from flaresolverr.dtos import V1RequestBase
 
+import logging
+from flaresolverr.client.client import _RequestManager, FlareSolverrClient
+from flaresolverr.client.actions import ActionQueue
+from flaresolverr import flaresolverr_service as svc
+from flaresolverr.dtos import V1RequestBase
+
 
 # ── _apply_js_injection ─────────────────────────────────────────────────────
 
@@ -19,7 +25,6 @@ class TestApplyJsInjection:
         driver = MagicMock()
         req = V1RequestBase({"cmd": "request.get", "url": "https://x.com", "scriptInject": [{"script": "1+1"}]})
 
-        import logging
 
         with caplog.at_level(logging.WARNING):
             svc._apply_js_injection(req, driver, "document_start")
@@ -99,7 +104,6 @@ class TestApplyJsInjection:
             "scriptInject": [{"script": "1", "point": "document_start"}],
         })
 
-        import logging
 
         with caplog.at_level(logging.WARNING):
             svc._apply_js_injection(req, driver, "document_start")
@@ -177,7 +181,6 @@ class TestEvalReturnResult:
 
 class TestClientJsInjectionParams:
     def test_build_payload_includes_script_inject(self):
-        from flaresolverr.client.client import _RequestManager, FlareSolverrClient
 
         mgr = _RequestManager(FlareSolverrClient())
         payload = mgr._build_payload(
@@ -188,7 +191,6 @@ class TestClientJsInjectionParams:
         assert payload["scriptInject"] == [{"script": "window.x = 1;", "point": "document_start"}]
 
     def test_build_payload_omits_when_none(self):
-        from flaresolverr.client.client import _RequestManager, FlareSolverrClient
 
         mgr = _RequestManager(FlareSolverrClient())
         payload = mgr._build_payload(cmd="request.get", url="https://x.com")
@@ -197,13 +199,11 @@ class TestClientJsInjectionParams:
 
 class TestClientEvalAction:
     def test_eval_action_with_return_result_false(self):
-        from flaresolverr.client.actions import ActionQueue
 
         actions = ActionQueue().eval("return 1", return_result=False).build()
         assert actions == [{"type": "eval", "script": "return 1", "returnResult": False}]
 
     def test_eval_action_default_does_not_emit_returnResult(self):
-        from flaresolverr.client.actions import ActionQueue
 
         actions = ActionQueue().eval("return 1").build()
         assert actions == [{"type": "eval", "script": "return 1"}]
@@ -214,8 +214,6 @@ class TestClientEvalAction:
 
 class TestBuildChallengeResultEvalIntegration:
     def test_eval_with_returnResult_false_skips_from_evalResult(self, monkeypatch):
-        from flaresolverr import flaresolverr_service as svc
-        from flaresolverr.dtos import V1RequestBase
 
         driver = MagicMock()
         driver.page_source = "<html></html>"
@@ -232,8 +230,6 @@ class TestBuildChallengeResultEvalIntegration:
         assert not hasattr(result, "evalResult") or result.evalResult is None
 
     def test_eval_with_returnResult_true_includes_in_evalResult(self, monkeypatch):
-        from flaresolverr import flaresolverr_service as svc
-        from flaresolverr.dtos import V1RequestBase
 
         driver = MagicMock()
         driver.page_source = "<html></html>"
@@ -255,7 +251,6 @@ class TestBuildChallengeResultEvalIntegration:
 
 class TestEvilLogicInjectionPoints:
     def test_document_start_called_before_navigate(self, monkeypatch):
-        from flaresolverr import flaresolverr_service as svc
 
         injected_points = []
         orig_apply = svc._apply_js_injection
@@ -281,7 +276,6 @@ class TestEvilLogicInjectionPoints:
 
     def test_document_end_after_page_title(self, monkeypatch):
         # Verify that _apply_js_injection("document_end") is called after driver.title
-        from flaresolverr import flaresolverr_service as svc
 
         sequence = []
         orig_title = MagicMock()

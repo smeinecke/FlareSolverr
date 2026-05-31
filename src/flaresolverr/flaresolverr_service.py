@@ -1,6 +1,7 @@
 import json
 import logging
 import platform
+import random
 import re
 import sys
 import threading
@@ -797,8 +798,6 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
         action_type = action.get("type")
         selector = action.get("selector")
         if action_type == "fill":
-            import random
-
             el = _find_and_scroll_element(driver, selector, default_action_timeout, 0.3, 0.6)
             # Click with a random non-zero offset from center so that
             # hasClickedEmailFieldExactCenter / hasClickedFieldSmallMargin
@@ -830,10 +829,8 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
                     _s = el.size
                     _max_dx = max(4, _s.get("width", 30) // 4)
                     _max_dy = max(4, _s.get("height", 16) // 4)
-                    import random as _r
-
-                    _dx = _r.uniform(2, _max_dx) * _r.choice([-1, 1])  # nosec B311
-                    _dy = _r.uniform(-_max_dy, _max_dy)  # nosec B311
+                    _dx = random.uniform(2, _max_dx) * random.choice([-1, 1])  # nosec B311
+                    _dy = random.uniform(-_max_dy, _max_dy)  # nosec B311
                     ActionChains(driver).move_to_element_with_offset(el, int(_dx), int(_dy)).pause(_random_delay(0.05, 0.15)).click().perform()
                 except UnexpectedAlertPresentException:
                     try:
@@ -1119,9 +1116,7 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
                 name, value = header.split(":", 1)
                 headers_dict[name.strip()] = value.strip()
 
-    import json as _json
-
-    headers_json = _json.dumps(headers_dict)
+    headers_json = json.dumps(headers_dict)
 
     # Navigate to the target URL first to establish the correct origin,
     # then perform the raw POST via synchronous XHR and replace the document
@@ -1132,14 +1127,14 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
     (function() {{
         try {{
             var xhr = new XMLHttpRequest();
-            xhr.open('POST', {_json.dumps(target_url)}, false);
+            xhr.open('POST', {json.dumps(target_url)}, false);
             var headers = {headers_json};
             for (var name in headers) {{
                 if (headers.hasOwnProperty(name)) {{
                     xhr.setRequestHeader(name, headers[name]);
                 }}
             }}
-            xhr.send({_json.dumps(post_data)});
+            xhr.send({json.dumps(post_data)});
             document.open();
             document.write(xhr.responseText);
             document.close();

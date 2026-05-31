@@ -16,6 +16,9 @@ import time
 import pytest
 import requests
 
+import html as html_module
+import json
+
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
@@ -68,8 +71,6 @@ class TestBotChallenge(unittest.TestCase):
 
     def _extract_challenge_results(self, html):
         """Extract JSON results from challenge page HTML output."""
-        import html as html_module
-        import json
 
         # Find JSON in <pre><code> block from showJSONOutput()
         match = re.search(r'<pre[^>]*><code[^>]*>(.*?)</code></pre>', html, re.DOTALL)
