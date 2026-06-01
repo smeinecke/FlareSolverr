@@ -218,7 +218,7 @@ jobs:
           SKIP_BACKEND_CAMOUFOX: ${{ matrix.backend != 'camoufox' && 'true' || '' }}
           SKIP_BACKEND_SELENIUMBASE: ${{ matrix.backend != 'seleniumbase' && 'true' || '' }}
         run: |
-          uv run pytest tests/integration/test_backends.py -vv -k "${{ matrix.backend }}"
+          uv run pytest tests/integration/test_backends.py -vv -m integration -k "${{ matrix.backend }}"
 
       - name: Run backend creation smoke test
         env:
@@ -229,4 +229,4 @@ jobs:
           SKIP_BACKEND_CAMOUFOX: ${{ matrix.backend != 'camoufox' && 'true' || '' }}
           SKIP_BACKEND_SELENIUMBASE: ${{ matrix.backend != 'seleniumbase' && 'true' || '' }}
         run: |
-          uv run pytest tests/integration/test_backends.py::TestBackendCreation -vv -k "${{ matrix.backend }}"
+          uv run pytest tests/integration/test_backends.py::TestBackendCreation -vv -m integration -k "${{ matrix.backend }}"
