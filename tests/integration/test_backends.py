@@ -301,6 +301,28 @@ class TestBrowserContextProtocol(unittest.TestCase):
             pytest.skip("playwright not installed")
         self._test_protocol("playwright")
 
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_CAMOUFOX", "").lower() == "true",
+        reason="SKIP_BACKEND_CAMOUFOX=true",
+    )
+    def test_camoufox_protocol(self):
+        try:
+            import camoufox  # noqa: F401
+        except ImportError:
+            pytest.skip("camoufox not installed")
+        self._test_protocol("camoufox")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_SELENIUMBASE", "").lower() == "true",
+        reason="SKIP_BACKEND_SELENIUMBASE=true",
+    )
+    def test_seleniumbase_protocol(self):
+        try:
+            import seleniumbase  # noqa: F401
+        except ImportError:
+            pytest.skip("seleniumbase not installed")
+        self._test_protocol("seleniumbase")
+
 
 class TestApiWithBackends(unittest.TestCase):
     """End-to-end API tests against a live FlareSolverr server.
@@ -366,3 +388,234 @@ class TestApiWithBackends(unittest.TestCase):
             "session": "test-backend-session",
         })
         self.assertEqual(destroy_res.get("status"), "ok")
+
+
+class TestBackendScreenshot(unittest.TestCase):
+    """Verify screenshots are valid PNG images."""
+
+    @classmethod
+    def tearDownClass(cls):
+        if os.name != "nt":
+            os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
+            os.system("pkill -f chromium >/dev/null 2>&1 || true")
+
+    def _test_screenshot(self, backend_name: str) -> None:
+        backend = backends.get_backend(backend_name)
+        driver = None
+        try:
+            driver = backend.create_driver(proxy=None, stealth_mode="off")
+            ctx = get_browser_context(driver)
+            ctx.get("https://example.com")
+            b64 = ctx.get_screenshot_as_base64()
+            assert isinstance(b64, str) and len(b64) > 100
+            # Verify it decodes to a valid PNG (magic bytes)
+            import base64
+            raw = base64.b64decode(b64)
+            assert raw[:8] == b"\x89PNG\r\n\x1a\n", f"Not a valid PNG: {raw[:8]!r}"
+        finally:
+            if driver is not None:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_UNDETECTED_CHROMEDRIVER", "").lower() == "true",
+        reason="SKIP_BACKEND_UNDETECTED_CHROMEDRIVER=true",
+    )
+    def test_undetected_chromedriver_screenshot(self):
+        self._test_screenshot("undetected_chromedriver")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_PLAYWRIGHT", "").lower() == "true",
+        reason="SKIP_BACKEND_PLAYWRIGHT=true",
+    )
+    def test_playwright_screenshot(self):
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            pytest.skip("playwright not installed")
+        self._test_screenshot("playwright")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_CAMOUFOX", "").lower() == "true",
+        reason="SKIP_BACKEND_CAMOUFOX=true",
+    )
+    def test_camoufox_screenshot(self):
+        try:
+            import camoufox  # noqa: F401
+        except ImportError:
+            pytest.skip("camoufox not installed")
+        self._test_screenshot("camoufox")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_SELENIUMBASE", "").lower() == "true",
+        reason="SKIP_BACKEND_SELENIUMBASE=true",
+    )
+    def test_seleniumbase_screenshot(self):
+        try:
+            import seleniumbase  # noqa: F401
+        except ImportError:
+            pytest.skip("seleniumbase not installed")
+        self._test_screenshot("seleniumbase")
+
+
+class TestBackendJavaScriptDom(unittest.TestCase):
+    """Verify JavaScript can read and modify the DOM."""
+
+    @classmethod
+    def tearDownClass(cls):
+        if os.name != "nt":
+            os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
+            os.system("pkill -f chromium >/dev/null 2>&1 || true")
+
+    def _test_js_dom(self, backend_name: str) -> None:
+        backend = backends.get_backend(backend_name)
+        driver = None
+        try:
+            driver = backend.create_driver(proxy=None, stealth_mode="off")
+            ctx = get_browser_context(driver)
+            ctx.get("https://example.com")
+
+            # Read existing DOM
+            title = ctx.execute_script("return document.title")
+            assert "Example Domain" in title
+
+            # Modify DOM
+            ctx.execute_script("document.body.setAttribute('data-test', 'modified')")
+            attr = ctx.execute_script("return document.body.getAttribute('data-test')")
+            assert attr == "modified"
+
+            # Create element
+            ctx.execute_script("""
+                const div = document.createElement('div');
+                div.id = 'js-injected';
+                div.textContent = 'hello from js';
+                document.body.appendChild(div);
+            """)
+            el = ctx.find_element("id", "js-injected")
+            assert "hello from js" in el.text
+        finally:
+            if driver is not None:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_UNDETECTED_CHROMEDRIVER", "").lower() == "true",
+        reason="SKIP_BACKEND_UNDETECTED_CHROMEDRIVER=true",
+    )
+    def test_undetected_chromedriver_js_dom(self):
+        self._test_js_dom("undetected_chromedriver")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_PLAYWRIGHT", "").lower() == "true",
+        reason="SKIP_BACKEND_PLAYWRIGHT=true",
+    )
+    def test_playwright_js_dom(self):
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            pytest.skip("playwright not installed")
+        self._test_js_dom("playwright")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_CAMOUFOX", "").lower() == "true",
+        reason="SKIP_BACKEND_CAMOUFOX=true",
+    )
+    def test_camoufox_js_dom(self):
+        try:
+            import camoufox  # noqa: F401
+        except ImportError:
+            pytest.skip("camoufox not installed")
+        self._test_js_dom("camoufox")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_SELENIUMBASE", "").lower() == "true",
+        reason="SKIP_BACKEND_SELENIUMBASE=true",
+    )
+    def test_seleniumbase_js_dom(self):
+        try:
+            import seleniumbase  # noqa: F401
+        except ImportError:
+            pytest.skip("seleniumbase not installed")
+        self._test_js_dom("seleniumbase")
+
+
+class TestBackendWaitConditions(unittest.TestCase):
+    """Verify wait_for_visibility and wait_for_title on real pages."""
+
+    @classmethod
+    def tearDownClass(cls):
+        if os.name != "nt":
+            os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
+            os.system("pkill -f chromium >/dev/null 2>&1 || true")
+
+    def _test_waits(self, backend_name: str) -> None:
+        backend = backends.get_backend(backend_name)
+        driver = None
+        try:
+            driver = backend.create_driver(proxy=None, stealth_mode="off")
+            ctx = get_browser_context(driver)
+            ctx.get("https://example.com")
+
+            # wait_for_presence on h1
+            h1 = ctx.wait_for_presence("tag name", "h1", timeout=5.0)
+            assert h1 is not None
+
+            # wait_for_visibility on h1
+            vis = ctx.wait_for_visibility("tag name", "h1", timeout=5.0)
+            assert vis is not None
+
+            # wait_for_title
+            assert ctx.wait_for_title("Example Domain", timeout=5.0)
+
+            # wait_for_title_not
+            assert not ctx.wait_for_title_not("Example Domain", timeout=1.0)
+        finally:
+            if driver is not None:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_UNDETECTED_CHROMEDRIVER", "").lower() == "true",
+        reason="SKIP_BACKEND_UNDETECTED_CHROMEDRIVER=true",
+    )
+    def test_undetected_chromedriver_waits(self):
+        self._test_waits("undetected_chromedriver")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_PLAYWRIGHT", "").lower() == "true",
+        reason="SKIP_BACKEND_PLAYWRIGHT=true",
+    )
+    def test_playwright_waits(self):
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            pytest.skip("playwright not installed")
+        self._test_waits("playwright")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_CAMOUFOX", "").lower() == "true",
+        reason="SKIP_BACKEND_CAMOUFOX=true",
+    )
+    def test_camoufox_waits(self):
+        try:
+            import camoufox  # noqa: F401
+        except ImportError:
+            pytest.skip("camoufox not installed")
+        self._test_waits("camoufox")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_SELENIUMBASE", "").lower() == "true",
+        reason="SKIP_BACKEND_SELENIUMBASE=true",
+    )
+    def test_seleniumbase_waits(self):
+        try:
+            import seleniumbase  # noqa: F401
+        except ImportError:
+            pytest.skip("seleniumbase not installed")
+        self._test_waits("seleniumbase")

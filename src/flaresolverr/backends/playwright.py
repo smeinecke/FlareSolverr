@@ -282,7 +282,7 @@ class PlaywrightBrowserContext(BrowserContext):
             if self.title == title:
                 return True
             time.sleep(0.1)
-        raise TimeoutException(f"Timeout waiting for title: {title}")
+        return False
 
     def wait_for_title_not(self, title: str, timeout: float) -> bool:
         end_time = time.time() + timeout
@@ -290,7 +290,7 @@ class PlaywrightBrowserContext(BrowserContext):
             if self.title != title:
                 return True
             time.sleep(0.1)
-        raise TimeoutException(f"Timeout waiting for title not to be: {title}")
+        return False
 
     def wait_for_staleness(self, element: Element, timeout: float) -> bool:
         if not isinstance(element, PlaywrightElement):
