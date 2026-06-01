@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import unittest
+import urllib.parse
 
 import pytest
 import requests
@@ -79,8 +80,8 @@ class TestBackendCreation(unittest.TestCase):
             title = ctx.title
             source = ctx.page_source
             url = ctx.current_url
-
-            assert url.startswith("https://example.com"), f"Unexpected URL: {url}"
+            parsed = urllib.parse.urlparse(url)
+            assert parsed.hostname == "example.com" and parsed.scheme == "https", f"Unexpected URL: {url}"
             assert "Example Domain" in (title or source), f"Page content unexpected: {title!r}"
         finally:
             if driver is not None:
@@ -222,7 +223,8 @@ class TestBrowserContextProtocol(unittest.TestCase):
 
             # Navigation
             ctx.get("https://example.com")
-            assert ctx.current_url.startswith("https://example.com")
+            parsed = urllib.parse.urlparse(ctx.current_url)
+            assert parsed.hostname == "example.com" and parsed.scheme == "https"
             assert "Example Domain" in ctx.title
 
             # Scripting
