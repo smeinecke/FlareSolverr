@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import unittest
@@ -53,6 +54,7 @@ class TestFlareSolverr(unittest.TestCase):
     scrapingcourse_turnstile_url = "https://www.scrapingcourse.com/login/cf-turnstile"
     scrapingcourse_csrf_url = "https://www.scrapingcourse.com/login/csrf"
     cloudflare_blocked_url = "https://www.cpasbiens3.fr/"
+    turnstile_workers_url = "https://browser-compat.turnstile.workers.dev/"
 
     base_url = None
 
@@ -423,6 +425,92 @@ class TestFlareSolverr(unittest.TestCase):
 
         # Turnstile token was solved by FlareSolverr before form submission
         self.assertTrue(solution.turnstile_token, "Turnstile token should be present after captcha solve")
+
+    def test_v1_endpoint_request_get_turnstile_workers(self):
+        # Create a session so we can evaluate JS on the loaded page and read
+        # the structured testResults JSON instead of scraping HTML.
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_turnstile_workers"})
+
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "request.get",
+                "url": self.turnstile_workers_url,
+                "maxTimeout": 120000,
+                "session": "test_turnstile_workers",
+            },
+            timeout=190,
+        )
+        if res.status_code == 500:
+            body = V1ResponseBase(self._get_json(res))
+            if "Timeout after" in body.message:
+                self.skipTest(f"Target site challenge timed out: {body.message}")
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self._assert_challenge_status_ok(body.message)
+        self.assertGreater(body.startTimestamp, 10000)
+        self.assertGreaterEqual(body.endTimestamp, body.startTimestamp)
+        self.assertEqual(utils.get_flaresolverr_version(), body.version)
+
+        solution = body.solution
+        self.assertIn(self.turnstile_workers_url, solution.url)
+        self.assertEqual(solution.status, 200)
+        self.assertIs(len(solution.headers), 0)
+
+        # Extract the page's internal testResults JSON via JS evaluation.
+        # window.testResults is scoped inside an IIFE, so it is not directly
+        # reachable.  However, window.copyFullResults is exposed and reads
+        # testResults from its closure.  We monkey-patch
+        # navigator.clipboard.writeText to capture the JSON string that the
+        # "Copy full results" button would copy to the clipboard.
+        eval_res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "sessions.eval",
+                "session": "test_turnstile_workers",
+                "script": (
+                    "var captured = null;"
+                    "navigator.clipboard.writeText = function(text) {"
+                    "    captured = text;"
+                    "    return Promise.resolve();"
+                    "};"
+                    "window.copyFullResults();"
+                    "return captured;"
+                ),
+            },
+        )
+        self.assertEqual(eval_res.status_code, 200)
+        eval_body = V1ResponseBase(self._get_json(eval_res))
+        self.assertEqual(STATUS_OK, eval_body.status)
+        self.assertEqual("Script executed successfully.", eval_body.message)
+        self.assertIsNotNone(eval_body.solution.evalResult, "copyFullResults did not produce any output")
+
+        test_results = json.loads(eval_body.solution.evalResult)
+
+        # Assert on structured diagnostic data rather than scraping HTML.
+        # criticalFailure is null when all checks pass;
+        # in an automated browser it is "automated_browser".
+        self.assertIsNone(
+            test_results.get("testMetadata", {}).get("criticalFailure"),
+            f"Turnstile troubleshooting page detected a critical failure: {test_results.get('testMetadata', {}).get('criticalFailure')}",
+        )
+
+        for test in test_results.get("tests", []):
+            self.assertTrue(
+                test.get("passed", False),
+                f"Diagnostic test '{test.get('name')}' failed: {test.get('detail')}",
+            )
+
+        # Turnstile may or may not have completed depending on timing;
+        # only assert token when a challenge was actively solved.
+        self.assertGreater(len(solution.cookies), 0)
+        self.assertIn("Chrome/", solution.userAgent)
+        if body.message == "Challenge solved!":
+            self.assertTrue(solution.turnstile_token, "Turnstile token should be present after captcha solve")
 
     def test_v1_endpoint_request_get_csrf_login(self):
         res = self._request(
