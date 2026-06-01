@@ -188,7 +188,7 @@ class PlaywrightBrowserContext(BrowserContext):
 
     def add_cookie(self, cookie: dict[str, Any]) -> None:
         cookie_copy = dict(cookie)
-        if "url" not in cookie_copy:
+        if "url" not in cookie_copy and "domain" not in cookie_copy:
             cookie_copy["url"] = self._page.url
         self._page.context.add_cookies([cookie_copy])
 
