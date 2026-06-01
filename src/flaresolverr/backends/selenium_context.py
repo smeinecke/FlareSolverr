@@ -58,7 +58,10 @@ class SeleniumActionChainBuilder(ActionChainBuilder):
         raise TypeError(f"Expected SeleniumElement, got {type(element).__name__}")
 
     def move_to_element(self, element: Element) -> "SeleniumActionChainBuilder":
-        self._actions.move_to_element(self._unwrap(element))
+        unwrapped = self._unwrap(element)
+        if unwrapped is None:
+            raise ValueError("move_to_element requires a non-None element")
+        self._actions.move_to_element(unwrapped)
         return self
 
     def move_by_offset(self, x: int, y: int) -> "SeleniumActionChainBuilder":
