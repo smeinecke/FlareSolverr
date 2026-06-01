@@ -49,13 +49,13 @@ Under the hood it uses [Selenium](https://www.selenium.dev) with the [undetected
 
 1. **API Client sends a POST to `/v1`** with a JSON body containing the command (`request.get`, `request.post`, `sessions.create`, etc.) and its parameters.
 
-2. **Session handling** — FlareSolverr checks whether the request references an existing session:
+2. **Session handling** - FlareSolverr checks whether the request references an existing session:
    - **New session**: A fresh Chrome browser instance is launched. Each session owns its own browser process, profile directory, and cookie jar. Sessions can be named explicitly or auto-assigned a UUID.
    - **Existing session**: The previously launched browser is reused, which avoids the overhead of spawning a new process and preserves cookies across requests.
 
-3. **Navigation** — The browser navigates to the target URL with any provided custom headers or cookies.
+3. **Navigation** - The browser navigates to the target URL with any provided custom headers or cookies.
 
-4. **Challenge detection & resolution** — After the page begins loading, FlareSolverr determines whether a protection challenge is active:
+4. **Challenge detection & resolution** - After the page begins loading, FlareSolverr determines whether a protection challenge is active:
    - It checks the page title for known challenge markers (e.g., "Just a moment...").
    - It queries the DOM for CSS selectors commonly used by Cloudflare and DDoS-GUARD challenge pages.
    - If no challenge is detected, the flow proceeds directly to waiting for the page to finish loading.
@@ -65,13 +65,13 @@ Under the hood it uses [Selenium](https://www.selenium.dev) with the [undetected
      - Waits for the redirect that follows a successful solve.
      - If the challenge cannot be solved within `maxTimeout`, an error response is returned.
 
-5. **Browser actions** — After the page is stable, the optional `actions` list is executed sequentially. Supported actions include filling form fields, clicking elements, waiting for selectors, evaluating arbitrary JavaScript, and sleeping for a fixed duration.
+5. **Browser actions** - After the page is stable, the optional `actions` list is executed sequentially. Supported actions include filling form fields, clicking elements, waiting for selectors, evaluating arbitrary JavaScript, and sleeping for a fixed duration.
 
-6. **Post-navigation wait** — If `waitInSeconds` is specified, FlareSolverr pauses for the given time before capturing results. This is useful when pages perform additional AJAX loading after the initial load event.
+6. **Post-navigation wait** - If `waitInSeconds` is specified, FlareSolverr pauses for the given time before capturing results. This is useful when pages perform additional AJAX loading after the initial load event.
 
-7. **Screenshot (optional)** — When `returnScreenshot` is enabled, a Base64-encoded PNG of the current viewport is captured.
+7. **Screenshot (optional)** - When `returnScreenshot` is enabled, a Base64-encoded PNG of the current viewport is captured.
 
-8. **Response building** — FlareSolverr gathers:
+8. **Response building** - FlareSolverr gathers:
    - Current URL and HTTP status
    - Full page HTML
    - Response headers

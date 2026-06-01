@@ -62,13 +62,12 @@ A lightweight backend using [Playwright](https://playwright.dev/python/) Chromiu
 - Cross-platform (works on amd64, arm64, etc.)
 
 **Limitations:**
-- **No CDP support** — features that depend on Chrome DevTools Protocol will raise `NotImplementedError`:
-  - `scriptInject` (CDP-based `Page.addScriptToEvaluateOnNewDocument`)
-  - `Network.setBlockedURLs` (media blocking via `disableMedia`)
-  - `Network.setExtraHTTPHeaders` (custom headers via CDP)
-  - `sessions.cdp` command
+- **No arbitrary CDP support** — unknown CDP commands raise `NotImplementedError`, but the most common ones are translated to Playwright equivalents:
+  - `scriptInject` → `page.add_init_script()`
+  - `disableMedia` → `page.route()` with abort
+  - Custom headers → `page.set_extra_http_headers()`
+  - `sessions.cdp` still raises for commands outside the translation list
 - JavaScript execution via `execute_script` and action `eval` works normally
-- Custom headers can be set at browser context level, but not per-request via CDP
 
 **Install:**
 ```bash
@@ -86,7 +85,7 @@ Uses [Camoufox](https://camoufox.com/), a Playwright-based browser with advanced
 - Fast startup
 
 **Limitations:**
-- **No CDP support** — same as Playwright backend
+- **No arbitrary CDP support** — same translation layer as Playwright (see above)
 - Requires `camoufox` Python package
 - Premium feature (paid license for some use cases)
 
@@ -129,10 +128,10 @@ pip install seleniumbase
 | `sessions.action` | ✅ | ✅ | ✅ | ✅ |
 | `sessions.screenshot` | ✅ | ✅ | ✅ | ✅ |
 | `sessions.network` | ✅ | ⚠️ | ⚠️ | ⚠️ |
-| `sessions.cdp` | ✅ | ❌ | ❌ | ⚠️ |
-| `scriptInject` | ✅ | ❌ | ❌ | ⚠️ |
-| `disableMedia` | ✅ | ❌ | ❌ | ⚠️ |
-| Custom headers via `headers` | ✅ | ❌ | ❌ | ⚠️ |
+| `sessions.cdp` | ✅ | ⚠️ | ⚠️ | ⚠️ |
+| `scriptInject` | ✅ | ✅ | ✅ | ⚠️ |
+| `disableMedia` | ✅ | ✅ | ✅ | ⚠️ |
+| Custom headers via `headers` | ✅ | ✅ | ✅ | ⚠️ |
 | Proxy support | ✅ | ✅ | ✅ | ✅ |
 | Cookie handling | ✅ | ✅ | ✅ | ✅ |
 | Browser actions | ✅ | ✅ | ✅ | ✅ |
@@ -165,15 +164,18 @@ pip install seleniumbase
 ### CDP command not supported
 
 ```
-NotImplementedError: CDP command 'Network.setBlockedURLs' is not supported by the Playwright backend
+NotImplementedError: CDP command 'Debugger.enable' is not supported by the Playwright backend
 ```
 
-**Cause:** You are using a backend that does not support Chrome DevTools Protocol.
+**Cause:** You called a CDP command that is not in the translation layer.
 
-**Fix:** Switch to `undetected_chromedriver` backend, or avoid CDP-dependent features:
-- Instead of `disableMedia`, accept that media will load
-- Instead of `scriptInject`, use `sessions.eval` after page load
-- Instead of custom headers via `headers`, configure them at the proxy level
+**Fix:** The Playwright and Camoufox backends translate the most common CDP commands to Playwright equivalents:
+- `Page.addScriptToEvaluateOnNewDocument` → `page.add_init_script()`
+- `Network.setBlockedURLs` → `page.route()` with abort
+- `Network.setExtraHTTPHeaders` → `page.set_extra_http_headers()`
+- `Network.enable` → no-op
+
+Arbitrary CDP commands (e.g., `Debugger.enable`, `Runtime.evaluate`) still raise `NotImplementedError`. Switch to `undetected_chromedriver` if you need full CDP support.
 
 ### Playwright browser fails to launch
 

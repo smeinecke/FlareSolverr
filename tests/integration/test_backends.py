@@ -170,7 +170,7 @@ class TestBackendFeatures(unittest.TestCase):
             driver = backend.create_driver(proxy=None, stealth_mode="off")
             ctx = get_browser_context(driver)
             with pytest.raises(NotImplementedError, match="not supported by the Playwright backend"):
-                ctx.execute_cdp_cmd("Network.enable", {})
+                ctx.execute_cdp_cmd("Debugger.enable", {})
         finally:
             if driver is not None:
                 try:
@@ -193,7 +193,7 @@ class TestBackendFeatures(unittest.TestCase):
             driver = backend.create_driver(proxy=None, stealth_mode="off")
             ctx = get_browser_context(driver)
             with pytest.raises(NotImplementedError, match="not supported by the Camoufox backend"):
-                ctx.execute_cdp_cmd("Network.enable", {})
+                ctx.execute_cdp_cmd("Debugger.enable", {})
         finally:
             if driver is not None:
                 try:
