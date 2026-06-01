@@ -190,3 +190,62 @@ jobs:
         run: |
           docker compose -f docker-compose.test.yml down -v --remove-orphans
           rm -f docker-compose.test.yml
+
+  backend-matrix:
+    name: Backend Matrix Tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [undetected_chromedriver, playwright, camoufox, seleniumbase]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Cache uv
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.cache/pip
+          key: uv-cache-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            uv-cache-
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Install base dependencies
+        run: |
+          uv sync --group dev --extra test
+
+      - name: Install Playwright dependencies
+        if: matrix.backend == 'playwright'
+        run: |
+          uv pip install --no-cache-dir 'playwright>=1.50'
+          uv run playwright install chromium
+
+      - name: Install Camoufox dependencies
+        if: matrix.backend == 'camoufox'
+        run: |
+          uv pip install --no-cache-dir 'camoufox[geoip]>=0.3'
+          uv run python -m camoufox fetch
+
+      - name: Install SeleniumBase dependencies
+        if: matrix.backend == 'seleniumbase'
+        run: |
+          uv pip install --no-cache-dir 'seleniumbase>=4.30'
+
+      - name: Run backend tests
+        env:
+          DRIVER_BACKEND: ${{ matrix.backend }}
+          HEADLESS: "true"
+          SKIP_BACKEND_UNDETECTED_CHROMEDRIVER: ${{ matrix.backend != 'undetected_chromedriver' && 'true' || '' }}
+          SKIP_BACKEND_PLAYWRIGHT: ${{ matrix.backend != 'playwright' && 'true' || '' }}
+          SKIP_BACKEND_CAMOUFOX: ${{ matrix.backend != 'camoufox' && 'true' || '' }}
+          SKIP_BACKEND_SELENIUMBASE: ${{ matrix.backend != 'seleniumbase' && 'true' || '' }}
+        run: |
+          uv run pytest tests/integration/test_backends.py -vv -k "${{ matrix.backend }}"
