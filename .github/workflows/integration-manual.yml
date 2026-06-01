@@ -15,10 +15,13 @@ on:
           - non-proxy
           - proxy
           - all
+  pull_request:
+    types: [labeled]
 
 jobs:
   integration-manual:
     name: Manual Integration (Docker)
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'run-integration-tests')
     runs-on: ubuntu-latest
 
     steps:
