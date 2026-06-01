@@ -1,7 +1,8 @@
 import base64
 import logging
 import time
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, cast
 
 from selenium.common import TimeoutException
 from selenium.webdriver.common.keys import Keys
@@ -9,41 +10,61 @@ from selenium.webdriver.common.keys import Keys
 from flaresolverr.backends.browser_context import ActionChainBuilder, BrowserContext, Element
 
 
+class _SyncExecutor:
+    """Runs Playwright sync API calls in a dedicated thread to avoid greenlet issues."""
+
+    def __init__(self) -> None:
+        self._executor = ThreadPoolExecutor(max_workers=1)
+
+    def submit(self, func, *args, **kwargs):
+        return self._executor.submit(func, *args, **kwargs).result()
+
+    def shutdown(self) -> None:
+        self._executor.shutdown(wait=True)
+
+
 class CamoufoxElement(Element):
     """Wraps a Playwright ElementHandle."""
 
-    def __init__(self, handle: Any) -> None:
+    def __init__(self, handle: Any, executor: _SyncExecutor) -> None:
         self._handle = handle
+        self._executor = executor
 
     def click(self) -> None:
-        self._handle.click()
+        self._executor.submit(self._handle.click)
 
     def clear(self) -> None:
-        self._handle.fill("")
+        self._executor.submit(self._handle.fill, "")
 
     def send_keys(self, text: str) -> None:
-        self._handle.type(text)
+        self._executor.submit(self._handle.type, text)
 
     def get_attribute(self, name: str) -> str | None:
-        return self._handle.get_attribute(name)
+        return self._executor.submit(self._handle.get_attribute, name)
 
     @property
     def text(self) -> str:
-        return self._handle.inner_text()
+        return self._executor.submit(self._handle.inner_text)
 
     @property
     def location(self) -> dict[str, int]:
-        box = self._handle.bounding_box()
-        if box:
-            return {"x": int(box["x"]), "y": int(box["y"])}
-        return {"x": 0, "y": 0}
+        def _get():
+            box = self._handle.bounding_box()
+            if box:
+                return {"x": int(box["x"]), "y": int(box["y"])}
+            return {"x": 0, "y": 0}
+
+        return self._executor.submit(_get)
 
     @property
     def size(self) -> dict[str, int]:
-        box = self._handle.bounding_box()
-        if box:
-            return {"width": int(box["width"]), "height": int(box["height"])}
-        return {"width": 0, "height": 0}
+        def _get():
+            box = self._handle.bounding_box()
+            if box:
+                return {"width": int(box["width"]), "height": int(box["height"])}
+            return {"width": 0, "height": 0}
+
+        return self._executor.submit(_get)
 
 
 _KEYS_MAP: dict[str, str] = {
@@ -61,63 +82,74 @@ _KEYS_MAP: dict[str, str] = {
 
 
 class CamoufoxActionChainBuilder(ActionChainBuilder):
-    """Playwright-based action chain builder (executes immediately)."""
+    """Playwright-based action chain builder (executes in executor thread)."""
 
-    def __init__(self, page: Any) -> None:
+    def __init__(self, page: Any, executor: _SyncExecutor) -> None:
         self._page = page
+        self._executor = executor
         self._current_x = 0.0
         self._current_y = 0.0
 
     def move_to_element(self, element: Element) -> "CamoufoxActionChainBuilder":
         if not isinstance(element, CamoufoxElement):
             raise TypeError(f"Expected CamoufoxElement, got {type(element).__name__}")
-        box = element._handle.bounding_box()
-        if box:
-            self._current_x = box["x"] + box["width"] / 2
-            self._current_y = box["y"] + box["height"] / 2
-            self._page.mouse.move(self._current_x, self._current_y)
+
+        def _move():
+            box = element._handle.bounding_box()
+            if box:
+                self._current_x = box["x"] + box["width"] / 2
+                self._current_y = box["y"] + box["height"] / 2
+                self._page.mouse.move(self._current_x, self._current_y)
+
+        self._executor.submit(_move)
         return self
 
     def move_by_offset(self, x: int, y: int) -> "CamoufoxActionChainBuilder":
         self._current_x += x
         self._current_y += y
-        self._page.mouse.move(self._current_x, self._current_y)
+        self._executor.submit(self._page.mouse.move, self._current_x, self._current_y)
         return self
 
     def pause(self, seconds: float) -> "CamoufoxActionChainBuilder":
-        time.sleep(seconds)
+        self._executor.submit(time.sleep, seconds)
         return self
 
     def click(self, element: Element | None = None) -> "CamoufoxActionChainBuilder":
-        if element is not None:
-            if not isinstance(element, CamoufoxElement):
-                raise TypeError(f"Expected CamoufoxElement, got {type(element).__name__}")
-            box = element._handle.bounding_box()
-            if box:
-                self._page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-        else:
-            self._page.mouse.click(self._current_x, self._current_y)
+        def _click():
+            if element is not None:
+                if not isinstance(element, CamoufoxElement):
+                    raise TypeError(f"Expected CamoufoxElement, got {type(element).__name__}")
+                box = element._handle.bounding_box()
+                if box:
+                    self._page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            else:
+                self._page.mouse.click(self._current_x, self._current_y)
+
+        self._executor.submit(_click)
         return self
 
     def click_and_hold(self) -> "CamoufoxActionChainBuilder":
-        self._page.mouse.down()
+        self._executor.submit(self._page.mouse.down)
         return self
 
     def release(self) -> "CamoufoxActionChainBuilder":
-        self._page.mouse.up()
+        self._executor.submit(self._page.mouse.up)
         return self
 
     def send_keys(self, *keys: str) -> "CamoufoxActionChainBuilder":
-        for key in keys:
-            mapped = _KEYS_MAP.get(key)
-            if mapped:
-                self._page.keyboard.press(mapped)
-            else:
-                self._page.keyboard.type(key)
+        def _send():
+            for key in keys:
+                mapped = _KEYS_MAP.get(key)
+                if mapped:
+                    self._page.keyboard.press(mapped)
+                else:
+                    self._page.keyboard.type(key)
+
+        self._executor.submit(_send)
         return self
 
     def perform(self) -> None:
-        pass  # All actions execute immediately
+        pass  # All actions execute immediately in executor
 
 
 def _playwright_selector(by: str, value: str) -> str:
@@ -141,171 +173,223 @@ def _playwright_selector(by: str, value: str) -> str:
 class CamoufoxBrowserContext(BrowserContext):
     """Playwright-based browser context using Camoufox."""
 
-    def __init__(self, camoufox: Any, browser: Any, page: Any) -> None:
+    def __init__(self, executor: _SyncExecutor, camoufox: Any, browser: Any, page: Any) -> None:
+        self._executor = executor
         self._camoufox = camoufox
         self._browser = browser
         self._page = page
         self._last_dialog: Any = None
-        self._page.on("dialog", self._on_dialog)
+
+        def _attach():
+            self._page.on("dialog", self._on_dialog)
+
+        self._executor.submit(_attach)
 
     def _on_dialog(self, dialog: Any) -> None:
         self._last_dialog = dialog
 
     def get(self, url: str) -> None:
-        self._page.goto(url)
+        self._executor.submit(self._page.goto, url)
 
     def execute_script(self, script: str, *args: Any) -> Any:
-        script = script.strip()
-        has_args = "arguments[" in script
-        unwrapped = [a._handle if isinstance(a, CamoufoxElement) else a for a in args]
-        if has_args:
-            script = f"(...__args) => {{ {script.replace('arguments', '__args')} }}"
-            return self._page.evaluate(script, *unwrapped)
-        # For scripts without arguments, wrap in IIFE to support return statements
-        script = f"() => {{ {script} }}"
-        return self._page.evaluate(script)
+        def _run():
+            script_local = script.strip()
+            has_args = "arguments[" in script_local
+            unwrapped = [a._handle if isinstance(a, CamoufoxElement) else a for a in args]
+            if has_args:
+                script_local = f"(...__args) => {{ {script_local.replace('arguments', '__args')} }}"
+                return self._page.evaluate(script_local, *unwrapped)
+            # For scripts without arguments, wrap in IIFE to support return statements
+            script_local = f"() => {{ {script_local} }}"
+            return self._page.evaluate(script_local)
+
+        return self._executor.submit(_run)
 
     def find_element(self, by: str, value: str) -> Element:
-        selector = _playwright_selector(by, value)
-        handle = self._page.query_selector(selector)
-        if handle is None:
-            raise Exception(f"Element not found: {by}={value}")
-        return CamoufoxElement(handle)
+        def _find():
+            selector = _playwright_selector(by, value)
+            handle = self._page.query_selector(selector)
+            if handle is None:
+                raise Exception(f"Element not found: {by}={value}")
+            return CamoufoxElement(handle, self._executor)
+
+        return self._executor.submit(_find)
 
     def find_elements(self, by: str, value: str) -> list[Element]:
-        selector = _playwright_selector(by, value)
-        handles = self._page.query_selector_all(selector)
-        return [CamoufoxElement(h) for h in handles]
+        def _find():
+            selector = _playwright_selector(by, value)
+            handles = self._page.query_selector_all(selector)
+            return cast(list[Element], [CamoufoxElement(h, self._executor) for h in handles])
+
+        return self._executor.submit(_find)
 
     @property
     def page_source(self) -> str:
-        return self._page.content()
+        return self._executor.submit(self._page.content)
 
     @property
     def title(self) -> str:
-        return self._page.title()
+        return self._executor.submit(self._page.title)
 
     @property
     def current_url(self) -> str:
-        return self._page.url
+        return self._executor.submit(lambda: self._page.url)
 
     def add_cookie(self, cookie: dict[str, Any]) -> None:
-        cookie_copy = dict(cookie)
-        if "url" not in cookie_copy and "domain" not in cookie_copy:
-            cookie_copy["url"] = self._page.url
-        self._page.context.add_cookies([cookie_copy])
+        def _add():
+            cookie_copy = dict(cookie)
+            if "url" not in cookie_copy and "domain" not in cookie_copy:
+                cookie_copy["url"] = self._page.url
+            self._page.context.add_cookies([cookie_copy])
+
+        self._executor.submit(_add)
 
     def delete_cookie(self, name: str) -> None:
-        cookies = self._page.context.cookies()
-        self._page.context.clear_cookies()
-        for cookie in cookies:
-            if cookie.get("name") != name:
-                self._page.context.add_cookies([cookie])
+        def _delete():
+            cookies = self._page.context.cookies()
+            self._page.context.clear_cookies()
+            for cookie in cookies:
+                if cookie.get("name") != name:
+                    self._page.context.add_cookies([cookie])
+
+        self._executor.submit(_delete)
 
     def get_cookies(self) -> list[dict[str, Any]]:
-        return self._page.context.cookies()
+        return self._executor.submit(self._page.context.cookies)
 
     def get_screenshot_as_base64(self) -> str:
-        return base64.b64encode(self._page.screenshot(type="png")).decode("ascii")
+        def _shot():
+            return base64.b64encode(self._page.screenshot(type="png")).decode("ascii")
+
+        return self._executor.submit(_shot)
 
     def switch_to_default_content(self) -> None:
         pass  # No-op for Playwright
 
     def get_alert_text(self) -> str:
-        if self._last_dialog:
-            return self._last_dialog.message
-        return ""
+        def _get():
+            if self._last_dialog:
+                return self._last_dialog.message
+            return ""
+
+        return self._executor.submit(_get)
 
     def dismiss_alert(self) -> None:
-        if self._last_dialog:
-            self._last_dialog.dismiss()
-            self._last_dialog = None
+        def _dismiss():
+            if self._last_dialog:
+                self._last_dialog.dismiss()
+                self._last_dialog = None
+
+        self._executor.submit(_dismiss)
 
     def close(self) -> None:
-        try:
-            self._browser.close()
-        except Exception:  # nosec B110
-            pass
+        self._executor.submit(self._browser.close)
 
     def quit(self) -> None:
-        try:
-            self._browser.close()
-        except Exception:  # nosec B110
-            pass
-        try:
-            self._camoufox.__exit__(None, None, None)
-        except Exception:  # nosec B110
-            pass
+        def _quit():
+            try:
+                self._browser.close()
+            except Exception:  # nosec B110
+                pass
+            try:
+                self._camoufox.__exit__(None, None, None)
+            except Exception:  # nosec B110
+                pass
+
+        self._executor.submit(_quit)
+        self._executor.shutdown()
 
     def execute_cdp_cmd(self, method: str, params: dict[str, Any]) -> Any:
-        # Translate common CDP commands to Playwright equivalents.
-        if method == "Page.addScriptToEvaluateOnNewDocument":
-            self._page.add_init_script(params.get("source", ""))
-            return {}
-        if method == "Emulation.setUserAgentOverride":
-            self._page.set_extra_http_headers({"User-Agent": params.get("userAgent", "")})
-            return {}
-        if method == "Network.setExtraHTTPHeaders":
-            self._page.set_extra_http_headers(params.get("headers", {}))
-            return {}
-        if method == "Network.enable":
-            return {}  # No-op: Playwright network is always enabled
-        if method == "Network.setBlockedURLs":
-            for pattern in params.get("urls", []):
-                self._page.route(pattern, lambda route: route.abort())
-            return {}
-        raise NotImplementedError(f"CDP command '{method}' is not supported by the Camoufox backend")
+        def _run():
+            # Translate common CDP commands to Playwright equivalents.
+            if method == "Page.addScriptToEvaluateOnNewDocument":
+                self._page.add_init_script(params.get("source", ""))
+                return {}
+            if method == "Emulation.setUserAgentOverride":
+                self._page.set_extra_http_headers({"User-Agent": params.get("userAgent", "")})
+                return {}
+            if method == "Network.setExtraHTTPHeaders":
+                self._page.set_extra_http_headers(params.get("headers", {}))
+                return {}
+            if method == "Network.enable":
+                return {}  # No-op: Playwright network is always enabled
+            if method == "Network.setBlockedURLs":
+                for pattern in params.get("urls", []):
+                    self._page.route(pattern, lambda route: route.abort())
+                return {}
+            raise NotImplementedError(f"CDP command '{method}' is not supported by the Camoufox backend")
+
+        return self._executor.submit(_run)
 
     def action_chain(self) -> ActionChainBuilder:
-        return CamoufoxActionChainBuilder(self._page)
+        return CamoufoxActionChainBuilder(self._page, self._executor)
 
     def wait_for_presence(self, by: str, value: str, timeout: float) -> Element:
-        selector = _playwright_selector(by, value)
-        handle = self._page.wait_for_selector(selector, state="attached", timeout=timeout * 1000)
-        return CamoufoxElement(handle)
+        def _wait():
+            selector = _playwright_selector(by, value)
+            handle = self._page.wait_for_selector(selector, state="attached", timeout=timeout * 1000)
+            return CamoufoxElement(handle, self._executor)
+
+        return self._executor.submit(_wait)
 
     def wait_for_absence(self, by: str, value: str, timeout: float) -> bool:
-        selector = _playwright_selector(by, value)
-        end_time = time.time() + timeout
-        while time.time() < end_time:
-            handle = self._page.query_selector(selector)
-            if handle is None:
-                return True
-            time.sleep(0.1)
-        raise TimeoutException(f"Timeout waiting for absence: {by}={value}")
+        def _wait():
+            selector = _playwright_selector(by, value)
+            end_time = time.time() + timeout
+            while time.time() < end_time:
+                handle = self._page.query_selector(selector)
+                if handle is None:
+                    return True
+                time.sleep(0.1)
+            raise TimeoutException(f"Timeout waiting for absence: {by}={value}")
+
+        return self._executor.submit(_wait)
 
     def wait_for_visibility(self, by: str, value: str, timeout: float) -> Element:
-        selector = _playwright_selector(by, value)
-        handle = self._page.wait_for_selector(selector, state="visible", timeout=timeout * 1000)
-        return CamoufoxElement(handle)
+        def _wait():
+            selector = _playwright_selector(by, value)
+            handle = self._page.wait_for_selector(selector, state="visible", timeout=timeout * 1000)
+            return CamoufoxElement(handle, self._executor)
+
+        return self._executor.submit(_wait)
 
     def wait_for_title(self, title: str, timeout: float) -> bool:
-        end_time = time.time() + timeout
-        while time.time() < end_time:
-            if self.title == title:
-                return True
-            time.sleep(0.1)
-        return False
+        def _wait():
+            end_time = time.time() + timeout
+            while time.time() < end_time:
+                if self._page.title() == title:
+                    return True
+                time.sleep(0.1)
+            return False
+
+        return self._executor.submit(_wait)
 
     def wait_for_title_not(self, title: str, timeout: float) -> bool:
-        end_time = time.time() + timeout
-        while time.time() < end_time:
-            if self.title != title:
-                return True
-            time.sleep(0.1)
-        return False
+        def _wait():
+            end_time = time.time() + timeout
+            while time.time() < end_time:
+                if self._page.title() != title:
+                    return True
+                time.sleep(0.1)
+            return False
+
+        return self._executor.submit(_wait)
 
     def wait_for_staleness(self, element: Element, timeout: float) -> bool:
         if not isinstance(element, CamoufoxElement):
             raise TypeError(f"Expected CamoufoxElement, got {type(element).__name__}")
-        end_time = time.time() + timeout
-        while time.time() < end_time:
-            try:
-                element._handle.evaluate("() => true")
-            except Exception:
-                return True
-            time.sleep(0.1)
-        raise TimeoutException("Timeout waiting for element staleness")
+
+        def _wait():
+            end_time = time.time() + timeout
+            while time.time() < end_time:
+                try:
+                    element._handle.evaluate("() => true")
+                except Exception:
+                    return True
+                time.sleep(0.1)
+            raise TimeoutException("Timeout waiting for element staleness")
+
+        return self._executor.submit(_wait)
 
     def get_user_agent(self) -> str:
         return self.execute_script("return navigator.userAgent")
@@ -325,26 +409,32 @@ class CamoufoxBackend:
 
         from flaresolverr import utils
 
-        headless = utils.get_config_headless()
-        kwargs: dict[str, Any] = {
-            "headless": "virtual" if headless and utils.PLATFORM_VERSION != "nt" else headless,
-            "window": (1920, 1080),
-        }
+        executor = _SyncExecutor()
 
-        if proxy:
-            proxy_config: dict[str, str] = {}
-            if "url" in proxy:
-                proxy_config["server"] = proxy["url"]
-            elif "host" in proxy and "port" in proxy:
-                proxy_config["server"] = f"http://{proxy['host']}:{proxy['port']}"
-            if "username" in proxy:
-                proxy_config["username"] = proxy["username"]
-            if "password" in proxy:
-                proxy_config["password"] = proxy["password"]
-            if proxy_config:
-                kwargs["proxy"] = proxy_config
+        def _create():
+            headless = utils.get_config_headless()
+            kwargs: dict[str, Any] = {
+                "headless": "virtual" if headless and utils.PLATFORM_VERSION != "nt" else headless,
+                "window": (1920, 1080),
+            }
 
-        camoufox = Camoufox(**kwargs)
-        browser = camoufox.__enter__()
-        page = browser.new_page()
-        return CamoufoxBrowserContext(camoufox, browser, page)
+            if proxy:
+                proxy_config: dict[str, str] = {}
+                if "url" in proxy:
+                    proxy_config["server"] = proxy["url"]
+                elif "host" in proxy and "port" in proxy:
+                    proxy_config["server"] = f"http://{proxy['host']}:{proxy['port']}"
+                if "username" in proxy:
+                    proxy_config["username"] = proxy["username"]
+                if "password" in proxy:
+                    proxy_config["password"] = proxy["password"]
+                if proxy_config:
+                    kwargs["proxy"] = proxy_config
+
+            camoufox = Camoufox(**kwargs)
+            browser = camoufox.__enter__()
+            page = browser.new_page()
+            return camoufox, browser, page
+
+        camoufox, browser, page = executor.submit(_create)
+        return CamoufoxBrowserContext(executor, camoufox, browser, page)
