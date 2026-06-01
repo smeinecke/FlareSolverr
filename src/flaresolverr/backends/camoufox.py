@@ -242,6 +242,9 @@ class CamoufoxBrowserContext(BrowserContext):
         if method == "Page.addScriptToEvaluateOnNewDocument":
             self._page.add_init_script(params.get("source", ""))
             return {}
+        if method == "Emulation.setUserAgentOverride":
+            self._page.set_extra_http_headers({"User-Agent": params.get("userAgent", "")})
+            return {}
         if method == "Network.setExtraHTTPHeaders":
             self._page.set_extra_http_headers(params.get("headers", {}))
             return {}
