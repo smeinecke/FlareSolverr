@@ -1,0 +1,34 @@
+# Dockerfile for Playwright backend testing
+# Reuses the base image and installs Playwright with Chromium binaries
+
+FROM flaresolverr:base
+
+USER root
+
+# Install system dependencies required by Playwright Chromium
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libnss3 \
+        libxss1 \
+        libasound2 \
+        libxtst6 \
+        libgtk-3-0 \
+        libgbm1 \
+        libdrm2 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxrandr2 \
+        libxkbcommon0 \
+        && rm -rf /var/lib/apt/lists/*
+
+# Install Playwright Python package
+RUN uv pip install --no-cache-dir 'playwright>=1.50'
+
+# Download Chromium browser binaries for Playwright
+RUN playwright install chromium
+
+# Fix ownership so flaresolverr user can access the downloaded browser
+RUN chown -R flaresolverr:flaresolverr /app/.cache/
+
+USER flaresolverr
