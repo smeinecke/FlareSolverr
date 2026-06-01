@@ -1,5 +1,6 @@
 from typing import Any
 
+from selenium.common import TimeoutException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.expected_conditions import (
@@ -168,12 +169,18 @@ class SeleniumBrowserContext(BrowserContext):
         return SeleniumElement(WebDriverWait(self._driver, timeout).until(visibility_of_element_located((by, value))))
 
     def wait_for_title(self, title: str, timeout: float) -> bool:
-        WebDriverWait(self._driver, timeout).until(title_is(title))
-        return True
+        try:
+            WebDriverWait(self._driver, timeout).until(title_is(title))
+            return True
+        except TimeoutException:
+            return False
 
     def wait_for_title_not(self, title: str, timeout: float) -> bool:
-        WebDriverWait(self._driver, timeout).until_not(title_is(title))
-        return True
+        try:
+            WebDriverWait(self._driver, timeout).until_not(title_is(title))
+            return True
+        except TimeoutException:
+            return False
 
     def wait_for_staleness(self, element: Element, timeout: float) -> bool:
         if not isinstance(element, SeleniumElement):
