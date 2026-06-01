@@ -236,6 +236,19 @@ class PlaywrightBrowserContext(BrowserContext):
             pass
 
     def execute_cdp_cmd(self, method: str, params: dict[str, Any]) -> Any:
+        # Translate common CDP commands to Playwright equivalents.
+        if method == "Page.addScriptToEvaluateOnNewDocument":
+            self._page.add_init_script(params.get("source", ""))
+            return {}
+        if method == "Network.setExtraHTTPHeaders":
+            self._page.set_extra_http_headers(params.get("headers", {}))
+            return {}
+        if method == "Network.enable":
+            return {}  # No-op: Playwright network is always enabled
+        if method == "Network.setBlockedURLs":
+            for pattern in params.get("urls", []):
+                self._page.route(pattern, lambda route: route.abort())
+            return {}
         raise NotImplementedError(f"CDP command '{method}' is not supported by the Playwright backend")
 
     def action_chain(self) -> ActionChainBuilder:

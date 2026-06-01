@@ -568,7 +568,7 @@ Example response from a `request.get`:
 ```
 
 > **Note:** Response fields are populated depending on the command and parameters used:
-> - `title` — present in `sessions.get`, `sessions.screenshot`, and `sessions.action` responses.
-> - `screenshot` — present when `returnScreenshot=true` (requests) or from `sessions.screenshot`.
-> - `evalResult` — present when an `eval` action is used or from `sessions.eval` / `sessions.action`.
-> - `networkLogs` — present in the `sessions.network` response.
+> - `title` - present in `sessions.get`, `sessions.screenshot`, and `sessions.action` responses.
+> - `screenshot` - present when `returnScreenshot=true` (requests) or from `sessions.screenshot`.
+> - `evalResult` - present when an `eval` action is used or from `sessions.eval` / `sessions.action`.
+> - `networkLogs` - present in the `sessions.network` response.

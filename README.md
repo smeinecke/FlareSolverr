@@ -162,10 +162,10 @@ For details on the solver API, see [CAPTCHA_SOLVERS.md](./CAPTCHA_SOLVERS.md).
 
 FlareSolverr supports multiple browser automation backends:
 
-- **undetected_chromedriver** (default) — Full CDP support, custom Chromium stealth patches
-- **playwright** — Lightweight Playwright Chromium, fast startup
-- **camoufox** — Advanced anti-fingerprinting via Camoufox
-- **seleniumbase** — SeleniumBase Driver with UC mode
+- **undetected_chromedriver** (default) - Full CDP support, custom Chromium stealth patches
+- **playwright** - Lightweight Playwright Chromium, fast startup
+- **camoufox** - Advanced anti-fingerprinting via Camoufox
+- **seleniumbase** - SeleniumBase Driver with UC mode
 
 Select a backend with the `DRIVER_BACKEND` environment variable. Each backend has different trade-offs in terms of feature completeness, memory usage, and anti-detection capabilities.
 
