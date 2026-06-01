@@ -288,7 +288,7 @@ jobs:
           DRIVER_BACKEND: ${{ matrix.backend }}
           HEADLESS: "true"
           PORT: "8191"
-          WAITRESS_THREADS: "1"
+          FLARESOLVERR_SINGLE_THREADED: "1"
         run: |
           nohup uv run python -m flaresolverr.flaresolverr > /tmp/flaresolverr.log 2>&1 &
           for i in {1..30}; do

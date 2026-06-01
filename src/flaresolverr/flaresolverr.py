@@ -222,12 +222,16 @@ if __name__ == "__main__":
     # default server 'wsgiref' does not support concurrent requests
     # https://github.com/FlareSolverr/FlareSolverr/issues/680
     # https://github.com/Pylons/waitress/issues/31
-    class WaitressServerPoll(ServerAdapter):
-        def run(self, handler) -> None:
-            max_parallel = utils.get_config_max_parallel_requests()
-            kwargs: dict[str, Any] = {"asyncore_use_poll": True}
-            if max_parallel:
-                kwargs["threads"] = max_parallel
-            serve(handler, host=self.host, port=self.port, **kwargs)
+    if os.environ.get("FLARESOLVERR_SINGLE_THREADED", "").lower() in ("1", "true"):
+        # single-threaded wsgiref for testing Playwright backends
+        run(app, host=server_host, port=server_port, quiet=True)  # pyright: ignore[reportArgumentType]
+    else:
+        class WaitressServerPoll(ServerAdapter):
+            def run(self, handler) -> None:
+                max_parallel = utils.get_config_max_parallel_requests()
+                kwargs: dict[str, Any] = {"asyncore_use_poll": True}
+                if max_parallel:
+                    kwargs["threads"] = max_parallel
+                serve(handler, host=self.host, port=self.port, **kwargs)
 
-    run(app, host=server_host, port=server_port, quiet=True, server=WaitressServerPoll)  # pyright: ignore[reportArgumentType]
+        run(app, host=server_host, port=server_port, quiet=True, server=WaitressServerPoll)  # pyright: ignore[reportArgumentType]
