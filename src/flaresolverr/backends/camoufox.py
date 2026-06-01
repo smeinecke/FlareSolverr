@@ -1,3 +1,4 @@
+import base64
 import logging
 import time
 from typing import Any
@@ -202,7 +203,7 @@ class CamoufoxBrowserContext(BrowserContext):
         return self._page.context.cookies()
 
     def get_screenshot_as_base64(self) -> str:
-        return self._page.screenshot(type="base64")
+        return base64.b64encode(self._page.screenshot(type="png")).decode("ascii")
 
     def switch_to_default_content(self) -> None:
         pass  # No-op for Playwright
