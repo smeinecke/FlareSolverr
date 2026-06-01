@@ -109,8 +109,11 @@ class CamoufoxActionChainBuilder(ActionChainBuilder):
 
     def send_keys(self, *keys: str) -> "CamoufoxActionChainBuilder":
         for key in keys:
-            mapped = _KEYS_MAP.get(key, key)
-            self._page.keyboard.press(mapped)
+            mapped = _KEYS_MAP.get(key)
+            if mapped:
+                self._page.keyboard.press(mapped)
+            else:
+                self._page.keyboard.type(key)
         return self
 
     def perform(self) -> None:
