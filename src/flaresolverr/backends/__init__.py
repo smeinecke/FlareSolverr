@@ -41,3 +41,10 @@ def _register_defaults() -> None:
         register_backend("camoufox", CamoufoxBackend)
     except ImportError:
         pass
+
+    try:
+        from flaresolverr.backends.playwright import PlaywrightBackend
+
+        register_backend("playwright", PlaywrightBackend)
+    except ImportError:
+        pass
