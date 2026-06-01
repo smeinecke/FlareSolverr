@@ -234,8 +234,7 @@ class CamoufoxBrowserContext(BrowserContext):
             pass
 
     def execute_cdp_cmd(self, method: str, params: dict[str, Any]) -> Any:
-        logging.debug("CDP command ignored for Camoufox: %s", method)
-        return None
+        raise NotImplementedError(f"CDP command '{method}' is not supported by the Camoufox backend")
 
     def action_chain(self) -> ActionChainBuilder:
         return CamoufoxActionChainBuilder(self._page)

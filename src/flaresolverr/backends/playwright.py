@@ -235,8 +235,7 @@ class PlaywrightBrowserContext(BrowserContext):
             pass
 
     def execute_cdp_cmd(self, method: str, params: dict[str, Any]) -> Any:
-        logging.debug("CDP command ignored for Playwright: %s", method)
-        return None
+        raise NotImplementedError(f"CDP command '{method}' is not supported by the Playwright backend")
 
     def action_chain(self) -> ActionChainBuilder:
         return PlaywrightActionChainBuilder(self._page)
