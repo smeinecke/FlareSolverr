@@ -12,11 +12,17 @@ FlareSolverr is a proxy server to bypass Cloudflare and DDoS-GUARD protection.
 ## How it works
 
 FlareSolverr starts a proxy server, and it waits for user requests in an idle state using few resources.
-When some request arrives, it uses [Selenium](https://www.selenium.dev) with the
-[undetected-chromedriver](https://github.com/ultrafunkamsterdam/undetected-chromedriver)
-to create a web browser (Chrome). It opens the URL with user parameters and waits until the Cloudflare challenge
-is solved (or timeout). The HTML code and the cookies are sent back to the user, and those cookies can be used to
+When some request arrives, it uses a browser automation backend to create a web browser (Chrome/Chromium),
+open the URL with user parameters, and wait until the Cloudflare challenge is solved (or timeout).
+The HTML code and the cookies are sent back to the user, and those cookies can be used to
 bypass Cloudflare using other HTTP clients.
+
+By default FlareSolverr uses [Selenium](https://www.selenium.dev) with the
+[undetected-chromedriver](https://github.com/ultrafunkamsterdam/undetected-chromedriver),
+but alternative backends such as [Playwright](https://playwright.dev/python/),
+[Camoufox](https://camoufox.com/), and [SeleniumBase](https://github.com/mdmintz/SeleniumBase)
+are supported. Select a backend with the `DRIVER_BACKEND` environment variable.
+See [BACKENDS.md](./BACKENDS.md) for details.
 
 **NOTE**: Web browsers consume a lot of memory. If you are running FlareSolverr on a machine with few RAM, do not make
 many requests at once and/or limit the parallel sessions with the `MAX_SESSIONS` environment variable. With each request a new browser is launched.
@@ -80,6 +86,7 @@ The `GET /health` endpoint returns the service status along with runtime metrics
 | Name               | Default                | Notes                                                                                                                                    |
 | ------------------ | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | LOG_LEVEL          | info                   | Verbosity of the logging. Use `LOG_LEVEL=debug` for more information.                                                                    |
+| DRIVER_BACKEND     | undetected_chromedriver | Browser automation backend. Valid values: `undetected_chromedriver`, `playwright`, `camoufox`, `seleniumbase`. See [BACKENDS.md](./BACKENDS.md). |
 | LOG_FILE           | none                   | Path to capture log to file. Example: `/config/flaresolverr.log`.                                                                         |
 | LOG_HTML           | false                  | Only for debugging. If `true` all HTML that passes through the proxy will be logged to the console in `debug` level.                     |
 | PROXY_URL          | none                   | URL for proxy. Will be overwritten by `request` or `sessions` proxy, if used. Example: `http://127.0.0.1:8080`.                          |
@@ -150,6 +157,19 @@ FlareSolverr includes a pluggable captcha solver interface. The built-in `defaul
 The `CAPTCHA_SOLVER` environment variable selects the active solver (default: `"default"`). Custom solvers can be added by subclassing `CaptchaSolver` and registering them with `SOLVER_MANAGER.register_solver()`.
 
 For details on the solver API, see [CAPTCHA_SOLVERS.md](./CAPTCHA_SOLVERS.md).
+
+## Pluggable Backends
+
+FlareSolverr supports multiple browser automation backends:
+
+- **undetected_chromedriver** (default) — Full CDP support, custom Chromium stealth patches
+- **playwright** — Lightweight Playwright Chromium, fast startup
+- **camoufox** — Advanced anti-fingerprinting via Camoufox
+- **seleniumbase** — SeleniumBase Driver with UC mode
+
+Select a backend with the `DRIVER_BACKEND` environment variable. Each backend has different trade-offs in terms of feature completeness, memory usage, and anti-detection capabilities.
+
+For detailed backend documentation, installation instructions, and a feature matrix, see [BACKENDS.md](./BACKENDS.md).
 
 ## Python Client Library
 
