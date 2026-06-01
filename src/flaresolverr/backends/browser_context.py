@@ -111,4 +111,13 @@ def get_browser_context(driver: WebDriver | BrowserContext) -> BrowserContext:
             return driver
     except ImportError:
         pass
+
+    try:
+        from flaresolverr.backends.playwright import PlaywrightBrowserContext
+
+        if isinstance(driver, PlaywrightBrowserContext):
+            return driver
+    except ImportError:
+        pass
+
     return SeleniumBrowserContext(driver)
