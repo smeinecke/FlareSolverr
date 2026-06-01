@@ -147,7 +147,7 @@ class TestBackendFeatures(unittest.TestCase):
             # CDP should work without error
             result = ctx.execute_cdp_cmd("Runtime.evaluate", {"expression": "navigator.userAgent"})
             assert result is not None
-            assert "userAgent" in str(result)
+            assert "Mozilla" in str(result)
         finally:
             if driver is not None:
                 try:
@@ -238,7 +238,7 @@ class TestBrowserContextProtocol(unittest.TestCase):
             assert len(elements) >= 1
 
             # Cookies
-            ctx.add_cookie({"name": "test", "value": "123", "domain": "example.com"})
+            ctx.add_cookie({"name": "test", "value": "123", "domain": "example.com", "path": "/"})
             cookies = ctx.get_cookies()
             assert any(c.get("name") == "test" for c in cookies)
             ctx.delete_cookie("test")
