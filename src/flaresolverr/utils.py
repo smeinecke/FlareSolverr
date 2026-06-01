@@ -781,6 +781,13 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
 
     effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
 
+    # Delegate to pluggable backends when DRIVER_BACKEND is set to an alternative
+    backend_name = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+    if backend_name not in ("undetected_chromedriver", ""):
+        from flaresolverr import backends
+
+        return backends.get_backend(backend_name).create_driver(proxy, effective_stealth_mode)
+
     options = _build_chrome_options(effective_stealth_mode)
     proxy_ext_dir, proxy_ext_id = _build_stealth_extension_dir()
     options.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
