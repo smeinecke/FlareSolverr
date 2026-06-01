@@ -256,6 +256,26 @@ class TestBrowserContextProtocol(unittest.TestCase):
             # Action chain existence (not full interaction)
             actions = ctx.action_chain()
             assert actions is not None
+
+            # Form interaction: inject a test form, fill input, click button
+            ctx.execute_script("""
+                const form = document.createElement('div');
+                form.id = 'fs-test-form';
+                form.innerHTML = '<input id="fs-test-input" type="text" />' +
+                    '<button id="fs-test-btn" type="button">Go</button>' +
+                    '<span id="fs-test-result"></span>';
+                document.body.appendChild(form);
+                document.getElementById('fs-test-btn').onclick = function() {
+                    const val = document.getElementById('fs-test-input').value;
+                    document.getElementById('fs-test-result').textContent = 'result:' + val;
+                };
+            """)
+            input_el = ctx.find_element("id", "fs-test-input")
+            btn_el = ctx.find_element("id", "fs-test-btn")
+            actions = ctx.action_chain()
+            actions.click(input_el).send_keys("hello").click(btn_el).perform()
+            result_el = ctx.find_element("id", "fs-test-result")
+            assert "result:hello" in result_el.text
         finally:
             if driver is not None:
                 try:
