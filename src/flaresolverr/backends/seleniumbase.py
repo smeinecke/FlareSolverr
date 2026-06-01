@@ -11,7 +11,7 @@ class SeleniumBaseBackend:
     def create_driver(self, proxy: dict[str, Any] | None, stealth_mode: str) -> WebDriver:
         logging.debug("Launching web browser (seleniumbase)...")
         try:
-            from seleniumbase import Driver
+            from seleniumbase import Driver  # pyright: ignore[reportMissingImports]
         except ImportError as e:
             raise ImportError("seleniumbase is not installed. Install with: pip install flaresolverr[seleniumbase]") from e
 

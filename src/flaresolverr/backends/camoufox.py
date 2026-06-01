@@ -300,7 +300,7 @@ class CamoufoxBackend:
 
     def create_driver(self, proxy: dict[str, Any] | None, stealth_mode: str) -> BrowserContext:
         try:
-            from camoufox.sync_api import Camoufox
+            from camoufox.sync_api import Camoufox  # pyright: ignore[reportMissingImports]
         except ImportError as e:
             raise ImportError("camoufox is not installed. Install it with: pip install 'camoufox[geoip]'") from e
 

@@ -250,7 +250,7 @@ class PlaywrightBrowserContext(BrowserContext):
         selector = _playwright_selector(by, value)
         try:
             self._page.wait_for_selector(selector, state="detached", timeout=timeout * 1000)
-        except Exception:
+        except Exception:  # nosec B110
             pass
         handles = self._page.query_selector_all(selector)
         return len(handles) == 0

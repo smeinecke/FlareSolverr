@@ -120,4 +120,7 @@ def get_browser_context(driver: WebDriver | BrowserContext) -> BrowserContext:
     except ImportError:
         pass
 
+    # If we reach here, driver should be a raw WebDriver
+    if not isinstance(driver, WebDriver):
+        raise TypeError(f"Expected WebDriver or BrowserContext, got {type(driver).__name__}")
     return SeleniumBrowserContext(driver)

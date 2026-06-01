@@ -15,6 +15,8 @@ import time
 import urllib.parse
 from typing import Any
 from datetime import timedelta
+
+from flaresolverr.backends.browser_context import BrowserContext
 from importlib.metadata import version
 
 try:
@@ -245,7 +247,7 @@ def _apply_stealth_patches(driver: WebDriver, stealth_mode: str) -> None:
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": prelude + _load_stealth_script(fallback=True)})
 
 
-def apply_user_agent_override(driver: WebDriver, user_agent: str, accept_language: str | None = None) -> None:
+def apply_user_agent_override(driver: WebDriver | BrowserContext, user_agent: str, accept_language: str | None = None) -> None:
     """Apply a custom user agent string at the CDP level with full metadata.
 
     Uses Emulation.setUserAgentOverride with userAgentMetadata to ensure
@@ -774,7 +776,11 @@ def _cleanup_orphaned_temp_dirs() -> None:
                 pass
 
 
-def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None, logging_prefs: dict[str, str] | None = None) -> WebDriver:
+def get_webdriver(
+    proxy: dict[str, Any] | None = None,
+    stealth_mode: str | bool | None = None,
+    logging_prefs: dict[str, str] | None = None,
+) -> WebDriver | BrowserContext:
     global PATCHED_DRIVER_PATH
 
     logging.debug("Launching web browser...")
@@ -1070,7 +1076,7 @@ def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
     raise last_exc
 
 
-def _fetch_user_agent(driver: WebDriver) -> str:
+def _fetch_user_agent(driver: WebDriver | BrowserContext) -> str:
     """Execute JS to get navigator.userAgent and validate it."""
     user_agent_value = driver.execute_script("return navigator.userAgent")
     if not isinstance(user_agent_value, str):

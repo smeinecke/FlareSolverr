@@ -12,6 +12,7 @@ from uuid import uuid1
 from selenium.webdriver.chrome.webdriver import WebDriver
 
 from flaresolverr import utils
+from flaresolverr.backends.browser_context import BrowserContext
 
 
 class SessionLimitExceededError(Exception):
@@ -74,7 +75,7 @@ def _ensure_process_dead(pid: int | None, grace_seconds: float = 2.0) -> None:
 @dataclass
 class Session:
     session_id: str
-    driver: WebDriver
+    driver: WebDriver | BrowserContext
     created_at: datetime
     stealth_mode: str
     user_agent_override: str | None
@@ -90,7 +91,7 @@ class Session:
     def __init__(
         self,
         session_id: str,
-        driver: WebDriver,
+        driver: WebDriver | BrowserContext,
         created_at: datetime,
         stealth_mode: str,
         user_agent_override: str | None = None,
