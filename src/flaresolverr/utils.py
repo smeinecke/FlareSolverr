@@ -1353,6 +1353,15 @@ def get_webdriver(
     user_data_dir: str | None = None
     proxy_ext_dir: str | None = None
 
+    # Delegate to pluggable non-Chrome backends when DRIVER_BACKEND selects one.
+    # The stock and custom Chromium paths stay in this function so all existing
+    # stealth, proxy, logging, lifecycle and cleanup behavior is preserved.
+    backend_name = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+    if backend_name not in ("undetected_chromedriver", "custom_chromium", ""):
+        from flaresolverr import backends
+
+        return backends.get_backend(backend_name).create_driver(proxy, effective_stealth_mode)  # type: ignore[return-value]
+
     # The unpacked proxy-manager extension is only needed when a proxy is
     # configured now (proxy auth / settings) or might be assigned later
     # (sessions support dynamic proxy updates via apply_proxy_to_session).

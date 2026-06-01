@@ -1,0 +1,11 @@
+# Dockerfile for undetected-chromedriver backend testing
+# Reuses the base image and adds backend-specific dependencies
+
+FROM flaresolverr:base
+
+USER root
+
+# undetected-chromedriver is already included in the base image
+# No extra packages needed
+
+USER flaresolverr
