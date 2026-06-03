@@ -264,9 +264,9 @@ class TestRequestManagerPayload:
         p = self.client.request._build_payload(cmd="request.post", url="https://x.com", post_data="a=1&b=2")
         assert p["postData"] == "a=1&b=2"
 
-    def test_session(self):
+    def test_session_not_in_payload(self):
         p = self._build_get_payload(session="my_session")
-        assert p["session"] == "my_session"
+        assert "session" not in p
 
     def test_cookies_serialized(self):
         c = Cookie(name="x", value="y")
@@ -430,8 +430,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             r = client.sessions.create("abc123")
         assert r.session == "abc123"
+        headers = mock_post.call_args[1]["headers"]
+        assert headers["X-FlareSolverr-Session"] == "abc123"
         payload = mock_post.call_args[1]["json"]
-        assert payload["session"] == "abc123"
+        assert "session" not in payload
 
     def test_session_create_auto_generates_uuid(self):
         client = FlareSolverrClient("http://localhost:8191")
@@ -441,10 +443,13 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             r = client.sessions.create()
         assert r.session == "auto-id"
+        headers = mock_post.call_args[1]["headers"]
+        assert "X-FlareSolverr-Session" in headers
+        session_header = headers["X-FlareSolverr-Session"]
+        assert isinstance(session_header, str)
+        assert len(session_header) > 0
         payload = mock_post.call_args[1]["json"]
-        assert payload["session"] is not None
-        assert isinstance(payload["session"], str)
-        assert len(payload["session"]) > 0
+        assert "session" not in payload
 
     def test_session_create_with_stealth(self):
         client = FlareSolverrClient("http://localhost:8191")
@@ -454,8 +459,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             client.sessions.create("abc123", stealth=True)
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.create"
-        assert payload["session"] == "abc123"
+        assert headers["X-FlareSolverr-Session"] == "abc123"
+        assert "session" not in payload
         assert payload["stealth"] is True
 
     def test_session_create_with_stealth_mode(self):
@@ -466,8 +473,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             client.sessions.create("abc123", stealth_mode="csp-safe")
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.create"
-        assert payload["session"] == "abc123"
+        assert headers["X-FlareSolverr-Session"] == "abc123"
+        assert "session" not in payload
         assert payload["stealthMode"] == "csp-safe"
 
     def test_session_create_with_user_agent(self):
@@ -478,8 +487,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             client.sessions.create("abc123", user_agent="Mozilla/5.0 Test UA")
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.create"
-        assert payload["session"] == "abc123"
+        assert headers["X-FlareSolverr-Session"] == "abc123"
+        assert "session" not in payload
         assert payload["userAgent"] == "Mozilla/5.0 Test UA"
 
     def test_session_create_stealth(self):
@@ -490,8 +501,11 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             client.sessions.create("s1", stealth=True, stealth_mode="csp-safe")
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["stealth"] is True
         assert payload["stealthMode"] == "csp-safe"
+        assert headers["X-FlareSolverr-Session"] == "s1"
+        assert "session" not in payload
 
     def test_session_destroy(self):
         client = FlareSolverrClient("http://localhost:8191")
@@ -501,8 +515,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             client.sessions.destroy("abc123")
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.destroy"
-        assert payload["session"] == "abc123"
+        assert "session" not in payload
+        assert headers["X-FlareSolverr-Session"] == "abc123"
 
     def test_session_list(self):
         client = FlareSolverrClient("http://localhost:8191")
@@ -531,8 +547,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             r = client.sessions.get("abc123")
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.get"
-        assert payload["session"] == "abc123"
+        assert "session" not in payload
+        assert headers["X-FlareSolverr-Session"] == "abc123"
         assert r.solution.url == "https://example.com"
         assert r.solution.title == "Example"
 
@@ -548,8 +566,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             r = client.sessions.eval("abc123", "return document.title")
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.eval"
-        assert payload["session"] == "abc123"
+        assert "session" not in payload
+        assert headers["X-FlareSolverr-Session"] == "abc123"
         assert payload["script"] == "return document.title"
         assert r.solution.evalResult == "Test Title"
 
@@ -565,8 +585,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             r = client.sessions.network("abc123")
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.network"
-        assert payload["session"] == "abc123"
+        assert "session" not in payload
+        assert headers["X-FlareSolverr-Session"] == "abc123"
         assert len(r.solution.networkLogs) == 1
 
     def test_session_click(self):
@@ -581,8 +603,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             r = client.sessions.click("abc123", "//button")
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.click"
-        assert payload["session"] == "abc123"
+        assert "session" not in payload
+        assert headers["X-FlareSolverr-Session"] == "abc123"
         assert payload["selector"] == "//button"
         assert r.solution.url == "https://example.com"
 
@@ -599,8 +623,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             r = client.sessions.action("abc123", actions)
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.action"
-        assert payload["session"] == "abc123"
+        assert "session" not in payload
+        assert headers["X-FlareSolverr-Session"] == "abc123"
         assert payload["actions"] == actions
         assert r.solution.url == "https://example.com"
 
@@ -616,8 +642,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             r = client.sessions.screenshot("abc123")
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.screenshot"
-        assert payload["session"] == "abc123"
+        assert "session" not in payload
+        assert headers["X-FlareSolverr-Session"] == "abc123"
         assert r.solution.screenshot.startswith("iVBOR")
 
     def test_session_cdp(self):
@@ -632,8 +660,10 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             r = client.sessions.cdp("abc123", {"cmd": "Page.addScriptToEvaluateOnNewDocument", "params": {"source": "console.log('hi')"}})
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.cdp"
-        assert payload["session"] == "abc123"
+        assert "session" not in payload
+        assert headers["X-FlareSolverr-Session"] == "abc123"
         assert payload["cdp"] == {"cmd": "Page.addScriptToEvaluateOnNewDocument", "params": {"source": "console.log('hi')"}}
         assert r.solution.evalResult == {"result": {}}
 
@@ -649,7 +679,9 @@ class TestFlareSolverrClientHTTP:
         with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
             r = client.sessions.cdp("abc123", {"cmd": "Runtime.enable"})
         payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.cdp"
-        assert payload["session"] == "abc123"
+        assert "session" not in payload
+        assert headers["X-FlareSolverr-Session"] == "abc123"
         assert payload["cdp"] == {"cmd": "Runtime.enable"}
         assert r.solution.evalResult == {}
