@@ -428,6 +428,7 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
 
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
+    options.add_argument("--disable-features=LocalNetworkAccessChecks")
 
     if not minimal_fingerprint:
         options.add_argument("--disable-blink-features=AutomationControlled")
