@@ -407,6 +407,7 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--no-zygote")
     options.add_argument("--renderer-process-limit=1")
+    options.add_argument("--disable-breakpad")
 
     minimal_fingerprint = get_config_minimal_fingerprint()
 
