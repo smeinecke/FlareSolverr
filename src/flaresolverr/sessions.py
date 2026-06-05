@@ -130,6 +130,22 @@ class Session:
         return self.idle_time() > self.idle_timeout
 
 
+def _apply_proxy_to_driver(driver: WebDriver | BrowserContext, proxy: dict[str, Any] | None) -> None:
+    """Apply proxy changes to a driver, handling both raw WebDriver and BrowserContext backends."""
+    # BrowserContext backends (Playwright, Camoufox, SeleniumBrowserContext)
+    if hasattr(driver, "apply_proxy"):
+        driver.apply_proxy(proxy)
+        return
+    # Raw WebDriver with Chrome extension (undetected_chromedriver)
+    if hasattr(driver, "_proxy_ext_id"):
+        utils.apply_proxy_to_session(driver, proxy)
+        return
+    raise NotImplementedError(
+        "Dynamic proxy switching is not supported by this backend. "
+        "Destroy and recreate the session to change the proxy."
+    )
+
+
 class SessionsStorage:
     """SessionsStorage creates, stores and process all the sessions"""
 
@@ -185,11 +201,11 @@ class SessionsStorage:
         if proxy is not None:
             if utils._is_proxy_empty(proxy):
                 if session.proxy is not None:
-                    utils.apply_proxy_to_session(session.driver, proxy)
+                    _apply_proxy_to_driver(session.driver, proxy)
                     session.proxy = None
             elif utils._is_proxy_valid(proxy):
                 if session.proxy != proxy:
-                    utils.apply_proxy_to_session(session.driver, proxy)
+                    _apply_proxy_to_driver(session.driver, proxy)
                     session.proxy = proxy
             else:
                 raise RuntimeError(f"Invalid proxy config (schema required, e.g. http://): {proxy!r}")

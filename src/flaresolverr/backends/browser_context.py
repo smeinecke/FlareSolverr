@@ -95,6 +95,9 @@ class BrowserContext(Protocol):
     def get_user_agent(self) -> str: ...
     def apply_user_agent_override(self, user_agent: str) -> None: ...
 
+    # Proxy
+    def apply_proxy(self, proxy: dict[str, Any] | None) -> None: ...
+
 
 def get_browser_context(driver: WebDriver | BrowserContext) -> BrowserContext:
     """Normalize a raw WebDriver or an existing BrowserContext into a BrowserContext."""

@@ -173,11 +173,12 @@ def _playwright_selector(by: str, value: str) -> str:
 class CamoufoxBrowserContext(BrowserContext):
     """Playwright-based browser context using Camoufox."""
 
-    def __init__(self, executor: _SyncExecutor, camoufox: Any, browser: Any, page: Any) -> None:
+    def __init__(self, executor: _SyncExecutor, camoufox: Any, browser: Any, page: Any, stealth_mode: str = "off") -> None:
         self._executor = executor
         self._camoufox = camoufox
         self._browser = browser
         self._page = page
+        self._stealth_mode = stealth_mode
         self._last_dialog: Any = None
 
         def _attach():
@@ -397,6 +398,47 @@ class CamoufoxBrowserContext(BrowserContext):
     def apply_user_agent_override(self, user_agent: str) -> None:
         logging.debug("User agent override skipped for Camoufox")
 
+    def apply_proxy(self, proxy: dict[str, Any] | None) -> None:
+        from flaresolverr import utils
+        from camoufox.sync_api import Camoufox  # pyright: ignore[reportMissingImports]
+
+        def _relaunch():
+            headless = utils.get_config_headless()
+            kwargs: dict[str, Any] = {
+                "headless": "virtual" if headless and utils.PLATFORM_VERSION != "nt" else headless,
+                "window": (1920, 1080),
+            }
+
+            if proxy:
+                proxy_config: dict[str, str] = {}
+                if "url" in proxy and proxy["url"]:
+                    proxy_config["server"] = proxy["url"]
+                elif "host" in proxy and "port" in proxy:
+                    proxy_config["server"] = f"http://{proxy['host']}:{proxy['port']}"
+                if "username" in proxy:
+                    proxy_config["username"] = proxy["username"]
+                if "password" in proxy:
+                    proxy_config["password"] = proxy["password"]
+                if proxy_config:
+                    kwargs["proxy"] = proxy_config
+
+            try:
+                self._browser.close()
+            except Exception:
+                pass
+            try:
+                self._camoufox.__exit__(None, None, None)
+            except Exception:
+                pass
+
+            self._camoufox = Camoufox(**kwargs)
+            self._browser = self._camoufox.__enter__()
+            self._page = self._browser.new_page()
+            self._page.on("dialog", self._on_dialog)
+            logging.debug("Camoufox browser relaunched with updated proxy.")
+
+        self._executor.submit(_relaunch)
+
 
 class CamoufoxBackend:
     """Backend using Camoufox (Playwright-based anti-detect browser)."""
@@ -437,4 +479,4 @@ class CamoufoxBackend:
             return camoufox, browser, page
 
         camoufox, browser, page = executor.submit(_create)
-        return CamoufoxBrowserContext(executor, camoufox, browser, page)
+        return CamoufoxBrowserContext(executor, camoufox, browser, page, stealth_mode=stealth_mode)

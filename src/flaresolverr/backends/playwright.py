@@ -174,11 +174,12 @@ def _playwright_selector(by: str, value: str) -> str:
 class PlaywrightBrowserContext(BrowserContext):
     """Playwright-based browser context using vanilla Playwright."""
 
-    def __init__(self, executor: _SyncExecutor, pw: Any, browser: Any, page: Any) -> None:
+    def __init__(self, executor: _SyncExecutor, pw: Any, browser: Any, page: Any, stealth_mode: str = "off") -> None:
         self._executor = executor
         self._pw = pw
         self._browser = browser
         self._page = page
+        self._stealth_mode = stealth_mode
         self._last_dialog: Any = None
 
         def _attach():
@@ -397,6 +398,50 @@ class PlaywrightBrowserContext(BrowserContext):
     def apply_user_agent_override(self, user_agent: str) -> None:
         logging.debug("User agent override not yet implemented for Playwright backend")
 
+    def apply_proxy(self, proxy: dict[str, Any] | None) -> None:
+        from flaresolverr import utils
+
+        def _relaunch():
+            headless = utils.get_config_headless()
+            launch_kwargs: dict[str, Any] = {"headless": headless}
+            args = [
+                "--window-size=1920,1080",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-blink-features=AutomationControlled",
+            ]
+            if utils.PLATFORM_VERSION == "nt":
+                args.append("--disable-gpu")
+            if os.environ.get("DISABLE_WEB_SECURITY", "false").lower() == "true":
+                args.append("--disable-web-security")
+                args.append("--disable-features=BlockInsecurePrivateNetworkRequests")
+            if self._stealth_mode != utils.STEALTH_MODE_OFF:
+                args.append("--disable-blink-features=AutomationControlled")
+            launch_kwargs["args"] = args
+
+            if proxy is not None:
+                proxy_config: dict[str, str] = {}
+                if "url" in proxy and proxy["url"]:
+                    proxy_config["server"] = proxy["url"]
+                elif "host" in proxy and "port" in proxy:
+                    proxy_config["server"] = f"http://{proxy['host']}:{proxy['port']}"
+                if "username" in proxy:
+                    proxy_config["username"] = proxy["username"]
+                if "password" in proxy:
+                    proxy_config["password"] = proxy["password"]
+                if proxy_config:
+                    launch_kwargs["proxy"] = proxy_config
+
+            self._browser.close()
+            self._browser = self._pw.chromium.launch(**launch_kwargs)
+            context = self._browser.new_context(viewport={"width": 1920, "height": 1080})
+            self._page = context.new_page()
+            self._page.on("dialog", self._on_dialog)
+            logging.debug("Playwright browser relaunched with updated proxy.")
+
+        self._executor.submit(_relaunch)
+
 
 class PlaywrightBackend:
     """Backend using vanilla Playwright (Chromium)."""
@@ -458,4 +503,4 @@ class PlaywrightBackend:
             return pw, browser, page
 
         pw, browser, page = executor.submit(_create)
-        return PlaywrightBrowserContext(executor, pw, browser, page)
+        return PlaywrightBrowserContext(executor, pw, browser, page, stealth_mode=stealth_mode)

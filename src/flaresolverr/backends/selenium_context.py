@@ -197,3 +197,11 @@ class SeleniumBrowserContext(BrowserContext):
         from flaresolverr import utils
 
         utils.apply_user_agent_override(self._driver, user_agent)
+
+    def apply_proxy(self, proxy: dict[str, Any] | None) -> None:
+        from flaresolverr import utils
+
+        if hasattr(self._driver, "_proxy_ext_id"):
+            utils.apply_proxy_to_session(self._driver, proxy)
+            return
+        raise NotImplementedError("Dynamic proxy switching is not supported by this backend. Destroy and recreate the session to change the proxy.")
