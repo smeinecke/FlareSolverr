@@ -1,6 +1,8 @@
+import datetime
 import json
 import os
 import re
+import subprocess
 import unittest
 from typing import Optional
 
@@ -39,12 +41,12 @@ class TestFlareSolverr(unittest.TestCase):
     # Proxy URLs for tests - can be overridden via env vars
     # *_check_url: host-side address used only to verify the proxy is up before testing
     # proxy_url / proxy_socks_url: address sent to FlareSolverr (may be a Docker service name)
-    proxy_url = os.environ.get("PROXY_HTTP_URL", "http://127.0.0.1:8888")
-    proxy_url_2 = os.environ.get("PROXY_HTTP_URL_2", "http://127.0.0.1:8889")
-    proxy_socks_url = os.environ.get("PROXY_SOCKS_URL", "socks5://127.0.0.1:1080")
-    proxy_http_check_url = os.environ.get("PROXY_HTTP_CHECK_URL") or os.environ.get("PROXY_HTTP_URL", "http://127.0.0.1:8888")
-    proxy_http_check_url_2 = os.environ.get("PROXY_HTTP_CHECK_URL_2") or os.environ.get("PROXY_HTTP_URL_2", "http://127.0.0.1:8889")
-    proxy_socks_check_url = os.environ.get("PROXY_SOCKS_CHECK_URL") or os.environ.get("PROXY_SOCKS_URL", "socks5://127.0.0.1:1080")
+    proxy_url = os.environ.get("PROXY_HTTP_URL", "http://proxy-http:8888")
+    proxy_url_2 = os.environ.get("PROXY_HTTP_URL_2", "http://proxy-http-2:8888")
+    proxy_socks_url = os.environ.get("PROXY_SOCKS_URL", "socks5://proxy-socks:1080")
+    proxy_http_check_url = os.environ.get("PROXY_HTTP_CHECK_URL", "http://127.0.0.1:8888")
+    proxy_http_check_url_2 = os.environ.get("PROXY_HTTP_CHECK_URL_2", "http://127.0.0.1:8889")
+    proxy_socks_check_url = os.environ.get("PROXY_SOCKS_CHECK_URL", "socks5://127.0.0.1:1080")
     google_url = "https://www.google.com"
     are_you_a_bot_url = "https://deviceandbrowserinfo.com/are_you_a_bot"
     are_you_a_bot_interactions_url = "https://deviceandbrowserinfo.com/are_you_a_bot_interactions"
@@ -60,6 +62,58 @@ class TestFlareSolverr(unittest.TestCase):
     turnstile_workers_url = "https://browser-compat.turnstile.workers.dev/"
 
     base_url = None
+
+    # Docker container names for proxy log verification (set by docker-compose.integration.yml)
+    proxy_http_container = "flaresolverr-proxy-http-1"
+    proxy_http_2_container = "flaresolverr-proxy-http-2-1"
+
+    @staticmethod
+    def _get_docker_log_line_count(container: str) -> int:
+        """Return current line count of docker logs for container."""
+        try:
+            result = subprocess.run(
+                ["docker", "logs", container],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return len((result.stdout + result.stderr).splitlines())
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+            return 0
+
+    @staticmethod
+    def _get_docker_logs_after(container: str, line_count: int) -> str:
+        """Return docker logs for container after a given line count."""
+        try:
+            result = subprocess.run(
+                ["docker", "logs", container],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            logs = result.stdout + result.stderr
+            lines = logs.splitlines()
+            return "\n".join(lines[line_count:])
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+            return ""
+
+    @classmethod
+    def _assert_request_routed_through_proxy(cls, container: str, line_count: int, hostname: str) -> None:
+        """Assert that a request to hostname was routed through the given proxy container."""
+        for _ in range(10):
+            logs = cls._get_docker_logs_after(container, line_count)
+            if hostname in logs:
+                return
+            time.sleep(0.5)
+        logs = cls._get_docker_logs_after(container, line_count)
+        assert hostname in logs, f"Expected request to {hostname} in {container} logs, got:\n{logs}"
+
+    @classmethod
+    def _assert_request_not_routed_through_proxy(cls, container: str, line_count: int, hostname: str) -> None:
+        """Assert that a request to hostname was NOT routed through the given proxy container."""
+        time.sleep(2)
+        logs = cls._get_docker_logs_after(container, line_count)
+        assert hostname not in logs, f"Expected NO request to {hostname} in {container} logs, but found:\n{logs}"
 
     @classmethod
     def setUpClass(cls):
@@ -1165,6 +1219,8 @@ class TestFlareSolverr(unittest.TestCase):
         if not _proxy_reachable(self.proxy_http_check_url_2):
             self.skipTest(f"Proxy 2 not reachable: {self.proxy_http_check_url_2}")
 
+        hostname = urllib.parse.urlparse(self.google_url).hostname or self.google_url
+
         # Create a session without any proxy
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_dynamic_proxy"})
 
@@ -1176,6 +1232,8 @@ class TestFlareSolverr(unittest.TestCase):
         assert_one_session()
 
         # Step 1: request through proxy A
+        lines_a_1 = self._get_docker_log_line_count(self.proxy_http_container)
+        lines_a_2 = self._get_docker_log_line_count(self.proxy_http_2_container)
         res = self._request(
             "POST",
             "/v1",
@@ -1191,8 +1249,12 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(STATUS_OK, body.status)
         self.assertIn(self.google_url, body.solution.url)
         assert_one_session()
+        self._assert_request_routed_through_proxy(self.proxy_http_container, lines_a_1, hostname)
+        self._assert_request_not_routed_through_proxy(self.proxy_http_2_container, lines_a_2, hostname)
 
         # Step 2: switch to proxy B (different endpoint)
+        lines_b_1 = self._get_docker_log_line_count(self.proxy_http_container)
+        lines_b_2 = self._get_docker_log_line_count(self.proxy_http_2_container)
         res = self._request(
             "POST",
             "/v1",
@@ -1208,8 +1270,12 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(STATUS_OK, body.status)
         self.assertIn(self.google_url, body.solution.url)
         assert_one_session()
+        self._assert_request_routed_through_proxy(self.proxy_http_2_container, lines_b_2, hostname)
+        self._assert_request_not_routed_through_proxy(self.proxy_http_container, lines_b_1, hostname)
 
         # Step 3: clear proxy (explicit empty) and request directly
+        lines_c_1 = self._get_docker_log_line_count(self.proxy_http_container)
+        lines_c_2 = self._get_docker_log_line_count(self.proxy_http_2_container)
         res = self._request(
             "POST",
             "/v1",
@@ -1225,3 +1291,5 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(STATUS_OK, body.status)
         self.assertIn(self.google_url, body.solution.url)
         assert_one_session()
+        self._assert_request_not_routed_through_proxy(self.proxy_http_container, lines_c_1, hostname)
+        self._assert_request_not_routed_through_proxy(self.proxy_http_2_container, lines_c_2, hostname)
