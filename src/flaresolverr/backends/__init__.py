@@ -27,6 +27,7 @@ def _register_defaults() -> None:
     from flaresolverr.backends.undetected_chrome import UndetectedChromeBackend
 
     register_backend("undetected_chromedriver", UndetectedChromeBackend)
+    register_backend("custom_chromium", UndetectedChromeBackend)
 
     try:
         from flaresolverr.backends.seleniumbase import SeleniumBaseBackend

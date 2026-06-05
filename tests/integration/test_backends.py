@@ -98,6 +98,17 @@ class TestBackendCreation(unittest.TestCase):
         self._create_and_navigate("undetected_chromedriver")
 
     @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_CUSTOM_CHROMIUM", "").lower() == "true",
+        reason="SKIP_BACKEND_CUSTOM_CHROMIUM=true",
+    )
+    def test_custom_chromium_creates_driver(self):
+        os.environ["FLARESOLVERR_CUSTOM_CHROMIUM"] = "true"
+        try:
+            self._create_and_navigate("custom_chromium")
+        finally:
+            os.environ.pop("FLARESOLVERR_CUSTOM_CHROMIUM", None)
+
+    @pytest.mark.skipif(
         os.environ.get("SKIP_BACKEND_PLAYWRIGHT", "").lower() == "true",
         reason="SKIP_BACKEND_PLAYWRIGHT=true",
     )
@@ -154,6 +165,28 @@ class TestBackendFeatures(unittest.TestCase):
                     driver.quit()
                 except Exception:
                     pass
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_CUSTOM_CHROMIUM", "").lower() == "true",
+        reason="SKIP_BACKEND_CUSTOM_CHROMIUM=true",
+    )
+    def test_custom_chromium_cdp_supported(self):
+        os.environ["FLARESOLVERR_CUSTOM_CHROMIUM"] = "true"
+        backend = backends.get_backend("custom_chromium")
+        driver = None
+        try:
+            driver = backend.create_driver(proxy=None, stealth_mode="off")
+            ctx = get_browser_context(driver)
+            result = ctx.execute_cdp_cmd("Runtime.evaluate", {"expression": "navigator.userAgent"})
+            assert result is not None
+            assert "Mozilla" in str(result)
+        finally:
+            if driver is not None:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+            os.environ.pop("FLARESOLVERR_CUSTOM_CHROMIUM", None)
 
     @pytest.mark.skipif(
         os.environ.get("SKIP_BACKEND_PLAYWRIGHT", "").lower() == "true",
@@ -289,6 +322,17 @@ class TestBrowserContextProtocol(unittest.TestCase):
     )
     def test_undetected_chromedriver_protocol(self):
         self._test_protocol("undetected_chromedriver")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_CUSTOM_CHROMIUM", "").lower() == "true",
+        reason="SKIP_BACKEND_CUSTOM_CHROMIUM=true",
+    )
+    def test_custom_chromium_protocol(self):
+        os.environ["FLARESOLVERR_CUSTOM_CHROMIUM"] = "true"
+        try:
+            self._test_protocol("custom_chromium")
+        finally:
+            os.environ.pop("FLARESOLVERR_CUSTOM_CHROMIUM", None)
 
     @pytest.mark.skipif(
         os.environ.get("SKIP_BACKEND_PLAYWRIGHT", "").lower() == "true",
@@ -427,6 +471,17 @@ class TestBackendScreenshot(unittest.TestCase):
         self._test_screenshot("undetected_chromedriver")
 
     @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_CUSTOM_CHROMIUM", "").lower() == "true",
+        reason="SKIP_BACKEND_CUSTOM_CHROMIUM=true",
+    )
+    def test_custom_chromium_screenshot(self):
+        os.environ["FLARESOLVERR_CUSTOM_CHROMIUM"] = "true"
+        try:
+            self._test_screenshot("custom_chromium")
+        finally:
+            os.environ.pop("FLARESOLVERR_CUSTOM_CHROMIUM", None)
+
+    @pytest.mark.skipif(
         os.environ.get("SKIP_BACKEND_PLAYWRIGHT", "").lower() == "true",
         reason="SKIP_BACKEND_PLAYWRIGHT=true",
     )
@@ -510,6 +565,17 @@ class TestBackendJavaScriptDom(unittest.TestCase):
         self._test_js_dom("undetected_chromedriver")
 
     @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_CUSTOM_CHROMIUM", "").lower() == "true",
+        reason="SKIP_BACKEND_CUSTOM_CHROMIUM=true",
+    )
+    def test_custom_chromium_js_dom(self):
+        os.environ["FLARESOLVERR_CUSTOM_CHROMIUM"] = "true"
+        try:
+            self._test_js_dom("custom_chromium")
+        finally:
+            os.environ.pop("FLARESOLVERR_CUSTOM_CHROMIUM", None)
+
+    @pytest.mark.skipif(
         os.environ.get("SKIP_BACKEND_PLAYWRIGHT", "").lower() == "true",
         reason="SKIP_BACKEND_PLAYWRIGHT=true",
     )
@@ -586,6 +652,17 @@ class TestBackendWaitConditions(unittest.TestCase):
     )
     def test_undetected_chromedriver_waits(self):
         self._test_waits("undetected_chromedriver")
+
+    @pytest.mark.skipif(
+        os.environ.get("SKIP_BACKEND_CUSTOM_CHROMIUM", "").lower() == "true",
+        reason="SKIP_BACKEND_CUSTOM_CHROMIUM=true",
+    )
+    def test_custom_chromium_waits(self):
+        os.environ["FLARESOLVERR_CUSTOM_CHROMIUM"] = "true"
+        try:
+            self._test_waits("custom_chromium")
+        finally:
+            os.environ.pop("FLARESOLVERR_CUSTOM_CHROMIUM", None)
 
     @pytest.mark.skipif(
         os.environ.get("SKIP_BACKEND_PLAYWRIGHT", "").lower() == "true",
