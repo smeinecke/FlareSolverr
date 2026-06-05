@@ -408,6 +408,13 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
     options.add_argument("--no-zygote")
     options.add_argument("--renderer-process-limit=1")
     options.add_argument("--disable-breakpad")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--enable-features=NetworkServiceInProcess")
+    options.add_argument("--disable-component-update")
+    options.add_argument("--metrics-recording-only")
+    options.add_argument("--no-pings")
+    options.add_argument("--in-process-gpu")
+    options.add_argument("--disable-features=MediaRouter,GlobalMediaControls,AutofillServerCommunication,OptimizationHints,Translate")
 
     minimal_fingerprint = get_config_minimal_fingerprint()
 
