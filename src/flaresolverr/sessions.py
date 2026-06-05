@@ -16,6 +16,7 @@ from flaresolverr import utils
 
 class SessionLimitExceededError(Exception):
     """Raised when creating a new session would exceed SESSION_MAX_COUNT."""
+
     pass
 
 
@@ -200,10 +201,7 @@ class SessionsStorage:
 
             max_count = utils.get_config_session_max_count()
             if max_count is not None and len(self.sessions) >= max_count:
-                raise SessionLimitExceededError(
-                    f"Maximum session count ({max_count}) reached. "
-                    f"Destroy an existing session or increase SESSION_MAX_COUNT."
-                )
+                raise SessionLimitExceededError(f"Maximum session count ({max_count}) reached. Destroy an existing session or increase SESSION_MAX_COUNT.")
 
             effective_stealth_mode = utils.get_config_stealth_mode() if stealth_mode is None else utils.normalize_stealth_mode(stealth_mode)
             driver = utils.get_webdriver(
