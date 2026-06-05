@@ -23,8 +23,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Install uv for the correct target architecture (pinned version)
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && case "${TARGETARCH}" in \
         amd64) UV_ARCH="x86_64-unknown-linux-gnu" ;; \
         arm64) UV_ARCH="aarch64-unknown-linux-gnu" ;; \
@@ -42,8 +43,9 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 
 # Create the virtualenv and install locked, non-dev dependencies.
-RUN uv sync --frozen --no-dev \
-    && rm -rf /root/.cache /tmp/*
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-dev \
+    && rm -rf /tmp/*
 
 # ---------------------------------------------------------------------------
 # Custom Chromium stage (amd64 / arm64 only - built separately).
@@ -75,7 +77,9 @@ WORKDIR /app
 
 COPY --from=dummy-packages /libgl1-mesa-dri.deb /adwaita-icon-theme.deb /
 
-RUN dpkg -i /libgl1-mesa-dri.deb /adwaita-icon-theme.deb \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    dpkg -i /libgl1-mesa-dri.deb /adwaita-icon-theme.deb \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         chromium \
@@ -83,7 +87,6 @@ RUN dpkg -i /libgl1-mesa-dri.deb /adwaita-icon-theme.deb \
         xvfb \
         dumb-init \
         xauth \
-    && rm -rf /var/lib/apt/lists/* \
     && rm -f /libgl1-mesa-dri.deb /adwaita-icon-theme.deb \
     && rm -f /usr/lib/*-linux-gnu/libmfxhw* \
     && rm -f /usr/lib/*-linux-gnu/mfx/* \
