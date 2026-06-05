@@ -1,4 +1,3 @@
-import datetime
 import json
 import os
 import re
@@ -684,6 +683,8 @@ class TestFlareSolverr(unittest.TestCase):
            * sudo tinyproxy -d
            * sudo tail -f /tmp/tinyproxy.log
         """
+        hostname = urllib.parse.urlparse(self.google_url).hostname or self.google_url
+        lines_before = self._get_docker_log_line_count(self.proxy_http_container)
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.google_url, "proxy": {"url": self.proxy_url}})
         self.assertEqual(res.status_code, 200)
 
@@ -701,6 +702,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
+        self._assert_request_routed_through_proxy(self.proxy_http_container, lines_before, hostname)
 
     def test_v1_endpoint_request_get_proxy_http_param_with_credentials(self):
         if not _proxy_reachable(self.proxy_http_check_url):
@@ -714,6 +716,8 @@ class TestFlareSolverr(unittest.TestCase):
            * sudo tinyproxy -d
            * sudo tail -f /tmp/tinyproxy.log
         """
+        hostname = urllib.parse.urlparse(self.google_url).hostname or self.google_url
+        lines_before = self._get_docker_log_line_count(self.proxy_http_container)
         res = self._request(
             "POST", "/v1", {"cmd": "request.get", "url": self.google_url, "proxy": {"url": self.proxy_url, "username": "testuser", "password": "testpass"}}
         )
@@ -733,6 +737,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
+        self._assert_request_routed_through_proxy(self.proxy_http_container, lines_before, hostname)
 
     def test_v1_endpoint_request_get_proxy_socks_param(self):
         if not _proxy_reachable(self.proxy_socks_check_url):
