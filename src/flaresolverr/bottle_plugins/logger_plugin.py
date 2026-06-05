@@ -8,7 +8,7 @@ def _get_remote_addr() -> str:
         forwarded = request.get_header("X-Forwarded-For")
         if forwarded:
             return forwarded.split(",")[0].strip()
-    return request.remote_addr
+    return request.remote_addr or ""
 
 
 def logger_plugin(callback):

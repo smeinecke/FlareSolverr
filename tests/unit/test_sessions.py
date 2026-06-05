@@ -1,11 +1,11 @@
 import os
 import signal
+import time
 from datetime import datetime, timedelta
 
-from flaresolverr import sessions
+import pytest
 
-import os
-import time
+from flaresolverr import sessions
 
 
 class DummyDriver:
@@ -237,7 +237,8 @@ def test_cleanup_skips_locked_sessions(monkeypatch) -> None:
     session.lock.release()
 
 
-def test_cleanup_respects_max_count(monkeypatch) -> None:
+def test_cleanup_does_not_destroy_for_max_count(monkeypatch) -> None:
+    """cleanup() must only destroy expired sessions, not enforce max_count."""
     storage = sessions.SessionsStorage()
     monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
     monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
@@ -246,18 +247,27 @@ def test_cleanup_respects_max_count(monkeypatch) -> None:
 
     storage.create("s1")
     storage.create("s2")
-    storage.create("s3")
+    # s3 would exceed max_count, but cleanup should not destroy anything
     storage.sessions["s1"].last_used_at = datetime.now() - timedelta(minutes=10)
     storage.sessions["s2"].last_used_at = datetime.now() - timedelta(minutes=5)
-    storage.sessions["s3"].last_used_at = datetime.now() - timedelta(minutes=1)
 
     destroyed = storage.cleanup()
-    assert "s1" in destroyed
-    assert "s2" not in destroyed
-    assert "s3" not in destroyed
+    assert destroyed == []
+    assert storage.exists("s1")
     assert storage.exists("s2")
-    assert storage.exists("s3")
-    assert not storage.exists("s1")
+
+
+def test_create_raises_when_max_count_exceeded(monkeypatch) -> None:
+    """create() must raise SessionLimitExceededError when max_count is reached."""
+    storage = sessions.SessionsStorage()
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
+    monkeypatch.setattr(sessions.utils, "get_config_session_max_count", lambda: 2)
+
+    storage.create("s1")
+    storage.create("s2")
+    with pytest.raises(sessions.SessionLimitExceededError):
+        storage.create("s3")
 
 
 def test_process_alive_detects_existing_process() -> None:

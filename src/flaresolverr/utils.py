@@ -109,10 +109,6 @@ def get_config_log_html() -> bool:
     return os.environ.get("LOG_HTML", "false").lower() == "true"
 
 
-def get_config_trust_proxy() -> bool:
-    return os.environ.get("TRUST_PROXY", "false").lower() == "true"
-
-
 def get_config_headless() -> bool:
     return os.environ.get("HEADLESS", "true").lower() == "true"
 
