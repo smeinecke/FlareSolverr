@@ -15,13 +15,22 @@ from flaresolverr import utils
 
 
 def _process_alive(pid: int) -> bool:
-    """Best-effort check whether a process with the given PID is still alive."""
+    """Best-effort check whether a process with the given PID is still alive (not a zombie)."""
     try:
-        # Works on POSIX systems (Linux, macOS)
         os.kill(pid, 0)
-        return True
     except (OSError, ProcessLookupError):
         return False
+
+    # On Linux, a zombie still has a PID entry but is dead; detect it via /proc.
+    try:
+        with open(f"/proc/{pid}/stat", encoding="ascii") as f:
+            stat = f.read().split()
+            if len(stat) > 2 and stat[2] == "Z":
+                return False
+    except (FileNotFoundError, IndexError, PermissionError):
+        pass
+
+    return True
 
 
 def _ensure_process_dead(pid: int | None, grace_seconds: float = 2.0) -> None:
@@ -32,20 +41,27 @@ def _ensure_process_dead(pid: int | None, grace_seconds: float = 2.0) -> None:
     deadline = time.time() + grace_seconds
     while time.time() < deadline:
         if not _process_alive(pid):
-            return
+            break
         time.sleep(0.1)
 
-    # Escalate to force kill
+    # If still alive (not a zombie), escalate to force kill
+    if _process_alive(pid):
+        try:
+            if utils.PLATFORM_VERSION == "nt":
+                subprocess.run(  # nosec
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    check=False,
+                    capture_output=True,
+                )
+            else:
+                os.kill(pid, signal.SIGKILL)
+        except Exception:  # nosec B110
+            pass
+
+    # Reap the zombie if we are the parent
     try:
-        if utils.PLATFORM_VERSION == "nt":
-            subprocess.run(  # nosec
-                ["taskkill", "/F", "/PID", str(pid)],
-                check=False,
-                capture_output=True,
-            )
-        else:
-            os.kill(pid, signal.SIGKILL)
-    except Exception:  # nosec B110
+        os.waitpid(pid, os.WNOHANG)
+    except (ChildProcessError, OSError):
         pass
 
 
@@ -228,6 +244,16 @@ class SessionsStorage:
         # Verify the browser process is really gone; escalate to SIGKILL if needed
         browser_pid = getattr(session.driver, "browser_pid", None)
         _ensure_process_dead(browser_pid)
+
+        # Broad reap: clean up any other zombie children left behind by the browser
+        while True:
+            try:
+                reaped_pid, _ = os.waitpid(-1, os.WNOHANG)
+                if reaped_pid == 0:
+                    break
+            except (ChildProcessError, OSError):
+                break
+
         return True
 
     def get(
