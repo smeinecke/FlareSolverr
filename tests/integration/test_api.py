@@ -259,6 +259,11 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("Chrome/", solution.userAgent)
 
     def test_v1_endpoint_request_get_are_you_a_bot_interactions_page_content(self):
+        backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+        if backend == "undetected_chromedriver" and not utils._is_custom_chromium():
+            self.skipTest(
+                "Behavioral action detection requires patched Chromium; skipping on standard Chrome."
+            )
         res = self._request(
             "POST",
             "/v1",
