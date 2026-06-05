@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -333,75 +334,41 @@ def get_current_platform() -> str:
     return PLATFORM_VERSION
 
 
-def create_proxy_extension(proxy: dict[str, Any]) -> str:
-    parsed_url = urllib.parse.urlparse(proxy["url"])
-    scheme = parsed_url.scheme
-    host = parsed_url.hostname
-    port = parsed_url.port
-    username = proxy["username"]
-    password = proxy["password"]
-    manifest_json = """
-    {
-        "version": "1.0.0",
-        "manifest_version": 3,
-        "name": "Chrome Proxy",
-        "permissions": [
-            "proxy",
-            "tabs",
-            "storage",
-            "webRequest",
-            "webRequestAuthProvider"
-        ],
-        "host_permissions": [
-          "<all_urls>"
-        ],
-        "background": {
-          "service_worker": "background.js"
-        },
-        "minimum_chrome_version": "76.0.0"
-    }
+def _get_proxy_extension_dir() -> str:
+    """Return the path to the static proxy-manager Chrome extension."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "proxy_extension")
+
+
+def _compute_extension_id(extension_path: str) -> str:
+    """Compute the Chrome extension ID for an unpacked extension.
+
+    Chrome derives the extension ID from the SHA-256 of the absolute path.
+    The first 16 bytes of the digest are encoded with alphabet a-p.
     """
+    normalized = extension_path.replace("\\", "/").encode("utf-8")
+    digest = hashlib.sha256(normalized).digest()[:16]
+    alphabet = "abcdefghijklmnop"
+    return "".join(alphabet[b >> 4] + alphabet[b & 0x0F] for b in digest)
 
-    background_js = """
-    var config = {
-        mode: "fixed_servers",
-        rules: {
-            singleProxy: {
-                scheme: "%s",
-                host: "%s",
-                port: %d
-            },
-            bypassList: ["localhost"]
-        }
-    };
 
-    chrome.proxy.settings.set({value: config, scope: "regular"}, function() {});
+def _build_stealth_extension_dir() -> tuple[str, str]:
+    """Create a temporary copy of the proxy extension.
 
-    function callbackFn(details) {
-        return {
-            authCredentials: {
-                username: "%s",
-                password: "%s"
-            }
-        };
-    }
+    Returns (temp_extension_dir, extension_id) so the caller can
+    navigate to the extension's proxy.html page directly.
+    """
+    static_dir = _get_proxy_extension_dir()
+    temp_dir = tempfile.mkdtemp(prefix="fspe-")
 
-    chrome.webRequest.onAuthRequired.addListener(
-        callbackFn,
-        { urls: ["<all_urls>"] },
-        ['blocking']
-    );
-    """ % (scheme, host, port, username, password)
+    for fname in os.listdir(static_dir):
+        src = os.path.join(static_dir, fname)
+        if not os.path.isfile(src):
+            continue
+        dst = os.path.join(temp_dir, fname)
+        shutil.copy2(src, dst)
 
-    proxy_extension_dir = tempfile.mkdtemp()
-
-    with open(os.path.join(proxy_extension_dir, "manifest.json"), "w") as f:
-        f.write(manifest_json)
-
-    with open(os.path.join(proxy_extension_dir, "background.js"), "w") as f:
-        f.write(background_js)
-
-    return proxy_extension_dir
+    ext_id = _compute_extension_id(temp_dir)
+    return temp_dir, ext_id
 
 
 def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
@@ -486,27 +453,100 @@ def _check_proxy_reachable(proxy_url: str) -> None:
         raise RuntimeError(f"Proxy {host}:{port} is not reachable: {e}") from e
 
 
-def _handle_proxy_setup(options: ChromeOptions, proxy: dict[str, Any] | None) -> str | None:
-    """Configure proxy settings and return extension directory if created."""
+def _is_proxy_empty(proxy: dict[str, Any] | None) -> bool:
+    """Return True if the proxy dict represents an explicit clear/empty proxy."""
     if proxy is None:
-        return None
+        return False
+    url = proxy.get("url", "")
+    return url == ""
 
-    if all(key in proxy for key in ["url", "username", "password"]):
-        _check_proxy_reachable(proxy["url"])
-        proxy_extension_dir = create_proxy_extension(proxy)
-        options.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
-        options.add_argument("--load-extension=%s" % os.path.abspath(proxy_extension_dir))
-        return proxy_extension_dir
 
-    if "url" in proxy:
+def _is_proxy_valid(proxy: dict[str, Any] | None) -> bool:
+    """Return True if the proxy dict contains a valid proxy URL."""
+    if proxy is None:
+        return False
+    url = proxy.get("url", "")
+    return bool(url) and "://" in url
+
+
+def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> None:
+    """Dynamically update proxy on a running Chrome session via the proxy-manager extension.
+
+    Navigates to the extension's proxy.html page and calls chrome.runtime.sendMessage
+    directly to the background service worker, which updates chrome.proxy.settings.set.
+    Waits for an acknowledgement from the extension and raises on failure/timeout.
+    """
+    if proxy is None:
+        return
+
+    # Determine whether this is a clear or set operation
+    if _is_proxy_empty(proxy):
+        payload = {"mode": "direct"}
+        logging.debug("Clearing proxy on session via extension")
+    elif not _is_proxy_valid(proxy):
+        raise RuntimeError(f"Invalid proxy config (schema required, e.g. http://): {proxy!r}")
+    else:
         proxy_url = proxy["url"]
         _check_proxy_reachable(proxy_url)
-        logging.debug("Using webdriver proxy: %s", proxy_url)
-        options.add_argument("--proxy-server=%s" % proxy_url)
-        # Explicitly disable proxy bypass so Chrome uses the proxy for all hosts
-        options.add_argument("--proxy-bypass-list=")
+        parsed = urllib.parse.urlparse(proxy_url)
+        scheme = parsed.scheme
+        host = parsed.hostname
+        port = parsed.port
+        if not host or not port:
+            raise RuntimeError(f"Invalid proxy URL (cannot parse host/port): {proxy_url!r}")
+        payload = {
+            "mode": "fixed_servers",
+            "rules": {
+                "singleProxy": {
+                    "scheme": scheme,
+                    "host": host,
+                    "port": port,
+                },
+                "bypassList": ["localhost"],
+            },
+        }
+        username = proxy.get("username")
+        password = proxy.get("password")
+        if username:
+            payload["auth"] = {"username": username, "password": password or ""}
+        logging.debug("Applying proxy to session via extension: %s:%d", host, port)
 
-    return None
+    # Navigate to the extension's proxy.html page so we have a stable
+    # extension context where chrome.runtime.sendMessage is available.
+    ext_id = getattr(driver, "_proxy_ext_id", None)
+    if not ext_id:
+        raise RuntimeError("Extension ID not available on driver; cannot apply proxy")
+    driver.get("chrome-extension://%s/proxy.html" % ext_id)
+
+    # Smoke check: verify we are on a live extension page by reading chrome.runtime.id
+    actual_ext_id = driver.execute_script("return chrome.runtime.id")
+    if actual_ext_id != ext_id:
+        raise RuntimeError(
+            f"Extension ID mismatch: expected {ext_id!r}, got {actual_ext_id!r}. The computed extension ID does not match Chrome's actual extension ID."
+        )
+
+    # Directly call chrome.runtime.sendMessage from the extension page
+    script = """
+        (function() {
+            window.__FS_PROXY_RESULT = null;
+            chrome.runtime.sendMessage(%s, function(response) {
+                window.__FS_PROXY_RESULT = response || {success: false, error: "no response"};
+            });
+        })();
+    """ % json.dumps(payload)
+    driver.execute_script(script)
+
+    # Poll for acknowledgement (max 5 seconds)
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        result = driver.execute_script("return window.__FS_PROXY_RESULT")
+        if result is not None:
+            if result.get("success"):
+                return
+            raise RuntimeError(f"Proxy extension failed to apply proxy: {result.get('error', 'unknown')}")
+        time.sleep(0.05)
+
+    raise RuntimeError("Proxy extension did not acknowledge within timeout")
 
 
 def _resolve_driver_paths() -> tuple[str | None, str | None]:
@@ -672,7 +712,9 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
     effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
 
     options = _build_chrome_options(effective_stealth_mode)
-    proxy_extension_dir = _handle_proxy_setup(options, proxy)
+    proxy_ext_dir, proxy_ext_id = _build_stealth_extension_dir()
+    options.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
+    options.add_argument("--load-extension=%s" % os.path.abspath(proxy_ext_dir))
     windows_headless = _configure_headless()
     driver_exe_path, version_main = _resolve_driver_paths()
     browser_executable_path = get_chrome_exe_path()
@@ -724,6 +766,8 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             # Store subprocess so it can be terminated on quit
             driver._chrome_proc = chrome_proc  # type: ignore[attr-defined]
             driver._chrome_user_data_dir = user_data_dir  # type: ignore[attr-defined]
+            driver._proxy_ext_dir = proxy_ext_dir  # type: ignore[attr-defined]
+            driver._proxy_ext_id = proxy_ext_id  # type: ignore[attr-defined]
             _orig_quit = driver.quit
 
             def _quit_with_cleanup() -> None:
@@ -741,6 +785,9 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
                     udd = getattr(driver, "_chrome_user_data_dir", None)
                     if udd and os.path.isdir(udd):
                         shutil.rmtree(udd, ignore_errors=True)
+                    ext_dir = getattr(driver, "_proxy_ext_dir", None)
+                    if ext_dir and os.path.isdir(ext_dir):
+                        shutil.rmtree(ext_dir, ignore_errors=True)
 
             driver.quit = _quit_with_cleanup  # type: ignore[method-assign]
         else:
@@ -755,6 +802,20 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
                 windows_headless=windows_headless,
                 headless=get_config_headless(),
             )
+            driver._proxy_ext_dir = proxy_ext_dir  # type: ignore[attr-defined]
+            driver._proxy_ext_id = proxy_ext_id  # type: ignore[attr-defined]
+            # Wrap quit to clean up temp extension dir
+            _orig_uc_quit = driver.quit
+
+            def _uc_quit_with_cleanup() -> None:
+                try:
+                    _orig_uc_quit()
+                finally:
+                    ext_dir = getattr(driver, "_proxy_ext_dir", None)
+                    if ext_dir and os.path.isdir(ext_dir):
+                        shutil.rmtree(ext_dir, ignore_errors=True)
+
+            driver.quit = _uc_quit_with_cleanup  # type: ignore[method-assign]
     except Exception as e:
         logging.error("Error starting Chrome: %s", e)
         raise e
@@ -762,11 +823,11 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
     _maybe_normalize_user_agent(driver, effective_stealth_mode)
     _maybe_apply_stealth(driver, effective_stealth_mode)
 
+    if proxy is not None:
+        apply_proxy_to_session(driver, proxy)
+
     if not custom_chromium:
         _save_patched_driver(driver, driver_exe_path)
-
-    if proxy_extension_dir is not None:
-        shutil.rmtree(proxy_extension_dir)
 
     return driver
 

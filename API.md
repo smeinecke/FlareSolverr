@@ -59,7 +59,7 @@ This also speeds up the requests since it won't have to launch a new browser ins
 | Parameter | Notes |
 | --------- | ----- |
 | session | Optional. The session ID that you want to be assigned to the instance. If isn't set a random UUID will be assigned. |
-| proxy | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. You must include the proxy schema in the URL: `http://`, `socks4://` or `socks5://`. Authorization (username/password) is supported. |
+| proxy | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. You must include the proxy schema in the URL: `http://`, `socks4://` or `socks5://`. Authorization (username/password) is supported. Proxy can also be changed dynamically when reusing a session via `request.get` / `request.post`. |
 | stealth | Optional, default uses `STEALTH_MODE`. Enables/disables stealth patches for this session. |
 | stealthMode | Optional enum override: `"off"`, `"standard"`, `"csp-safe"`. Preferred over `stealth` for explicit behavior. |
 | userAgent | Optional. Custom browser user agent for the session. |
@@ -208,7 +208,7 @@ Example:
 | headers | Optional. Custom HTTP headers to send with the request. |
 | returnOnlyCookies | Optional, default false. Only returns the cookies. |
 | returnScreenshot | Optional, default false. Captures a screenshot as Base64 PNG. |
-| proxy | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. |
+| proxy | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. When a `session` is provided and `proxy` is passed, the session's proxy is updated dynamically without restarting Chrome. Omitting `proxy` on a reused session keeps the previously set proxy sticky. Passing an explicit empty proxy (`{}` or `{"url": ""}`) clears the proxy on that session. |
 | waitInSeconds | Optional. Wait after solving the challenge before returning results. |
 | disableMedia | Optional, default false. Block images/CSS/fonts to speed up navigation. |
 | tabs_till_verify | Optional. Number of Tab presses needed for turnstile captcha. |
@@ -237,6 +237,29 @@ This works like `request.get`, with the addition of the `postData` / `postDataRa
 
 > **Note**
 > Only one of `postData` or `postDataRaw` can be used in a single request, not both.
+
+> **Session Proxy Reuse**
+> You can reuse a session and switch proxies on the fly. This is useful for proxy pools where you want to keep a warm pool of browser instances and rotate proxies per request:
+>
+> ```json
+> {
+>   "cmd": "request.get",
+>   "session": "my-session",
+>   "url": "https://example.com",
+>   "proxy": {"url": "http://proxy-pool:8080"}
+> }
+> ```
+>
+> The next request to the same session can use a different proxy (or omit `proxy` to keep the current one):
+>
+> ```json
+> {
+>   "cmd": "request.get",
+>   "session": "my-session",
+>   "url": "https://example.com",
+>   "proxy": {"url": "http://another-proxy:8080"}
+> }
+> ```
 
 ---
 

@@ -12,12 +12,23 @@ class DummyDriver:
     def __init__(self) -> None:
         self.closed = 0
         self.quitted = 0
+        self.current_url = "about:blank"
+        self._proxy_ext_id = "abc123"
 
     def close(self) -> None:
         self.closed += 1
 
     def quit(self) -> None:
         self.quitted += 1
+
+    def execute_script(self, script: str):
+        # Simulate extension-page ACK polling
+        if "chrome.runtime.sendMessage" in script:
+            return None
+        return {"success": True}
+
+    def get(self, url: str) -> None:
+        self.current_url = url
 
 
 def test_session_lifetime_is_timedelta() -> None:
@@ -310,3 +321,91 @@ def test_destroy_verifies_browser_pid_dead(monkeypatch) -> None:
     storage.create("verify-pid")
     storage.destroy("verify-pid")
     assert verified["called"] is True
+
+
+def test_create_stores_proxy_on_session(monkeypatch) -> None:
+    storage = sessions.SessionsStorage()
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+
+    session, _ = storage.create("s1", proxy={"url": "http://proxy:8080"})
+    assert session.proxy == {"url": "http://proxy:8080"}
+
+
+def test_reuse_updates_proxy_when_changed(monkeypatch) -> None:
+    storage = sessions.SessionsStorage()
+    applied: list[dict | None] = []
+
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "apply_proxy_to_session", lambda driver, proxy: applied.append(proxy))
+
+    storage.create("s1", proxy={"url": "http://proxy1:8080"})
+    storage.create("s1", proxy={"url": "http://proxy2:8080"})
+
+    assert len(applied) == 1
+    assert applied[0] == {"url": "http://proxy2:8080"}
+
+
+def test_reuse_clears_proxy_with_empty(monkeypatch) -> None:
+    storage = sessions.SessionsStorage()
+    applied: list[dict | None] = []
+
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "apply_proxy_to_session", lambda driver, proxy: applied.append(proxy))
+
+    storage.create("s1", proxy={"url": "http://proxy:8080"})
+    storage.create("s1", proxy={"url": ""})
+
+    assert len(applied) == 1
+    assert applied[0] == {"url": ""}
+
+
+def test_reuse_keeps_proxy_when_omitted(monkeypatch) -> None:
+    storage = sessions.SessionsStorage()
+    applied: list[dict | None] = []
+
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "apply_proxy_to_session", lambda driver, proxy: applied.append(proxy))
+
+    storage.create("s1", proxy={"url": "http://proxy:8080"})
+    storage.create("s1")  # no proxy argument
+
+    assert len(applied) == 0
+
+
+def test_reuse_skips_proxy_update_when_same(monkeypatch) -> None:
+    storage = sessions.SessionsStorage()
+    applied: list[dict | None] = []
+
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "apply_proxy_to_session", lambda driver, proxy: applied.append(proxy))
+
+    storage.create("s1", proxy={"url": "http://proxy:8080"})
+    storage.create("s1", proxy={"url": "http://proxy:8080"})
+
+    assert len(applied) == 0
+
+
+def test_reuse_updates_proxy_when_auth_changes(monkeypatch) -> None:
+    """Regression: same URL but different credentials must trigger an update."""
+    storage = sessions.SessionsStorage()
+    applied: list[dict | None] = []
+
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "apply_proxy_to_session", lambda driver, proxy: applied.append(proxy))
+
+    storage.create("s1", proxy={"url": "http://proxy:8080", "username": "user1", "password": "pass1"})
+    storage.create("s1", proxy={"url": "http://proxy:8080", "username": "user2", "password": "pass2"})
+
+    assert len(applied) == 1
+    assert applied[0]["username"] == "user2"
+
+
+def test_reuse_raises_on_invalid_proxy(monkeypatch) -> None:
+    """Invalid proxy on a reused session must raise RuntimeError (not silently keep old proxy)."""
+    storage = sessions.SessionsStorage()
+
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+
+    storage.create("s1", proxy={"url": "http://proxy:8080"})
+    with pytest.raises(RuntimeError, match="schema required"):
+        storage.create("s1", proxy={"url": "proxy:8080"})

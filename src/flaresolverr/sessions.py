@@ -85,6 +85,7 @@ class Session:
     last_used_at: datetime
     max_runtime: timedelta | None
     idle_timeout: timedelta
+    proxy: dict[str, Any] | None
 
     def __init__(
         self,
@@ -97,6 +98,7 @@ class Session:
         enabled_services: list[str] | None = None,
         max_runtime: timedelta | None = None,
         idle_timeout: timedelta | None = None,
+        proxy: dict[str, Any] | None = None,
     ):
         self.session_id = session_id
         self.driver = driver
@@ -110,6 +112,7 @@ class Session:
         self.last_used_at = created_at
         self.max_runtime = max_runtime
         self.idle_timeout = idle_timeout if idle_timeout is not None else utils.get_config_session_idle_timeout()
+        self.proxy = proxy
 
     def lifetime(self) -> timedelta:
         return datetime.now() - self.created_at
@@ -197,6 +200,18 @@ class SessionsStorage:
                             f"Session '{session_id}' already initialized with enabledServices={existing_session.enabled_services!r}. "
                             f"Requested enabledServices={enabled_services!r}. Destroy/recreate the session to change this setting."
                         )
+                # Dynamic proxy update on reused sessions
+                if proxy is not None:
+                    if utils._is_proxy_empty(proxy):
+                        if existing_session.proxy is not None:
+                            utils.apply_proxy_to_session(existing_session.driver, proxy)
+                            existing_session.proxy = None
+                    elif utils._is_proxy_valid(proxy):
+                        if existing_session.proxy != proxy:
+                            utils.apply_proxy_to_session(existing_session.driver, proxy)
+                            existing_session.proxy = proxy
+                    else:
+                        raise RuntimeError(f"Invalid proxy config (schema required, e.g. http://): {proxy!r}")
                 return self.sessions[session_id], False
 
             max_count = utils.get_config_session_max_count()
@@ -226,6 +241,7 @@ class SessionsStorage:
                 enabled_services=effective_enabled_services,
                 max_runtime=effective_max_runtime,
                 idle_timeout=effective_idle_timeout,
+                proxy=proxy,
             )
 
             self.sessions[session_id] = session
@@ -276,9 +292,11 @@ class SessionsStorage:
         enabled_services: Optional[list[str]] = None,
         max_runtime: Optional[timedelta] = None,
         idle_timeout: Optional[timedelta] = None,
+        proxy: Optional[dict[str, Any]] = None,
     ) -> Tuple[Session, bool]:
         session, fresh = self.create(
             session_id,
+            proxy=proxy,
             stealth_mode=stealth_mode,
             user_agent=user_agent,
             accept_language=accept_language,
@@ -292,6 +310,7 @@ class SessionsStorage:
             session, fresh = self.create(
                 session_id,
                 force_new=True,
+                proxy=proxy,
                 stealth_mode=stealth_mode,
                 user_agent=user_agent,
                 accept_language=accept_language,
