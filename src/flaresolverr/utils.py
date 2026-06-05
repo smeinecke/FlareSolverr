@@ -94,6 +94,13 @@ def _load_stealth_script(fallback: bool = False) -> str:
 
 def _is_custom_chromium() -> bool:
     global _CUSTOM_CHROMIUM
+
+    env_override = os.environ.get("FLARESOLVERR_CUSTOM_CHROMIUM", "").lower()
+    if env_override in ("1", "true"):
+        return True
+    if env_override in ("0", "false"):
+        return False
+
     if _CUSTOM_CHROMIUM is not None:
         return _CUSTOM_CHROMIUM
 

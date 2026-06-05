@@ -170,7 +170,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [undetected_chromedriver, playwright, camoufox, seleniumbase]
+        backend: [undetected_chromedriver, custom_chromium, playwright, camoufox, seleniumbase]
 
     steps:
       - name: Checkout code
@@ -222,6 +222,7 @@ jobs:
           DRIVER_BACKEND: ${{ matrix.backend }}
           HEADLESS: "true"
           SKIP_BACKEND_UNDETECTED_CHROMEDRIVER: ${{ matrix.backend != 'undetected_chromedriver' && 'true' || '' }}
+          SKIP_BACKEND_CUSTOM_CHROMIUM: ${{ matrix.backend != 'custom_chromium' && 'true' || '' }}
           SKIP_BACKEND_PLAYWRIGHT: ${{ matrix.backend != 'playwright' && 'true' || '' }}
           SKIP_BACKEND_CAMOUFOX: ${{ matrix.backend != 'camoufox' && 'true' || '' }}
           SKIP_BACKEND_SELENIUMBASE: ${{ matrix.backend != 'seleniumbase' && 'true' || '' }}
@@ -233,6 +234,7 @@ jobs:
           DRIVER_BACKEND: ${{ matrix.backend }}
           HEADLESS: "true"
           SKIP_BACKEND_UNDETECTED_CHROMEDRIVER: ${{ matrix.backend != 'undetected_chromedriver' && 'true' || '' }}
+          SKIP_BACKEND_CUSTOM_CHROMIUM: ${{ matrix.backend != 'custom_chromium' && 'true' || '' }}
           SKIP_BACKEND_PLAYWRIGHT: ${{ matrix.backend != 'playwright' && 'true' || '' }}
           SKIP_BACKEND_CAMOUFOX: ${{ matrix.backend != 'camoufox' && 'true' || '' }}
           SKIP_BACKEND_SELENIUMBASE: ${{ matrix.backend != 'seleniumbase' && 'true' || '' }}
@@ -246,7 +248,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [undetected_chromedriver, playwright, camoufox, seleniumbase]
+        backend: [undetected_chromedriver, custom_chromium, playwright, camoufox, seleniumbase]
 
     steps:
       - name: Checkout code
@@ -299,6 +301,7 @@ jobs:
           HEADLESS: "true"
           PORT: "8191"
           FLARESOLVERR_SINGLE_THREADED: ${{ (matrix.backend == 'playwright' || matrix.backend == 'camoufox') && 'true' || '' }}
+          FLARESOLVERR_CUSTOM_CHROMIUM: ${{ matrix.backend == 'custom_chromium' && 'true' || '' }}
         run: |
           nohup uv run python -m flaresolverr.flaresolverr > /tmp/flaresolverr.log 2>&1 &
           for i in {1..30}; do
