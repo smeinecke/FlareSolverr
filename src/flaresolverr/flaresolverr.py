@@ -226,6 +226,7 @@ if __name__ == "__main__":
         # single-threaded wsgiref for testing Playwright backends
         run(app, host=server_host, port=server_port, quiet=True)  # pyright: ignore[reportArgumentType]
     else:
+
         class WaitressServerPoll(ServerAdapter):
             def run(self, handler) -> None:
                 max_parallel = utils.get_config_max_parallel_requests()
