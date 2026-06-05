@@ -399,18 +399,9 @@ class CamoufoxBrowserContext(BrowserContext):
         logging.debug("User agent override skipped for Camoufox")
 
     def apply_proxy(self, proxy: dict[str, Any] | None) -> None:
-        from flaresolverr import utils
-        from camoufox.sync_api import Camoufox  # pyright: ignore[reportMissingImports]
-
-        def _relaunch():
-            headless = utils.get_config_headless()
-            kwargs: dict[str, Any] = {
-                "headless": "virtual" if headless and utils.PLATFORM_VERSION != "nt" else headless,
-                "window": (1920, 1080),
-            }
-
-            if proxy:
-                proxy_config: dict[str, str] = {}
+        def _update():
+            proxy_config: dict[str, str] = {}
+            if proxy is not None:
                 if "url" in proxy and proxy["url"]:
                     proxy_config["server"] = proxy["url"]
                 elif "host" in proxy and "port" in proxy:
@@ -419,25 +410,18 @@ class CamoufoxBrowserContext(BrowserContext):
                     proxy_config["username"] = proxy["username"]
                 if "password" in proxy:
                     proxy_config["password"] = proxy["password"]
-                if proxy_config:
-                    kwargs["proxy"] = proxy_config
 
-            try:
-                self._browser.close()
-            except Exception:
-                pass
-            try:
-                self._camoufox.__exit__(None, None, None)
-            except Exception:
-                pass
+            context_kwargs: dict[str, Any] = {"viewport": {"width": 1920, "height": 1080}}
+            if proxy_config:
+                context_kwargs["proxy"] = proxy_config
 
-            self._camoufox = Camoufox(**kwargs)
-            self._browser = self._camoufox.__enter__()
-            self._page = self._browser.new_page()
+            self._page.context.close()
+            new_context = self._browser.new_context(**context_kwargs)
+            self._page = new_context.new_page()
             self._page.on("dialog", self._on_dialog)
-            logging.debug("Camoufox browser relaunched with updated proxy.")
+            logging.debug("Camoufox context recreated with updated proxy.")
 
-        self._executor.submit(_relaunch)
+        self._executor.submit(_update)
 
 
 class CamoufoxBackend:

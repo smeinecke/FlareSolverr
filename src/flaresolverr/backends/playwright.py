@@ -399,29 +399,9 @@ class PlaywrightBrowserContext(BrowserContext):
         logging.debug("User agent override not yet implemented for Playwright backend")
 
     def apply_proxy(self, proxy: dict[str, Any] | None) -> None:
-        from flaresolverr import utils
-
-        def _relaunch():
-            headless = utils.get_config_headless()
-            launch_kwargs: dict[str, Any] = {"headless": headless}
-            args = [
-                "--window-size=1920,1080",
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-blink-features=AutomationControlled",
-            ]
-            if utils.PLATFORM_VERSION == "nt":
-                args.append("--disable-gpu")
-            if os.environ.get("DISABLE_WEB_SECURITY", "false").lower() == "true":
-                args.append("--disable-web-security")
-                args.append("--disable-features=BlockInsecurePrivateNetworkRequests")
-            if self._stealth_mode != utils.STEALTH_MODE_OFF:
-                args.append("--disable-blink-features=AutomationControlled")
-            launch_kwargs["args"] = args
-
+        def _update():
+            proxy_config: dict[str, str] = {}
             if proxy is not None:
-                proxy_config: dict[str, str] = {}
                 if "url" in proxy and proxy["url"]:
                     proxy_config["server"] = proxy["url"]
                 elif "host" in proxy and "port" in proxy:
@@ -430,17 +410,18 @@ class PlaywrightBrowserContext(BrowserContext):
                     proxy_config["username"] = proxy["username"]
                 if "password" in proxy:
                     proxy_config["password"] = proxy["password"]
-                if proxy_config:
-                    launch_kwargs["proxy"] = proxy_config
 
-            self._browser.close()
-            self._browser = self._pw.chromium.launch(**launch_kwargs)
-            context = self._browser.new_context(viewport={"width": 1920, "height": 1080})
-            self._page = context.new_page()
+            context_kwargs: dict[str, Any] = {"viewport": {"width": 1920, "height": 1080}}
+            if proxy_config:
+                context_kwargs["proxy"] = proxy_config
+
+            self._page.context.close()
+            new_context = self._browser.new_context(**context_kwargs)
+            self._page = new_context.new_page()
             self._page.on("dialog", self._on_dialog)
-            logging.debug("Playwright browser relaunched with updated proxy.")
+            logging.debug("Playwright context recreated with updated proxy.")
 
-        self._executor.submit(_relaunch)
+        self._executor.submit(_update)
 
 
 class PlaywrightBackend:
