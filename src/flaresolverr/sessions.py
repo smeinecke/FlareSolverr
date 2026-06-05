@@ -14,6 +14,11 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 from flaresolverr import utils
 
 
+class SessionLimitExceededError(Exception):
+    """Raised when creating a new session would exceed SESSION_MAX_COUNT."""
+    pass
+
+
 def _process_alive(pid: int) -> bool:
     """Best-effort check whether a process with the given PID is still alive (not a zombie)."""
     try:
@@ -193,6 +198,13 @@ class SessionsStorage:
                         )
                 return self.sessions[session_id], False
 
+            max_count = utils.get_config_session_max_count()
+            if max_count is not None and len(self.sessions) >= max_count:
+                raise SessionLimitExceededError(
+                    f"Maximum session count ({max_count}) reached. "
+                    f"Destroy an existing session or increase SESSION_MAX_COUNT."
+                )
+
             effective_stealth_mode = utils.get_config_stealth_mode() if stealth_mode is None else utils.normalize_stealth_mode(stealth_mode)
             driver = utils.get_webdriver(
                 proxy,
@@ -297,11 +309,10 @@ class SessionsStorage:
             return list(self.sessions.keys())
 
     def cleanup(self) -> list[str]:
-        """Destroy expired sessions and enforce max session count.
+        """Destroy expired sessions.
         Returns a list of destroyed session IDs.
         """
         destroyed: list[str] = []
-        max_count = utils.get_config_session_max_count()
 
         with self._lock:
             snapshot = list(self.sessions.values())
@@ -313,17 +324,6 @@ class SessionsStorage:
                 if self.destroy(session.session_id):
                     logging.info(f"Session '{session.session_id}' destroyed by cleanup (expired)")
                     destroyed.append(session.session_id)
-
-        if max_count is not None:
-            with self._lock:
-                while len(self.sessions) > max_count:
-                    candidates = [s for s in self.sessions.values() if not s.lock.locked()]
-                    if not candidates:
-                        break
-                    oldest = min(candidates, key=lambda s: s.last_used_at)
-                    if self.destroy(oldest.session_id):
-                        logging.info(f"Session '{oldest.session_id}' destroyed by cleanup (max session count exceeded)")
-                        destroyed.append(oldest.session_id)
 
         return destroyed
 

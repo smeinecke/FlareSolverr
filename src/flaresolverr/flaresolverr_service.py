@@ -33,7 +33,7 @@ from flaresolverr.dtos import (
 )
 from flaresolverr.services import SERVICE_MANAGER
 from flaresolverr.services.cloudflare import CloudflareService
-from flaresolverr.sessions import SessionsStorage
+from flaresolverr.sessions import SessionsStorage, SessionLimitExceededError
 from flaresolverr.utils import _human_like_click, _random_delay
 
 ACCESS_DENIED_TITLES = [
@@ -163,6 +163,16 @@ def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
         res: V1ResponseBase
         try:
             res = _controller_v1_handler(req)
+        except SessionLimitExceededError as e:
+            res = V1ResponseBase({})
+            res.__error_429__ = True
+            res.status = STATUS_ERROR
+            res.message = "Error: " + str(e)
+            res.startTimestamp = start_ts
+            res.endTimestamp = int(time.time() * 1000)
+            res.version = utils.get_flaresolverr_version()  # noqa
+            logging.warning("Request rejected: " + str(e))
+            return res
         except Exception as e:
             res = V1ResponseBase({})
             res.__error_500__ = True
