@@ -139,6 +139,17 @@ Clicks an element in the session's browser using an XPath selector.
 | session | The session ID to click in. |
 | selector | XPath selector for the element to click. |
 
+### + `sessions.clear`
+
+Clears the browser context of a session without closing the browser. This removes cookies,
+localStorage, sessionStorage, browser cache, IndexedDB, and unregisters service workers,
+then navigates to `about:blank`. Useful for resetting a session between requests while
+keeping the same browser instance alive.
+
+| Parameter | Notes |
+| --------- | ----- |
+| session | The session ID to clear. |
+
 ### + `sessions.action`
 
 Executes a list of browser actions in a session without re-navigating.
@@ -276,6 +287,7 @@ All `selector` values must be **XPath** expressions.
 | `wait_for` | `selector` (XPath), `timeout` (ms, optional, default `15000`) | Blocks until the element is visible. |
 | `wait` | `seconds` (number) | Sleeps for the given number of seconds. |
 | `eval` | `script` (string), `returnResult` (bool, default `true`) | Executes JavaScript and captures the return value in `solution.evalResult`. Set `returnResult: false` to skip capturing. |
+| `clear_context` | — | Clears cookies, localStorage, sessionStorage, cache, IndexedDB, and service workers, then navigates to `about:blank`. |
 
 Example - fill and submit a login form:
 

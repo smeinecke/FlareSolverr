@@ -72,7 +72,7 @@ class Header:
 class Action:
     """A single browser action in an action chain."""
 
-    type: Literal["fill", "click", "wait_for", "wait", "eval"]
+    type: Literal["fill", "click", "wait_for", "wait", "eval", "clear_context"]
     selector: str | None = None
     value: str | None = None
     seconds: float | None = None

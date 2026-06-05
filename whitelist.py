@@ -6,6 +6,7 @@ to static analysis, but are required at runtime.
 """
 
 from flaresolverr.bottle_plugins import error_plugin, logger_plugin, prometheus_plugin
+from flaresolverr.client.actions import ActionQueue
 from flaresolverr.client.client import _SessionManager
 from flaresolverr.client.models import ChallengeSolution
 from flaresolverr.dtos import ChallengeResolutionResultT
@@ -24,6 +25,10 @@ _SessionManager.network
 _SessionManager.screenshot
 _SessionManager.click
 _SessionManager.action
+_SessionManager.clear
+
+# Public ActionQueue fluent builder methods
+ActionQueue.clear_context
 
 # Model fields populated dynamically from API responses
 ChallengeResolutionResultT.isBinary

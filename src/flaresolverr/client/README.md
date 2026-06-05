@@ -70,6 +70,9 @@ response = client.request.get("https://example.com", session=session_id)
 response = client.sessions.list()
 print(response.sessions)  # ["session_1", "session_2"]
 
+# Clear session context without closing the browser
+client.sessions.clear(session_id)
+
 # Destroy session
 client.sessions.destroy(session_id)
 ```
@@ -147,6 +150,7 @@ response = client.request.get("https://example.com/login", actions=actions)
 - `click(selector, human_like=False)` - Click element
 - `wait_for(selector)` - Wait until element is visible
 - `eval(script, return_result=True)` - Execute JavaScript. Set `return_result=False` to skip capturing the return value.
+- `clear_context()` - Clear cookies, storage, cache, IndexedDB, and service workers, then navigate to `about:blank`.
 
 ### Models
 

@@ -9,6 +9,8 @@ import logging
 import time
 from unittest.mock import MagicMock, call
 
+import pytest
+
 from flaresolverr import flaresolverr_service as svc
 from flaresolverr.dtos import V1RequestBase
 from selenium.webdriver.common.by import By
@@ -284,6 +286,26 @@ class TestWaitAction:
         svc._execute_actions(MagicMock(), [{"type": "wait", "seconds": 0.5}])
 
         assert slept == [0.5]
+
+
+# ── clear_context ───────────────────────────────────────────────────────────
+
+class TestClearContextAction:
+    def test_calls_clear_session_context(self, monkeypatch):
+        driver = _make_driver()
+        called = []
+        monkeypatch.setattr(svc, "_clear_session_context", lambda d: called.append(d))
+
+        svc._execute_actions(driver, [{"type": "clear_context"}])
+
+        assert called == [driver]
+
+    def test_error_raises(self, monkeypatch):
+        driver = _make_driver()
+        monkeypatch.setattr(svc, "_clear_session_context", lambda d: (_ for _ in ()).throw(Exception("clear failed")))
+
+        with pytest.raises(Exception, match="Error executing clear_context action"):
+            svc._execute_actions(driver, [{"type": "clear_context"}])
 
 
 # ── edge cases ────────────────────────────────────────────────────────────────

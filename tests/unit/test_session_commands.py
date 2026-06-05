@@ -203,6 +203,42 @@ class TestSessionsClick:
             svc._cmd_sessions_click(req)
 
 
+class TestSessionsClear:
+    def test_clear_success(self, _patch_sessions_storage):
+        driver = _make_session_driver(
+            title="Blank",
+            return_values={"get_cookies": []},
+        )
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.clear", "session": "s1"})
+        with patch.object(svc, "_clear_session_context") as mock_clear:
+            res = svc._cmd_sessions_clear(req)
+
+        assert res.status == "ok"
+        assert res.message == "Session context cleared successfully."
+        mock_clear.assert_called_once_with(driver)
+
+    def test_clear_missing_session_raises(self):
+        req = V1RequestBase({"cmd": "sessions.clear", "session": "missing"})
+        with pytest.raises(Exception, match="doesn't exist"):
+            svc._cmd_sessions_clear(req)
+
+    def test_clear_no_session_param_raises(self):
+        req = V1RequestBase({"cmd": "sessions.clear"})
+        with pytest.raises(Exception, match="'session' is mandatory"):
+            svc._cmd_sessions_clear(req)
+
+    def test_clear_context_error_raises(self, _patch_sessions_storage):
+        driver = _make_session_driver()
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.clear", "session": "s1"})
+        with patch.object(svc, "_clear_session_context", side_effect=Exception("clear failed")):
+            with pytest.raises(Exception, match="Error clearing session context"):
+                svc._cmd_sessions_clear(req)
+
+
 class TestSessionsAction:
     def test_action_executes_actions(self, _patch_sessions_storage):
         driver = _make_session_driver(

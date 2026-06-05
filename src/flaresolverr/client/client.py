@@ -183,6 +183,7 @@ class _SessionManager:
         - {"type": "wait_for", "selector": "//div"}
         - {"type": "wait", "seconds": 2}
         - {"type": "eval", "script": "return document.title", "returnResult": true}
+        - {"type": "clear_context"}
 
         Args:
             session_id: The session ID to execute actions in.
@@ -204,6 +205,21 @@ class _SessionManager:
             V1Response with `solution.screenshot` containing a Base64-encoded PNG.
         """
         payload: dict[str, Any] = {"cmd": "sessions.screenshot"}
+        return self._client._post_v1(payload, session=session_id)
+
+    def clear(self, session_id: str) -> V1Response:
+        """Clear the browser context of a session without closing it.
+
+        Clears cookies, localStorage, sessionStorage, browser cache, IndexedDB,
+        and unregisters service workers, then navigates to about:blank.
+
+        Args:
+            session_id: The session ID to clear.
+
+        Returns:
+            V1Response with the session state after clearing.
+        """
+        payload: dict[str, Any] = {"cmd": "sessions.clear"}
         return self._client._post_v1(payload, session=session_id)
 
     def cdp(self, session_id: str, cdp: dict[str, Any]) -> V1Response:

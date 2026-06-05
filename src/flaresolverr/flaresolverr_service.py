@@ -226,6 +226,8 @@ def _controller_v1_handler(req: V1RequestBase) -> V1ResponseBase:
         res = _cmd_sessions_action(req)
     elif req.cmd == "sessions.screenshot":
         res = _cmd_sessions_screenshot(req)
+    elif req.cmd == "sessions.clear":
+        res = _cmd_sessions_clear(req)
     elif req.cmd == "sessions.cdp":
         res = _cmd_sessions_cdp(req)
     elif req.cmd == "request.get":
@@ -503,6 +505,94 @@ def _cmd_sessions_action(req: V1RequestBase) -> V1ResponseBase:
     res = V1ResponseBase({})
     res.status = STATUS_OK
     res.message = "Actions executed successfully."
+    res.solution = result
+    return res
+
+
+def _clear_session_context(driver: WebDriver) -> None:
+    """Clear cookies, storage, cache, IndexedDB and service workers, then navigate to about:blank."""
+    logging.debug("Clearing session context...")
+
+    # 1. Cookies
+    try:
+        driver.delete_all_cookies()
+        logging.debug("Cookies cleared")
+    except Exception as e:
+        logging.debug(f"Cookie clear failed: {e}")
+
+    # 2. localStorage / sessionStorage
+    try:
+        driver.execute_script("try { localStorage.clear(); } catch(e) {} try { sessionStorage.clear(); } catch(e) {}")
+        logging.debug("Storage cleared")
+    except Exception as e:
+        logging.debug(f"Storage clear failed: {e}")
+
+    # 3. Browser cache via CDP
+    try:
+        driver.execute_cdp_cmd("Network.clearBrowserCache", {})
+        logging.debug("Browser cache cleared")
+    except Exception as e:
+        logging.debug(f"Browser cache clear failed: {e}")
+
+    # 4. IndexedDB
+    try:
+        driver.execute_script("""
+            var dbs = indexedDB.databases ? indexedDB.databases() : Promise.resolve([]);
+            dbs.then(function(list) {
+                list.forEach(function(db) {
+                    if (db.name) indexedDB.deleteDatabase(db.name);
+                });
+            });
+        """)
+        logging.debug("IndexedDB cleared")
+    except Exception as e:
+        logging.debug(f"IndexedDB clear failed: {e}")
+
+    # 5. Service workers
+    try:
+        driver.execute_script("""
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                navigator.serviceWorker.getRegistrations().then(function(regs) {
+                    regs.forEach(function(reg) { reg.unregister(); });
+                });
+            }
+        """)
+        logging.debug("Service workers unregistered")
+    except Exception as e:
+        logging.debug(f"Service worker unregister failed: {e}")
+
+    # 6. Navigate to about:blank
+    try:
+        driver.get("about:blank")
+        logging.debug("Navigated to about:blank")
+    except Exception as e:
+        logging.debug(f"Navigate to about:blank failed: {e}")
+
+
+def _cmd_sessions_clear(req: V1RequestBase) -> V1ResponseBase:
+    session_id = req.session
+    if session_id is None:
+        raise Exception("Request parameter 'session' is mandatory in 'sessions.clear' command.")
+    if not SESSIONS_STORAGE.exists(session_id):
+        raise Exception("The session doesn't exist.")
+
+    session = SESSIONS_STORAGE.sessions[session_id]
+    driver = session.driver
+    logging.debug(f"sessions.clear (session_id={session_id})")
+
+    try:
+        _clear_session_context(driver)
+    except Exception as e:
+        raise Exception(f"Error clearing session context: {e}")
+
+    result = ChallengeResolutionResultT({})
+    result.url = driver.current_url
+    result.title = _safe_driver_call(lambda: driver.title, None)
+    result.cookies = _safe_driver_call(driver.get_cookies, [])
+
+    res = V1ResponseBase({})
+    res.status = STATUS_OK
+    res.message = "Session context cleared successfully."
     res.solution = result
     return res
 
@@ -879,6 +969,12 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
             else:
                 eval_results.append(None)
             continue
+        elif action_type == "clear_context":
+            logging.debug("Action clear_context")
+            try:
+                _clear_session_context(driver)
+            except Exception as e:
+                raise Exception(f"Error executing clear_context action: {e}")
         else:
             logging.warning(f"Unknown action type: {action_type!r}")
         eval_results.append(None)

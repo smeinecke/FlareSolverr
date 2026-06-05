@@ -51,6 +51,9 @@ Session Management:
     >>> screenshot = client.sessions.screenshot("my_session_id")
     >>> print(screenshot.solution.screenshot[:50])  # base64 PNG
     >>>
+    >>> # Clear session context without closing the browser
+    >>> client.sessions.clear("my_session_id")
+    >>>
     >>> # Clean up when done
     >>> client.sessions.destroy("my_session_id")
 

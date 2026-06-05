@@ -117,6 +117,18 @@ class ActionQueue:
         """
         return [a.to_dict() for a in self._actions]
 
+    def clear_context(self) -> ActionQueue:
+        """Clear the browser's session context (cookies, storage, cache, IndexedDB, service workers)
+        and navigate to about:blank without closing the browser.
+
+        Useful for resetting a session between requests while keeping the same browser instance alive.
+
+        Returns:
+            Self for method chaining.
+        """
+        self._actions.append(Action(type="clear_context"))
+        return self
+
     def clear(self) -> ActionQueue:
         """Clear all actions from the queue.
 

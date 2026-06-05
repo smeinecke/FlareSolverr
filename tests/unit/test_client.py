@@ -54,6 +54,10 @@ class TestActionQueue:
         result = ActionQueue().eval("return document.title").build()
         assert result == [{"type": "eval", "script": "return document.title"}]
 
+    def test_clear_context(self):
+        result = ActionQueue().clear_context().build()
+        assert result == [{"type": "clear_context"}]
+
     def test_chaining(self):
         result = (
             ActionQueue()
@@ -519,6 +523,28 @@ class TestFlareSolverrClientHTTP:
         assert payload["cmd"] == "sessions.destroy"
         assert "session" not in payload
         assert headers["X-FlareSolverr-Session"] == "abc123"
+
+    def test_session_clear(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "message": "Session context cleared successfully.",
+            "solution": {
+                "url": "about:blank",
+                "title": "",
+                "cookies": [],
+            },
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.post", return_value=mock_resp) as mock_post:
+            r = client.sessions.clear("abc123")
+        payload = mock_post.call_args[1]["json"]
+        headers = mock_post.call_args[1]["headers"]
+        assert payload["cmd"] == "sessions.clear"
+        assert "session" not in payload
+        assert headers["X-FlareSolverr-Session"] == "abc123"
+        assert r.solution.url == "about:blank"
 
     def test_session_list(self):
         client = FlareSolverrClient("http://localhost:8191")
