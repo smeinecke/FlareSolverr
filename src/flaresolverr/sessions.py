@@ -138,6 +138,62 @@ class SessionsStorage:
         self._cleanup_thread: threading.Thread | None = None
         self._stop_cleanup = threading.Event()
 
+    def _reuse_existing_session(
+        self,
+        session: Session,
+        proxy: Optional[dict[str, Any]] = None,
+        stealth_mode: Optional[str | bool] = None,
+        user_agent: Optional[str] = None,
+        accept_language: Optional[str] = None,
+        enabled_services: Optional[list[str]] = None,
+    ) -> Session:
+        """Validate settings and apply dynamic updates on an existing session."""
+        if stealth_mode is not None:
+            normalized_mode = utils.normalize_stealth_mode(stealth_mode)
+            if session.stealth_mode != normalized_mode:
+                raise ValueError(
+                    f"Session '{session.session_id}' already exists with stealthMode={session.stealth_mode!r}. "
+                    f"Requested stealthMode={normalized_mode!r}. Destroy/recreate the session to change this setting."
+                )
+        if user_agent is not None:
+            if session.user_agent_override is None and session.request_count == 0:
+                utils.apply_user_agent_override(session.driver, user_agent, accept_language or utils.get_config_accept_language())
+                session.user_agent_override = user_agent
+            elif session.user_agent_override != user_agent:
+                raise ValueError(
+                    f"Session '{session.session_id}' already initialized with userAgent={session.user_agent_override!r}. "
+                    f"Requested userAgent={user_agent!r}. Destroy/recreate the session to change this setting."
+                )
+        if accept_language is not None:
+            if session.accept_language_override is None and session.request_count == 0:
+                if session.user_agent_override is not None:
+                    utils.apply_user_agent_override(session.driver, session.user_agent_override, accept_language)
+                session.accept_language_override = accept_language
+            elif session.accept_language_override != accept_language:
+                raise ValueError(
+                    f"Session '{session.session_id}' already initialized with acceptLanguage={session.accept_language_override!r}. "
+                    f"Requested acceptLanguage={accept_language!r}. Destroy/recreate the session to change this setting."
+                )
+        if enabled_services is not None:
+            if session.enabled_services != enabled_services:
+                raise ValueError(
+                    f"Session '{session.session_id}' already initialized with enabledServices={session.enabled_services!r}. "
+                    f"Requested enabledServices={enabled_services!r}. Destroy/recreate the session to change this setting."
+                )
+        # Dynamic proxy update on reused sessions
+        if proxy is not None:
+            if utils._is_proxy_empty(proxy):
+                if session.proxy is not None:
+                    utils.apply_proxy_to_session(session.driver, proxy)
+                    session.proxy = None
+            elif utils._is_proxy_valid(proxy):
+                if session.proxy != proxy:
+                    utils.apply_proxy_to_session(session.driver, proxy)
+                    session.proxy = proxy
+            else:
+                raise RuntimeError(f"Invalid proxy config (schema required, e.g. http://): {proxy!r}")
+        return session
+
     def create(
         self,
         session_id: Optional[str] = None,
@@ -168,51 +224,15 @@ class SessionsStorage:
 
             if self.exists(session_id):
                 existing_session = self.sessions[session_id]
-                if stealth_mode is not None:
-                    normalized_mode = utils.normalize_stealth_mode(stealth_mode)
-                    if existing_session.stealth_mode != normalized_mode:
-                        raise ValueError(
-                            f"Session '{session_id}' already exists with stealthMode={existing_session.stealth_mode!r}. "
-                            f"Requested stealthMode={normalized_mode!r}. Destroy/recreate the session to change this setting."
-                        )
-                if user_agent is not None:
-                    if existing_session.user_agent_override is None and existing_session.request_count == 0:
-                        utils.apply_user_agent_override(existing_session.driver, user_agent, accept_language or utils.get_config_accept_language())
-                        existing_session.user_agent_override = user_agent
-                    elif existing_session.user_agent_override != user_agent:
-                        raise ValueError(
-                            f"Session '{session_id}' already initialized with userAgent={existing_session.user_agent_override!r}. "
-                            f"Requested userAgent={user_agent!r}. Destroy/recreate the session to change this setting."
-                        )
-                if accept_language is not None:
-                    if existing_session.accept_language_override is None and existing_session.request_count == 0:
-                        if existing_session.user_agent_override is not None:
-                            utils.apply_user_agent_override(existing_session.driver, existing_session.user_agent_override, accept_language)
-                        existing_session.accept_language_override = accept_language
-                    elif existing_session.accept_language_override != accept_language:
-                        raise ValueError(
-                            f"Session '{session_id}' already initialized with acceptLanguage={existing_session.accept_language_override!r}. "
-                            f"Requested acceptLanguage={accept_language!r}. Destroy/recreate the session to change this setting."
-                        )
-                if enabled_services is not None:
-                    if existing_session.enabled_services != enabled_services:
-                        raise ValueError(
-                            f"Session '{session_id}' already initialized with enabledServices={existing_session.enabled_services!r}. "
-                            f"Requested enabledServices={enabled_services!r}. Destroy/recreate the session to change this setting."
-                        )
-                # Dynamic proxy update on reused sessions
-                if proxy is not None:
-                    if utils._is_proxy_empty(proxy):
-                        if existing_session.proxy is not None:
-                            utils.apply_proxy_to_session(existing_session.driver, proxy)
-                            existing_session.proxy = None
-                    elif utils._is_proxy_valid(proxy):
-                        if existing_session.proxy != proxy:
-                            utils.apply_proxy_to_session(existing_session.driver, proxy)
-                            existing_session.proxy = proxy
-                    else:
-                        raise RuntimeError(f"Invalid proxy config (schema required, e.g. http://): {proxy!r}")
-                return self.sessions[session_id], False
+                self._reuse_existing_session(
+                    existing_session,
+                    proxy=proxy,
+                    stealth_mode=stealth_mode,
+                    user_agent=user_agent,
+                    accept_language=accept_language,
+                    enabled_services=enabled_services,
+                )
+                return existing_session, False
 
             max_count = utils.get_config_session_max_count()
             if max_count is not None and len(self.sessions) >= max_count:
