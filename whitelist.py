@@ -11,6 +11,7 @@ from flaresolverr.client.models import ChallengeSolution
 from flaresolverr.dtos import ChallengeResolutionResultT
 from flaresolverr.sessions import SessionsStorage
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.remote.webdriver import WebDriver
 
 # Public _SessionManager API methods (called by users of the client library)
 _SessionManager.cdp
@@ -42,3 +43,6 @@ SessionsStorage.stop_cleanup
 
 # Attribute set on driver options by undetected_chromedriver
 Options.binary_location
+
+# Proxy extension attributes stored on WebDriver instances
+WebDriver._proxy_ext_id

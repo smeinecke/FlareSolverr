@@ -579,6 +579,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             session, fresh = SESSIONS_STORAGE.get(
                 session_id,
                 ttl,
+                proxy=req.proxy,
                 stealth_mode=req_stealth_mode,
                 user_agent=req.userAgent,
                 accept_language=req.acceptLanguage,

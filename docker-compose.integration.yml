@@ -6,6 +6,13 @@ services:
     ports:
       - "127.0.0.1:8888:8888"
 
+  proxy-http-2:
+    build:
+      context: .github/docker/tinyproxy
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8889:8888"
+
   proxy-socks:
     image: serjs/go-socks5-proxy:latest
     environment:

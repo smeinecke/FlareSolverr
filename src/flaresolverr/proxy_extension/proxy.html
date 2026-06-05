@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FlareSolverr Proxy Manager</title>
+</head>
+<body>
+<script>
+// Stable extension page used as a command channel for proxy updates.
+// The Python side navigates here and executes scripts that call
+// chrome.runtime.sendMessage directly (extension pages have that API).
+window.__FS_PROXY_RESULT = null;
+</script>
+</body>
+</html>

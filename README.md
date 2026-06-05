@@ -21,8 +21,7 @@ bypass Cloudflare using other HTTP clients.
 **NOTE**: Web browsers consume a lot of memory. If you are running FlareSolverr on a machine with few RAM, do not make
 many requests at once and/or limit the parallel sessions with the `MAX_SESSIONS` environment variable. With each request a new browser is launched.
 
-It is also possible to use a permanent session. However, if you use sessions, you should make sure to close them as
-soon as you are done using them.
+It is also possible to use a permanent session. Sessions support dynamic proxy switching, so you can keep a pool of pre-warmed browser instances and rotate proxies per request without restarting Chrome. If you use sessions, you should make sure to close them as soon as you are done using them.
 
 ## Installation
 

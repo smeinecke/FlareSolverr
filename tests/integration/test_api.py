@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import subprocess
 import unittest
 from typing import Optional
 
@@ -10,8 +11,9 @@ import requests
 from flaresolverr.dtos import IndexResponse, HealthResponse, V1ResponseBase, STATUS_OK, STATUS_ERROR
 from flaresolverr import utils
 
-import urllib.parse, socket
+import socket
 import time
+import urllib.parse
 
 pytestmark = pytest.mark.integration
 
@@ -38,10 +40,12 @@ class TestFlareSolverr(unittest.TestCase):
     # Proxy URLs for tests - can be overridden via env vars
     # *_check_url: host-side address used only to verify the proxy is up before testing
     # proxy_url / proxy_socks_url: address sent to FlareSolverr (may be a Docker service name)
-    proxy_url = os.environ.get("PROXY_HTTP_URL", "http://127.0.0.1:8888")
-    proxy_socks_url = os.environ.get("PROXY_SOCKS_URL", "socks5://127.0.0.1:1080")
-    proxy_http_check_url = os.environ.get("PROXY_HTTP_CHECK_URL") or os.environ.get("PROXY_HTTP_URL", "http://127.0.0.1:8888")
-    proxy_socks_check_url = os.environ.get("PROXY_SOCKS_CHECK_URL") or os.environ.get("PROXY_SOCKS_URL", "socks5://127.0.0.1:1080")
+    proxy_url = os.environ.get("PROXY_HTTP_URL", "http://proxy-http:8888")
+    proxy_url_2 = os.environ.get("PROXY_HTTP_URL_2", "http://proxy-http-2:8888")
+    proxy_socks_url = os.environ.get("PROXY_SOCKS_URL", "socks5://proxy-socks:1080")
+    proxy_http_check_url = os.environ.get("PROXY_HTTP_CHECK_URL", "http://127.0.0.1:8888")
+    proxy_http_check_url_2 = os.environ.get("PROXY_HTTP_CHECK_URL_2", "http://127.0.0.1:8889")
+    proxy_socks_check_url = os.environ.get("PROXY_SOCKS_CHECK_URL", "socks5://127.0.0.1:1080")
     google_url = "https://www.google.com"
     are_you_a_bot_url = "https://deviceandbrowserinfo.com/are_you_a_bot"
     are_you_a_bot_interactions_url = "https://deviceandbrowserinfo.com/are_you_a_bot_interactions"
@@ -57,6 +61,58 @@ class TestFlareSolverr(unittest.TestCase):
     turnstile_workers_url = "https://browser-compat.turnstile.workers.dev/"
 
     base_url = None
+
+    # Docker container names for proxy log verification (set by docker-compose.integration.yml)
+    proxy_http_container = "flaresolverr-proxy-http-1"
+    proxy_http_2_container = "flaresolverr-proxy-http-2-1"
+
+    @staticmethod
+    def _get_docker_log_line_count(container: str) -> int:
+        """Return current line count of docker logs for container."""
+        try:
+            result = subprocess.run(
+                ["docker", "logs", container],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return len((result.stdout + result.stderr).splitlines())
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+            return 0
+
+    @staticmethod
+    def _get_docker_logs_after(container: str, line_count: int) -> str:
+        """Return docker logs for container after a given line count."""
+        try:
+            result = subprocess.run(
+                ["docker", "logs", container],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            logs = result.stdout + result.stderr
+            lines = logs.splitlines()
+            return "\n".join(lines[line_count:])
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+            return ""
+
+    @classmethod
+    def _assert_request_routed_through_proxy(cls, container: str, line_count: int, hostname: str) -> None:
+        """Assert that a request to hostname was routed through the given proxy container."""
+        for _ in range(10):
+            logs = cls._get_docker_logs_after(container, line_count)
+            if hostname in logs:
+                return
+            time.sleep(0.5)
+        logs = cls._get_docker_logs_after(container, line_count)
+        assert hostname in logs, f"Expected request to {hostname} in {container} logs, got:\n{logs}"
+
+    @classmethod
+    def _assert_request_not_routed_through_proxy(cls, container: str, line_count: int, hostname: str) -> None:
+        """Assert that a request to hostname was NOT routed through the given proxy container."""
+        time.sleep(2)
+        logs = cls._get_docker_logs_after(container, line_count)
+        assert hostname not in logs, f"Expected NO request to {hostname} in {container} logs, but found:\n{logs}"
 
     @classmethod
     def setUpClass(cls):
@@ -192,10 +248,10 @@ class TestFlareSolverr(unittest.TestCase):
                 "url": self.are_you_a_bot_interactions_url,
                 "stealth": True,
                 "actions": [
-                    {"type": "wait",     "seconds": 2},
-                    {"type": "fill",     "selector": "//input[@id='email']",                                         "value": "test@example.com"},
-                    {"type": "fill",     "selector": "//input[@id='password']",                                      "value": "TestPass@123"},
-                    {"type": "click",    "selector": "//form[@id='loginForm']//button[@type='submit']"},
+                    {"type": "wait", "seconds": 2},
+                    {"type": "fill", "selector": "//input[@id='email']", "value": "test@example.com"},
+                    {"type": "fill", "selector": "//input[@id='password']", "value": "TestPass@123"},
+                    {"type": "click", "selector": "//form[@id='loginForm']//button[@type='submit']"},
                     {"type": "wait_for", "selector": "//*[contains(text(),'You are human!') or contains(text(),'You are a bot!')]"},
                 ],
             },
@@ -351,9 +407,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertGreater(len(fairlane_cookie["value"]), 30)
 
     def test_v1_endpoint_request_get_scrapingcourse_cf_challenge(self):
-        res = self._request(
-            "POST", "/v1", {"cmd": "request.get", "url": self.scrapingcourse_cf_url, "maxTimeout": 120000}, timeout=190
-        )
+        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.scrapingcourse_cf_url, "maxTimeout": 120000}, timeout=190)
         if res.status_code == 500:
             body = V1ResponseBase(self._get_json(res))
             if "Timeout after" in body.message:
@@ -565,7 +619,15 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(utils.get_flaresolverr_version(), body.version)
 
     def test_v1_endpoint_request_get_cookies_param(self):
-        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.google_url, "cookies": [{"name": "testcookie1", "value": "testvalue1"}, {"name": "testcookie2", "value": "testvalue2"}]})
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "request.get",
+                "url": self.google_url,
+                "cookies": [{"name": "testcookie1", "value": "testvalue1"}, {"name": "testcookie2", "value": "testvalue2"}],
+            },
+        )
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
@@ -621,6 +683,8 @@ class TestFlareSolverr(unittest.TestCase):
            * sudo tinyproxy -d
            * sudo tail -f /tmp/tinyproxy.log
         """
+        hostname = urllib.parse.urlparse(self.google_url).hostname or self.google_url
+        lines_before = self._get_docker_log_line_count(self.proxy_http_container)
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.google_url, "proxy": {"url": self.proxy_url}})
         self.assertEqual(res.status_code, 200)
 
@@ -638,6 +702,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
+        self._assert_request_routed_through_proxy(self.proxy_http_container, lines_before, hostname)
 
     def test_v1_endpoint_request_get_proxy_http_param_with_credentials(self):
         if not _proxy_reachable(self.proxy_http_check_url):
@@ -651,7 +716,11 @@ class TestFlareSolverr(unittest.TestCase):
            * sudo tinyproxy -d
            * sudo tail -f /tmp/tinyproxy.log
         """
-        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.google_url, "proxy": {"url": self.proxy_url, "username": "testuser", "password": "testpass"}})
+        hostname = urllib.parse.urlparse(self.google_url).hostname or self.google_url
+        lines_before = self._get_docker_log_line_count(self.proxy_http_container)
+        res = self._request(
+            "POST", "/v1", {"cmd": "request.get", "url": self.google_url, "proxy": {"url": self.proxy_url, "username": "testuser", "password": "testpass"}}
+        )
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
@@ -668,6 +737,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
+        self._assert_request_routed_through_proxy(self.proxy_http_container, lines_before, hostname)
 
     def test_v1_endpoint_request_get_proxy_socks_param(self):
         if not _proxy_reachable(self.proxy_socks_check_url):
@@ -790,7 +860,9 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("Request parameter 'postData' or 'postDataRaw' is mandatory in 'request.post' command", body.message)
 
     def test_v1_endpoint_request_post_deprecated_param(self):
-        res = self._request("POST", "/v1", {"cmd": "request.post", "url": self.google_url, "postData": "param1=value1&param2=value2", "userAgent": "Test User-Agent"})
+        res = self._request(
+            "POST", "/v1", {"cmd": "request.post", "url": self.google_url, "postData": "param1=value1&param2=value2", "userAgent": "Test User-Agent"}
+        )
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
@@ -980,11 +1052,15 @@ class TestFlareSolverr(unittest.TestCase):
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_eval_session"})
         self._request("POST", "/v1", {"cmd": "request.get", "session": "test_eval_session", "url": self.google_url})
 
-        res = self._request("POST", "/v1", {
-            "cmd": "sessions.eval",
-            "session": "test_eval_session",
-            "script": "return document.title",
-        })
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "sessions.eval",
+                "session": "test_eval_session",
+                "script": "return document.title",
+            },
+        )
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
@@ -996,7 +1072,8 @@ class TestFlareSolverr(unittest.TestCase):
     def test_v1_endpoint_sessions_eval_missing_script(self):
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_eval_no_script"})
         res = self._request(
-            "POST", "/v1",
+            "POST",
+            "/v1",
             {"cmd": "sessions.eval", "session": "test_eval_no_script"},
             status=500,
         )
@@ -1028,11 +1105,15 @@ class TestFlareSolverr(unittest.TestCase):
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_click_session"})
         self._request("POST", "/v1", {"cmd": "request.get", "session": "test_click_session", "url": self.google_url})
 
-        res = self._request("POST", "/v1", {
-            "cmd": "sessions.click",
-            "session": "test_click_session",
-            "selector": "//a[contains(text(),'Gmail')] | //a[@aria-label='Gmail']",
-        })
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "sessions.click",
+                "session": "test_click_session",
+                "selector": "//a[contains(text(),'Gmail')] | //a[@aria-label='Gmail']",
+            },
+        )
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
@@ -1044,11 +1125,16 @@ class TestFlareSolverr(unittest.TestCase):
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_click_missing"})
         self._request("POST", "/v1", {"cmd": "request.get", "session": "test_click_missing", "url": self.google_url})
 
-        res = self._request("POST", "/v1", {
-            "cmd": "sessions.click",
-            "session": "test_click_missing",
-            "selector": "//span[@id='nonexistent-span-12345']",
-        }, status=500)
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "sessions.click",
+                "session": "test_click_missing",
+                "selector": "//span[@id='nonexistent-span-12345']",
+            },
+            status=500,
+        )
         self.assertEqual(res.status_code, 500)
 
         body = V1ResponseBase(self._get_json(res))
@@ -1060,15 +1146,19 @@ class TestFlareSolverr(unittest.TestCase):
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_action_session"})
         self._request("POST", "/v1", {"cmd": "request.get", "session": "test_action_session", "url": self.google_url})
 
-        res = self._request("POST", "/v1", {
-            "cmd": "sessions.action",
-            "session": "test_action_session",
-            "actions": [
-                {"type": "wait", "seconds": 1},
-                {"type": "click", "selector": "//a[contains(text(),'Gmail')] | //a[@aria-label='Gmail']"},
-                {"type": "wait", "seconds": 1},
-            ],
-        })
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "sessions.action",
+                "session": "test_action_session",
+                "actions": [
+                    {"type": "wait", "seconds": 1},
+                    {"type": "click", "selector": "//a[contains(text(),'Gmail')] | //a[@aria-label='Gmail']"},
+                    {"type": "wait", "seconds": 1},
+                ],
+            },
+        )
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
@@ -1079,7 +1169,8 @@ class TestFlareSolverr(unittest.TestCase):
     def test_v1_endpoint_sessions_action_missing_actions(self):
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_action_missing"})
         res = self._request(
-            "POST", "/v1",
+            "POST",
+            "/v1",
             {"cmd": "sessions.action", "session": "test_action_missing"},
             status=500,
         )
@@ -1094,13 +1185,17 @@ class TestFlareSolverr(unittest.TestCase):
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_eval_session"})
         self._request("POST", "/v1", {"cmd": "request.get", "session": "test_eval_session", "url": self.google_url})
 
-        res = self._request("POST", "/v1", {
-            "cmd": "sessions.action",
-            "session": "test_eval_session",
-            "actions": [
-                {"type": "eval", "script": "return document.title"},
-            ],
-        })
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "sessions.action",
+                "session": "test_eval_session",
+                "actions": [
+                    {"type": "eval", "script": "return document.title"},
+                ],
+            },
+        )
         self.assertEqual(res.status_code, 200)
 
         body = V1ResponseBase(self._get_json(res))
@@ -1121,3 +1216,85 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIsNotNone(body.solution.screenshot)
         self.assertGreater(len(body.solution.screenshot), 100)
         self.assertIn(self.google_url, body.solution.url)
+
+    def test_v1_endpoint_session_dynamic_proxy_switch(self):
+        """Dynamic proxy switching and clearing on a reused session."""
+        if not _proxy_reachable(self.proxy_http_check_url):
+            self.skipTest(f"Proxy not reachable: {self.proxy_http_check_url}")
+        if not _proxy_reachable(self.proxy_http_check_url_2):
+            self.skipTest(f"Proxy 2 not reachable: {self.proxy_http_check_url_2}")
+
+        hostname = urllib.parse.urlparse(self.google_url).hostname or self.google_url
+
+        # Create a session without any proxy
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_dynamic_proxy"})
+
+        def assert_one_session():
+            list_res = self._request("POST", "/v1", {"cmd": "sessions.list"})
+            list_body = self._get_json(list_res)
+            self.assertEqual(len(list_body["sessions"]), 1)
+
+        assert_one_session()
+
+        # Step 1: request through proxy A
+        lines_a_1 = self._get_docker_log_line_count(self.proxy_http_container)
+        lines_a_2 = self._get_docker_log_line_count(self.proxy_http_2_container)
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "request.get",
+                "session": "test_dynamic_proxy",
+                "url": self.google_url,
+                "proxy": {"url": self.proxy_url},
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertIn(self.google_url, body.solution.url)
+        assert_one_session()
+        self._assert_request_routed_through_proxy(self.proxy_http_container, lines_a_1, hostname)
+        self._assert_request_not_routed_through_proxy(self.proxy_http_2_container, lines_a_2, hostname)
+
+        # Step 2: switch to proxy B (different endpoint)
+        lines_b_1 = self._get_docker_log_line_count(self.proxy_http_container)
+        lines_b_2 = self._get_docker_log_line_count(self.proxy_http_2_container)
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "request.get",
+                "session": "test_dynamic_proxy",
+                "url": self.google_url,
+                "proxy": {"url": self.proxy_url_2},
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertIn(self.google_url, body.solution.url)
+        assert_one_session()
+        self._assert_request_routed_through_proxy(self.proxy_http_2_container, lines_b_2, hostname)
+        self._assert_request_not_routed_through_proxy(self.proxy_http_container, lines_b_1, hostname)
+
+        # Step 3: clear proxy (explicit empty) and request directly
+        lines_c_1 = self._get_docker_log_line_count(self.proxy_http_container)
+        lines_c_2 = self._get_docker_log_line_count(self.proxy_http_2_container)
+        res = self._request(
+            "POST",
+            "/v1",
+            {
+                "cmd": "request.get",
+                "session": "test_dynamic_proxy",
+                "url": self.google_url,
+                "proxy": {"url": ""},
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertIn(self.google_url, body.solution.url)
+        assert_one_session()
+        self._assert_request_not_routed_through_proxy(self.proxy_http_container, lines_c_1, hostname)
+        self._assert_request_not_routed_through_proxy(self.proxy_http_2_container, lines_c_2, hostname)
