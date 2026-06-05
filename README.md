@@ -102,6 +102,8 @@ For the complete API reference - all commands, parameters, browser actions, Java
 | XVFB_WIDTH         | 1920                   | Width of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
 | XVFB_HEIGHT        | 1080                   | Height of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
 | XVFB_COLORDEPTH    | 24                     | Color depth (bits per pixel) of the Xvfb virtual display. Common values: 8, 16, 24, 32. Only used in headless mode on Linux.          |
+| CHROME_DISABLE_OPTIMIZATIONS | false        | If `true`, skips all built-in Chrome optimization flags (e.g. `--renderer-process-limit=1`, `--disable-breakpad`, `--in-process-gpu`, `--disable-background-networking`, etc.) to use stock Chrome behavior. |
+| CHROME_EXTRA_FLAGS | none                   | Comma-separated list of extra Chrome CLI flags to append. Example: `CHROME_EXTRA_FLAGS=--single-process,--disable-gpu` |
 
 Environment variables are set differently depending on the operating system. Some examples:
 
