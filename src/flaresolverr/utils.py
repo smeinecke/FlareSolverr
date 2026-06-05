@@ -180,6 +180,17 @@ def get_config_max_parallel_requests() -> int | None:
         return None
 
 
+def get_config_chrome_disable_optimizations() -> bool:
+    return os.environ.get("CHROME_DISABLE_OPTIMIZATIONS", "false").lower() == "true"
+
+
+def get_config_chrome_extra_flags() -> list[str]:
+    raw = os.environ.get("CHROME_EXTRA_FLAGS", "").strip()
+    if not raw:
+        return []
+    return [flag.strip() for flag in raw.split(",") if flag.strip()]
+
+
 def normalize_stealth_mode(value: str | bool | None) -> str:
     """Normalize boolean/legacy values to a stealth mode enum value."""
     if value is None:
@@ -406,15 +417,20 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
     options.add_argument("--disable-setuid-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--no-zygote")
-    options.add_argument("--renderer-process-limit=1")
-    options.add_argument("--disable-breakpad")
-    options.add_argument("--disable-background-networking")
-    options.add_argument("--enable-features=NetworkServiceInProcess")
-    options.add_argument("--disable-component-update")
-    options.add_argument("--metrics-recording-only")
-    options.add_argument("--no-pings")
-    options.add_argument("--in-process-gpu")
-    options.add_argument("--disable-features=MediaRouter,GlobalMediaControls,AutofillServerCommunication,OptimizationHints,Translate")
+
+    if not get_config_chrome_disable_optimizations():
+        options.add_argument("--renderer-process-limit=1")
+        options.add_argument("--disable-breakpad")
+        options.add_argument("--disable-background-networking")
+        options.add_argument("--enable-features=NetworkServiceInProcess")
+        options.add_argument("--disable-component-update")
+        options.add_argument("--metrics-recording-only")
+        options.add_argument("--no-pings")
+        options.add_argument("--in-process-gpu")
+        options.add_argument("--disable-features=MediaRouter,GlobalMediaControls,AutofillServerCommunication,OptimizationHints,Translate")
+
+    for extra_flag in get_config_chrome_extra_flags():
+        options.add_argument(extra_flag)
 
     minimal_fingerprint = get_config_minimal_fingerprint()
 
