@@ -276,6 +276,52 @@ curl -X POST http://flaresolverr-cluster:8191/v1 \
   -d '{"cmd": "request.get", "url": "https://example.com", "session": "my-session-id"}'
 ```
 
+#### URL Path Routing (Alternative to Headers)
+
+FlareSolverr also accepts commands via URL path: `POST /v1/<group>/<command>`. This allows HAProxy to route based on URL alone, without inspecting JSON bodies or relying on the `X-FlareSolverr-Create` header.
+
+```bash
+# sessions.create via URL path — HAProxy can route by path alone
+curl -X POST http://flaresolverr-cluster:8191/v1/sessions/create \
+  -H "Content-Type: application/json" \
+  -H "X-FlareSolverr-Session: my-session-id" \
+  -d '{"session": "my-session-id"}'
+
+# sessions.destroy via URL path
+curl -X POST http://flaresolverr-cluster:8191/v1/sessions/destroy \
+  -H "Content-Type: application/json" \
+  -H "X-FlareSolverr-Session: my-session-id" \
+  -d '{"session": "my-session-id"}'
+```
+
+With URL path routing, HAProxy can use ACLs to distinguish `sessions.create` from other commands and apply different balancing rules:
+
+```haproxy
+frontend flaresolverr_frontend
+    bind *:8191
+
+    # Route session creation round-robin (ignores sticky hash)
+    acl is_session_create path_beg /v1/sessions/create
+    use_backend flaresolverr_create if is_session_create
+
+    # Everything else uses session affinity
+    default_backend flaresolverr
+
+backend flaresolverr_create
+    balance roundrobin
+    option httpchk GET /health
+    server fs1 192.168.1.10:8191 check
+    server fs2 192.168.1.11:8191 check
+
+backend flaresolverr
+    balance hdr(X-FlareSolverr-Session)
+    hash-type consistent
+    option forwardfor
+    option httpchk GET /health
+    server fs1 192.168.1.10:8191 check maxconn 8 agent-check agent-port 8085
+    server fs2 192.168.1.11:8191 check maxconn 8 agent-check agent-port 8085
+```
+
 Without the `X-FlareSolverr-Session` header, HAProxy cannot maintain session affinity and all requests (including `sessions.create`) may land on the same backend, causing `Maximum session count reached` errors even when other backends have capacity.
 
 ## Important Notes

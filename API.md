@@ -44,6 +44,61 @@ $body = @{
 irm -UseBasicParsing 'http://localhost:8191/v1' -Headers @{"Content-Type"="application/json"} -Method Post -Body $body
 ```
 
+## URL Path Routing
+
+As an alternative to the `cmd` field in the JSON body, you can send the command via the URL path. This is useful for load balancers (e.g., HAProxy) that need to route requests based on URL alone without parsing the request body.
+
+Replace `POST /v1` with `POST /v1/<group>/<command>`. The URL path is mapped to `cmd = "<group>.<command>"`.
+
+**Example: Creating a session via URL path**
+
+```bash
+curl -L -X POST 'http://localhost:8191/v1/sessions/create' \
+  -H 'Content-Type: application/json' \
+  -d '{"session": "my-session-id"}'
+```
+
+**Example: Destroying a session via URL path**
+
+```bash
+curl -L -X POST 'http://localhost:8191/v1/sessions/destroy' \
+  -H 'Content-Type: application/json' \
+  -d '{"session": "my-session-id"}'
+```
+
+**Example: Sending a request via URL path**
+
+```bash
+curl -L -X POST 'http://localhost:8191/v1/request/get' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "url": "https://example.com",
+    "session": "my-session-id",
+    "maxTimeout": 60000
+  }'
+```
+
+> **Note:** If the JSON body also contains a `cmd` field, the URL path takes precedence.
+
+Supported paths map to the same commands documented below:
+
+| URL Path | Equivalent `cmd` |
+|----------|-----------------|
+| `POST /v1/sessions/create` | `sessions.create` |
+| `POST /v1/sessions/list` | `sessions.list` |
+| `POST /v1/sessions/destroy` | `sessions.destroy` |
+| `POST /v1/sessions/cleanup` | `sessions.cleanup` |
+| `POST /v1/sessions/get` | `sessions.get` |
+| `POST /v1/sessions/eval` | `sessions.eval` |
+| `POST /v1/sessions/network` | `sessions.network` |
+| `POST /v1/sessions/click` | `sessions.click` |
+| `POST /v1/sessions/action` | `sessions.action` |
+| `POST /v1/sessions/screenshot` | `sessions.screenshot` |
+| `POST /v1/sessions/clear` | `sessions.clear` |
+| `POST /v1/sessions/cdp` | `sessions.cdp` |
+| `POST /v1/request/get` | `request.get` |
+| `POST /v1/request/post` | `request.post` |
+
 ---
 
 ## Health Endpoint

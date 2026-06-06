@@ -255,3 +255,83 @@ def test_controller_v1_ignores_missing_session_header(monkeypatch) -> None:
     flaresolverr.controller_v1()
 
     assert captured["req"].session is None
+
+
+def test_controller_v1_path_injects_cmd_from_url(monkeypatch) -> None:
+    captured = {"req": None}
+
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={}, get_header=lambda _name: None))
+    monkeypatch.setattr(flaresolverr, "response", SimpleNamespace(status=200))
+    monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_username", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_password", None)
+
+    def fake_controller(req):
+        captured["req"] = req
+        return SimpleNamespace(__error_500__=False)
+
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "controller_v1_endpoint", fake_controller)
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda _res: {"ok": True})
+
+    flaresolverr.controller_v1_path("sessions", "create")
+
+    assert captured["req"].cmd == "sessions.create"
+
+
+def test_controller_v1_path_overrides_body_cmd(monkeypatch) -> None:
+    captured = {"req": None}
+
+    monkeypatch.setattr(
+        flaresolverr,
+        "request",
+        SimpleNamespace(json={"cmd": "request.get"}, get_header=lambda _name: None),
+    )
+    monkeypatch.setattr(flaresolverr, "response", SimpleNamespace(status=200))
+    monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_username", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_password", None)
+
+    def fake_controller(req):
+        captured["req"] = req
+        return SimpleNamespace(__error_500__=False)
+
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "controller_v1_endpoint", fake_controller)
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda _res: {"ok": True})
+
+    flaresolverr.controller_v1_path("sessions", "destroy")
+
+    assert captured["req"].cmd == "sessions.destroy"
+
+
+def test_controller_v1_path_sets_500_status_when_error_flagged(monkeypatch) -> None:
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={}, get_header=lambda _name: None))
+    fake_response = SimpleNamespace(status=200)
+    monkeypatch.setattr(flaresolverr, "response", fake_response)
+    monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_username", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_password", None)
+
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "controller_v1_endpoint", lambda _req: SimpleNamespace(__error_500__=True, message="err"))
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda res: {"message": res.message})
+
+    result = flaresolverr.controller_v1_path("request", "get")
+
+    assert fake_response.status == 500
+    assert result == {"message": "err"}
+
+
+def test_controller_v1_path_sets_429_status_when_limit_reached(monkeypatch) -> None:
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={}, get_header=lambda _name: None))
+    fake_response = SimpleNamespace(status=200)
+    monkeypatch.setattr(flaresolverr, "response", fake_response)
+    monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_username", None)
+    monkeypatch.setattr(flaresolverr, "env_proxy_password", None)
+
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "controller_v1_endpoint", lambda _req: SimpleNamespace(__error_429__=True, message="too busy"))
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda res: {"message": res.message})
+
+    result = flaresolverr.controller_v1_path("request", "post")
+
+    assert fake_response.status == 429
+    assert result == {"message": "too busy"}

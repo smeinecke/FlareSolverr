@@ -56,13 +56,8 @@ def health() -> dict[str, Any]:  # noqa
     return utils.object_to_dict(res)
 
 
-@app.post("/v1")  # pyright: ignore[reportCallIssue] # noqa
-def controller_v1() -> dict[str, Any]:  # noqa
-    """
-    Controller v1
-    """
-    request_json = cast(Any, request.json)
-    data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
+def _process_v1_request(data: dict[str, Any]) -> dict[str, Any]:
+    """Process a v1 API request: inject headers/env, dispatch, and return response."""
     if not data.get("session"):
         session_header = request.get_header("X-FlareSolverr-Session")
         if session_header:
@@ -80,6 +75,36 @@ def controller_v1() -> dict[str, Any]:  # noqa
     elif res.__error_500__:
         response.status = 500
     return utils.object_to_dict(res)
+
+
+@app.post("/v1")  # pyright: ignore[reportCallIssue] # noqa
+def controller_v1() -> dict[str, Any]:  # noqa
+    """
+    Controller v1 (cmd in JSON body).
+    """
+    request_json = cast(Any, request.json)
+    data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
+    return _process_v1_request(data)
+
+
+@app.post("/v1/<group>/<command>")  # pyright: ignore[reportCallIssue] # noqa
+def controller_v1_path(group: str, command: str) -> dict[str, Any]:  # noqa
+    """
+    Controller v1 (cmd derived from URL path).
+
+    Allows HAProxy and other load balancers to route requests based on URL path
+    without needing to parse the JSON body or use special headers.
+
+    Examples:
+        POST /v1/sessions/create   -> cmd = "sessions.create"
+        POST /v1/sessions/destroy  -> cmd = "sessions.destroy"
+        POST /v1/request/get       -> cmd = "request.get"
+        POST /v1/request/post      -> cmd = "request.post"
+    """
+    request_json = cast(Any, request.json)
+    data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
+    data["cmd"] = f"{group}.{command}"
+    return _process_v1_request(data)
 
 
 if __name__ == "__main__":
