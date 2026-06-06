@@ -119,7 +119,7 @@ class _SessionManager:
         Raises:
             FlareSolverrError: If the session doesn't exist.
         """
-        return self._client._delete(f"/v1/sessions/{session_id}")
+        return self._client._delete(f"/v1/sessions/{session_id}", session=session_id)
 
     def get(self, session_id: str) -> V1Response:
         """Get current info from a session: URL, title, cookies, page source, userAgent.

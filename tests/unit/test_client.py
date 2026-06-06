@@ -528,7 +528,7 @@ class TestFlareSolverrClientHTTP:
         url = mock_delete.call_args[0][0]
         headers = mock_delete.call_args[1]["headers"]
         assert "/v1/sessions/abc123" in url
-        assert "X-FlareSolverr-Session" not in headers
+        assert headers["X-FlareSolverr-Session"] == "abc123"
 
     def test_session_clear(self):
         client = FlareSolverrClient("http://localhost:8191")
