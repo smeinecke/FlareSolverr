@@ -294,33 +294,46 @@ curl -X POST http://flaresolverr-cluster:8191/v1/sessions/destroy \
   -d '{"session": "my-session-id"}'
 ```
 
-With URL path routing, HAProxy can use ACLs to distinguish `sessions.create` from other commands and apply different balancing rules:
+With URL path routing, HAProxy can use ACLs to distinguish command types and apply different balancing rules:
 
 ```haproxy
 frontend flaresolverr_frontend
     bind *:8191
 
-    # Route session creation round-robin (ignores sticky hash)
+    # Route session creation round-robin (bypass agent-check drain)
     acl is_session_create path_beg /v1/sessions/create
     use_backend flaresolverr_create if is_session_create
 
-    # Everything else uses session affinity
-    default_backend flaresolverr
+    # Route session destruction to main backend with session hash
+    # (DELETE /v1/sessions/<id> or POST /v1/sessions/destroy)
+    acl is_session_destroy path_beg /v1/sessions/
+    use_backend flaresolverr_backend if is_session_destroy
+
+    # Everything else (request.get, request.post, etc.) respects agent-check
+    default_backend flaresolverr_backend
 
 backend flaresolverr_create
     balance roundrobin
     option httpchk GET /health
-    server fs1 192.168.1.10:8191 check
-    server fs2 192.168.1.11:8191 check
+    # Servers WITHOUT agent-check so drain doesn't block creates
+    server fs1 192.168.1.10:8191 check maxconn 80
+    server fs2 192.168.1.11:8191 check maxconn 80
 
-backend flaresolverr
+backend flaresolverr_backend
     balance hdr(X-FlareSolverr-Session)
     hash-type consistent
     option forwardfor
     option httpchk GET /health
-    server fs1 192.168.1.10:8191 check maxconn 8 agent-check agent-port 8085
-    server fs2 192.168.1.11:8191 check maxconn 8 agent-check agent-port 8085
+    # Servers WITH agent-check for request.* and session management commands
+    server fs1 192.168.1.10:8191 check maxconn 8 weight 100 agent-check agent-port 8085
+    server fs2 192.168.1.11:8191 check maxconn 8 weight 100 agent-check agent-port 8085
 ```
+
+**How it works:**
+
+- **`sessions.create`** → `flaresolverr_create` backend with `balance roundrobin`. No `agent-check`, so backends always accept new sessions regardless of load. This prevents a saturated backend from rejecting `sessions.create` with HTTP 503.
+- **`sessions.destroy`** (via `DELETE /v1/sessions/<id>` or `POST /v1/sessions/destroy`) → `flaresolverr_backend` with session hash. No `agent-check` on the backend definition either, so destroy always works even when the backend is in `drain` state. The session ID from the URL or header routes to the correct backend.
+- **`request.get` / `request.post`** → `flaresolverr_backend` with session hash. Uses `agent-check` so HAProxy dynamically reduces traffic to overloaded backends (`50%` or `drain`).
 
 Without the `X-FlareSolverr-Session` header, HAProxy cannot maintain session affinity and all requests (including `sessions.create`) may land on the same backend, causing `Maximum session count reached` errors even when other backends have capacity.
 

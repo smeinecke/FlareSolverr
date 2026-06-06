@@ -48,20 +48,14 @@ irm -UseBasicParsing 'http://localhost:8191/v1' -Headers @{"Content-Type"="appli
 
 As an alternative to the `cmd` field in the JSON body, you can send the command via the URL path. This is useful for load balancers (e.g., HAProxy) that need to route requests based on URL alone without parsing the request body.
 
+### Generic Path Routing
+
 Replace `POST /v1` with `POST /v1/<group>/<command>`. The URL path is mapped to `cmd = "<group>.<command>"`.
 
 **Example: Creating a session via URL path**
 
 ```bash
 curl -L -X POST 'http://localhost:8191/v1/sessions/create' \
-  -H 'Content-Type: application/json' \
-  -d '{"session": "my-session-id"}'
-```
-
-**Example: Destroying a session via URL path**
-
-```bash
-curl -L -X POST 'http://localhost:8191/v1/sessions/destroy' \
   -H 'Content-Type: application/json' \
   -d '{"session": "my-session-id"}'
 ```
@@ -80,13 +74,41 @@ curl -L -X POST 'http://localhost:8191/v1/request/get' \
 
 > **Note:** If the JSON body also contains a `cmd` field, the URL path takes precedence.
 
-Supported paths map to the same commands documented below:
+### REST-Style Endpoints
+
+A subset of commands have dedicated REST-style endpoints with semantic HTTP methods:
+
+| Endpoint | Method | Command | Notes |
+|----------|--------|---------|-------|
+| `/v1/sessions/create` | `POST` | `sessions.create` | Same as generic path |
+| `/v1/sessions/<sessionId>` | `DELETE` | `sessions.destroy` | Session from URL path; body optional |
+| `/v1/request/get` | `POST` | `request.get` | Same as generic path |
+| `/v1/request/post` | `POST` | `request.post` | Same as generic path |
+
+**Example: Destroying a session via DELETE**
+
+```bash
+curl -L -X DELETE 'http://localhost:8191/v1/sessions/my-session-id'
+```
+
+The session ID is taken from the URL path, so no JSON body is required. You can also send a body if needed:
+
+```bash
+curl -L -X DELETE 'http://localhost:8191/v1/sessions/my-session-id' \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+### All Supported Paths
+
+All commands work via the generic `POST /v1/<group>/<command>` path:
 
 | URL Path | Equivalent `cmd` |
 |----------|-----------------|
 | `POST /v1/sessions/create` | `sessions.create` |
 | `POST /v1/sessions/list` | `sessions.list` |
 | `POST /v1/sessions/destroy` | `sessions.destroy` |
+| `DELETE /v1/sessions/<sessionId>` | `sessions.destroy` |
 | `POST /v1/sessions/cleanup` | `sessions.cleanup` |
 | `POST /v1/sessions/get` | `sessions.get` |
 | `POST /v1/sessions/eval` | `sessions.eval` |

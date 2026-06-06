@@ -75,7 +75,7 @@ class _SessionManager:
         Raises:
             FlareSolverrError: If the session cannot be created.
         """
-        payload: dict[str, Any] = {"cmd": "sessions.create"}
+        payload: dict[str, Any] = {}
         if proxy is not None:
             payload["proxy"] = proxy.to_dict()
         if stealth is not None:
@@ -93,7 +93,7 @@ class _SessionManager:
         if session_idle_timeout is not None:
             payload["sessionIdleTimeout"] = session_idle_timeout
 
-        return self._client._post_v1(payload, session=session_id or str(uuid.uuid4()), create=True)
+        return self._client._post_v1(payload, session=session_id or str(uuid.uuid4()), path="/v1/sessions/create")
 
     def list(self) -> V1Response:
         """List all active sessions.
@@ -101,8 +101,8 @@ class _SessionManager:
         Returns:
             V1Response containing the list of session IDs.
         """
-        payload: dict[str, Any] = {"cmd": "sessions.list"}
-        return self._client._post_v1(payload)
+        payload: dict[str, Any] = {}
+        return self._client._post_v1(payload, path="/v1/sessions/list")
 
     def destroy(self, session_id: str) -> V1Response:
         """Destroy a browser session.
@@ -119,8 +119,7 @@ class _SessionManager:
         Raises:
             FlareSolverrError: If the session doesn't exist.
         """
-        payload: dict[str, Any] = {"cmd": "sessions.destroy"}
-        return self._client._post_v1(payload, session=session_id)
+        return self._client._delete(f"/v1/sessions/{session_id}")
 
     def get(self, session_id: str) -> V1Response:
         """Get current info from a session: URL, title, cookies, page source, userAgent.
@@ -131,8 +130,8 @@ class _SessionManager:
         Returns:
             V1Response with session info in the `solution` field.
         """
-        payload: dict[str, Any] = {"cmd": "sessions.get"}
-        return self._client._post_v1(payload, session=session_id)
+        payload: dict[str, Any] = {}
+        return self._client._post_v1(payload, session=session_id, path="/v1/sessions/get")
 
     def eval(self, session_id: str, script: str) -> V1Response:
         """Execute JavaScript in a session and return the result.
@@ -144,8 +143,8 @@ class _SessionManager:
         Returns:
             V1Response with `solution.evalResult` containing the JS return value.
         """
-        payload: dict[str, Any] = {"cmd": "sessions.eval", "script": script}
-        return self._client._post_v1(payload, session=session_id)
+        payload: dict[str, Any] = {"script": script}
+        return self._client._post_v1(payload, session=session_id, path="/v1/sessions/eval")
 
     def network(self, session_id: str) -> V1Response:
         """Retrieve Chrome DevTools performance/network logs from a session.
@@ -158,8 +157,8 @@ class _SessionManager:
         Returns:
             V1Response with `solution.networkLogs` containing parsed CDP events.
         """
-        payload: dict[str, Any] = {"cmd": "sessions.network"}
-        return self._client._post_v1(payload, session=session_id)
+        payload: dict[str, Any] = {}
+        return self._client._post_v1(payload, session=session_id, path="/v1/sessions/network")
 
     def click(self, session_id: str, selector: str) -> V1Response:
         """Click an element in a session using an XPath selector.
@@ -171,8 +170,8 @@ class _SessionManager:
         Returns:
             V1Response confirming the click was performed.
         """
-        payload: dict[str, Any] = {"cmd": "sessions.click", "selector": selector}
-        return self._client._post_v1(payload, session=session_id)
+        payload: dict[str, Any] = {"selector": selector}
+        return self._client._post_v1(payload, session=session_id, path="/v1/sessions/click")
 
     def action(self, session_id: str, actions: list[dict]) -> V1Response:
         """Execute a list of browser actions in a session.
@@ -192,8 +191,8 @@ class _SessionManager:
         Returns:
             V1Response with the session state after actions complete.
         """
-        payload: dict[str, Any] = {"cmd": "sessions.action", "actions": actions}
-        return self._client._post_v1(payload, session=session_id)
+        payload: dict[str, Any] = {"actions": actions}
+        return self._client._post_v1(payload, session=session_id, path="/v1/sessions/action")
 
     def screenshot(self, session_id: str) -> V1Response:
         """Capture a screenshot of the current session page.
@@ -204,8 +203,8 @@ class _SessionManager:
         Returns:
             V1Response with `solution.screenshot` containing a Base64-encoded PNG.
         """
-        payload: dict[str, Any] = {"cmd": "sessions.screenshot"}
-        return self._client._post_v1(payload, session=session_id)
+        payload: dict[str, Any] = {}
+        return self._client._post_v1(payload, session=session_id, path="/v1/sessions/screenshot")
 
     def clear(self, session_id: str) -> V1Response:
         """Clear the browser context of a session without closing it.
@@ -219,8 +218,8 @@ class _SessionManager:
         Returns:
             V1Response with the session state after clearing.
         """
-        payload: dict[str, Any] = {"cmd": "sessions.clear"}
-        return self._client._post_v1(payload, session=session_id)
+        payload: dict[str, Any] = {}
+        return self._client._post_v1(payload, session=session_id, path="/v1/sessions/clear")
 
     def cdp(self, session_id: str, cdp: dict[str, Any]) -> V1Response:
         """Execute a Chrome DevTools Protocol (CDP) command on the session.
@@ -233,11 +232,8 @@ class _SessionManager:
         Returns:
             V1Response with `solution.evalResult` containing the CDP result.
         """
-        payload: dict[str, Any] = {
-            "cmd": "sessions.cdp",
-            "cdp": cdp,
-        }
-        return self._client._post_v1(payload, session=session_id)
+        payload: dict[str, Any] = {"cdp": cdp}
+        return self._client._post_v1(payload, session=session_id, path="/v1/sessions/cdp")
 
 
 class _RequestManager:
@@ -327,7 +323,7 @@ class _RequestManager:
             enabled_services=enabled_services,
             script_inject=script_inject,
         )
-        return self._client._post_v1(payload, session=session)
+        return self._client._post_v1(payload, session=session, path="/v1/request/get")
 
     def post(
         self,
@@ -418,7 +414,7 @@ class _RequestManager:
             enabled_services=enabled_services,
             script_inject=script_inject,
         )
-        return self._client._post_v1(payload, session=session)
+        return self._client._post_v1(payload, session=session, path="/v1/request/post")
 
     def _build_payload(
         self,
@@ -565,13 +561,13 @@ class FlareSolverrClient:
         response.raise_for_status()
         return IndexResponse.from_dict(response.json())
 
-    def _post_v1(self, payload: dict[str, Any], session: str | None = None, create: bool = False) -> V1Response:
-        """Internal method to POST to the v1 API endpoint.
+    def _post_v1(self, payload: dict[str, Any], session: str | None = None, path: str | None = None) -> V1Response:
+        """Internal method to POST to a v1 API endpoint.
 
         Args:
             payload: The JSON payload to send.
             session: Optional session ID to send via X-FlareSolverr-Session header.
-            create: If True, adds X-FlareSolverr-Create header for HAProxy routing.
+            path: Optional URL path (e.g., "/v1/sessions/create"). Defaults to "/v1".
 
         Returns:
             Parsed V1Response.
@@ -580,15 +576,48 @@ class FlareSolverrClient:
             FlareSolverrError: If the API returns an error status.
             requests.RequestException: If the HTTP request fails.
         """
-        url = f"{self.base_url}/v1"
+        url = f"{self.base_url}{path or '/v1'}"
         headers = {"Content-Type": "application/json"}
         if session is not None:
             headers["X-FlareSolverr-Session"] = session
-        if create:
-            headers["X-FlareSolverr-Create"] = "true"
 
         logger.debug(f"POST {url} with payload: {payload}")
         response = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
+
+        try:
+            data = response.json()
+        except Exception:
+            response.raise_for_status()
+            raise FlareSolverrError(f"Invalid JSON response: {response.text}")
+
+        v1_response = V1Response.from_dict(data)
+
+        if not v1_response.is_ok:
+            raise FlareSolverrError(v1_response.message or "Unknown API error", v1_response)
+
+        return v1_response
+
+    def _delete(self, path: str, session: str | None = None) -> V1Response:
+        """Internal method to DELETE a v1 API endpoint.
+
+        Args:
+            path: URL path (e.g., "/v1/sessions/my-id").
+            session: Optional session ID to send via X-FlareSolverr-Session header.
+
+        Returns:
+            Parsed V1Response.
+
+        Raises:
+            FlareSolverrError: If the API returns an error status.
+            requests.RequestException: If the HTTP request fails.
+        """
+        url = f"{self.base_url}{path}"
+        headers = {"Content-Type": "application/json"}
+        if session is not None:
+            headers["X-FlareSolverr-Session"] = session
+
+        logger.debug(f"DELETE {url}")
+        response = requests.delete(url, headers=headers, timeout=self.timeout)
 
         try:
             data = response.json()

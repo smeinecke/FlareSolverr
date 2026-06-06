@@ -87,19 +87,57 @@ def controller_v1() -> dict[str, Any]:  # noqa
     return _process_v1_request(data)
 
 
+@app.post("/v1/sessions/create")  # pyright: ignore[reportCallIssue] # noqa
+def controller_v1_sessions_create() -> dict[str, Any]:  # noqa
+    """Create a session via REST path."""
+    request_json = cast(Any, request.json)
+    data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
+    data["cmd"] = "sessions.create"
+    return _process_v1_request(data)
+
+
+@app.route("/v1/sessions/<session_id>", method="DELETE")  # pyright: ignore[reportCallIssue] # noqa
+def controller_v1_sessions_destroy(session_id: str) -> dict[str, Any]:  # noqa
+    """Destroy a session via REST path (session from URL)."""
+    request_json = cast(Any, request.json)
+    data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
+    data["cmd"] = "sessions.destroy"
+    data["session"] = session_id
+    return _process_v1_request(data)
+
+
+@app.post("/v1/request/get")  # pyright: ignore[reportCallIssue] # noqa
+def controller_v1_request_get() -> dict[str, Any]:  # noqa
+    """Send a GET request via REST path."""
+    request_json = cast(Any, request.json)
+    data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
+    data["cmd"] = "request.get"
+    return _process_v1_request(data)
+
+
+@app.post("/v1/request/post")  # pyright: ignore[reportCallIssue] # noqa
+def controller_v1_request_post() -> dict[str, Any]:  # noqa
+    """Send a POST request via REST path."""
+    request_json = cast(Any, request.json)
+    data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
+    data["cmd"] = "request.post"
+    return _process_v1_request(data)
+
+
 @app.post("/v1/<group>/<command>")  # pyright: ignore[reportCallIssue] # noqa
 def controller_v1_path(group: str, command: str) -> dict[str, Any]:  # noqa
     """
     Controller v1 (cmd derived from URL path).
 
+    Generic catch-all for all other commands not covered by explicit routes above.
     Allows HAProxy and other load balancers to route requests based on URL path
     without needing to parse the JSON body or use special headers.
 
     Examples:
-        POST /v1/sessions/create   -> cmd = "sessions.create"
-        POST /v1/sessions/destroy  -> cmd = "sessions.destroy"
-        POST /v1/request/get       -> cmd = "request.get"
-        POST /v1/request/post      -> cmd = "request.post"
+        POST /v1/sessions/list     -> cmd = "sessions.list"
+        POST /v1/sessions/get      -> cmd = "sessions.get"
+        POST /v1/sessions/eval     -> cmd = "sessions.eval"
+        POST /v1/sessions/action   -> cmd = "sessions.action"
     """
     request_json = cast(Any, request.json)
     data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
