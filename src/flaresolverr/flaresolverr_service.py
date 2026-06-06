@@ -906,6 +906,7 @@ def _set_custom_headers(req: V1RequestBase, driver: WebDriver) -> None:
                 name, value = header.split(":", 1)
                 headers_dict[name.strip()] = value.strip()
         if headers_dict:
+            driver.execute_cdp_cmd("Network.enable", {})
             driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": headers_dict})
             logging.debug(f"Custom headers set: {headers_dict}")
     except Exception as e:
