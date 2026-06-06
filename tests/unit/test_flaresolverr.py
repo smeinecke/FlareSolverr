@@ -28,10 +28,56 @@ def test_index_returns_serialized_endpoint_response(monkeypatch) -> None:
 
 def test_health_returns_serialized_endpoint_response(monkeypatch) -> None:
     endpoint_value = object()
-    monkeypatch.setattr(flaresolverr.flaresolverr_service, "health_endpoint", lambda: endpoint_value)
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "health_endpoint", lambda details=False: endpoint_value)
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(query=SimpleNamespace(get=lambda key, default="": default)))
     monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda value: {"wrapped": value is endpoint_value})
 
     assert flaresolverr.health() == {"wrapped": True}
+
+
+def test_health_passes_details_true_for_query_true(monkeypatch) -> None:
+    captured = {"details": None}
+
+    def fake_health_endpoint(details=False):
+        captured["details"] = details
+        return object()
+
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "health_endpoint", fake_health_endpoint)
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(query=SimpleNamespace(get=lambda key, default="": "true" if key == "details" else default)))
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda _value: {})
+
+    flaresolverr.health()
+    assert captured["details"] is True
+
+
+def test_health_passes_details_true_for_query_1(monkeypatch) -> None:
+    captured = {"details": None}
+
+    def fake_health_endpoint(details=False):
+        captured["details"] = details
+        return object()
+
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "health_endpoint", fake_health_endpoint)
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(query=SimpleNamespace(get=lambda key, default="": "1" if key == "details" else default)))
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda _value: {})
+
+    flaresolverr.health()
+    assert captured["details"] is True
+
+
+def test_health_passes_details_false_for_empty_query(monkeypatch) -> None:
+    captured = {"details": None}
+
+    def fake_health_endpoint(details=False):
+        captured["details"] = details
+        return object()
+
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "health_endpoint", fake_health_endpoint)
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(query=SimpleNamespace(get=lambda key, default="": default)))
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda _value: {})
+
+    flaresolverr.health()
+    assert captured["details"] is False
 
 
 def test_controller_v1_uses_env_proxy_url_only(monkeypatch) -> None:

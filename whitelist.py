@@ -51,3 +51,36 @@ Options.binary_location
 
 # Proxy extension attributes stored on WebDriver instances
 WebDriver._proxy_ext_id
+
+# Agent-check TCP server (handle is called by socketserver framework, daemon_threads by ThreadingMixIn)
+from flaresolverr.agent_check import AgentCheckHandler, ThreadedTCPServer  # noqa
+
+AgentCheckHandler.handle
+ThreadedTCPServer.daemon_threads
+
+# HealthResponse model fields populated dynamically from dict unpacking
+from flaresolverr.dtos import HealthResponse  # noqa
+
+HealthResponse.sessionsCount
+HealthResponse.activeParallelRequests
+HealthResponse.maxParallelRequests
+HealthResponse.maxSessionCount
+HealthResponse.sessionMaxRuntime
+HealthResponse.sessionIdleTimeout
+HealthResponse.version
+HealthResponse.config
+HealthResponse.activeRequests
+HealthResponse.sessions
+
+from flaresolverr.client.models import HealthResponse as ClientHealthResponse  # noqa
+
+ClientHealthResponse.sessionsCount
+ClientHealthResponse.activeParallelRequests
+ClientHealthResponse.maxParallelRequests
+ClientHealthResponse.maxSessionCount
+ClientHealthResponse.sessionMaxRuntime
+ClientHealthResponse.sessionIdleTimeout
+ClientHealthResponse.version
+ClientHealthResponse.config
+ClientHealthResponse.activeRequests
+ClientHealthResponse.sessions

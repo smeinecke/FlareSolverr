@@ -71,6 +71,10 @@ irm -UseBasicParsing 'http://localhost:8191/v1' -Headers @{"Content-Type"="appli
 
 For the complete API reference - all commands, parameters, browser actions, JavaScript injection, and response format - see [API.md](./API.md).
 
+## Monitoring
+
+The `GET /health` endpoint returns the service status along with runtime metrics (session counts, active parallel requests, configured limits, and current config). Add `?details=true` to also see in-flight requests and open session metadata. This is useful for load-balancer health checks and operational monitoring.
+
 ## Environment variables
 
 | Name               | Default                | Notes                                                                                                                                    |
@@ -98,6 +102,8 @@ For the complete API reference - all commands, parameters, browser actions, Java
 | SESSION_IDLE_TIMEOUT | 900                 | Maximum idle time of a session in seconds (default: 15 minutes). Sessions idle longer than this are automatically destroyed. Overrides per-session `sessionIdleTimeout`. Always active. |
 | SESSION_MAX_COUNT    | none                  | Maximum number of concurrent sessions. When exceeded, oldest idle sessions are destroyed first. |
 | MAX_PARALLEL_REQUESTS | none                  | Maximum number of parallel requests processed at the same time. When exceeded, new requests receive HTTP 429 so clients can retry later. |
+| AGENT_CHECK_PORT   | none                   | Port for the HAProxy agent-check TCP listener. When set, FlareSolverr starts a raw TCP socket that HAProxy can poll for load-state (`ready`/`50%`/`drain`). |
+| AGENT_CHECK_HOST   | 127.0.0.1              | Bind address for the HAProxy agent-check TCP listener. Use `127.0.0.1` if HAProxy is co-located (host network). Use `0.0.0.0` if HAProxy reaches the container from the outside. |
 | XVFB_WIDTH         | 1920                   | Width of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
 | XVFB_HEIGHT        | 1080                   | Height of the Xvfb virtual display in pixels. Only used in headless mode on Linux.                                                       |
 | XVFB_COLORDEPTH    | 24                     | Color depth (bits per pixel) of the Xvfb virtual display. Common values: 8, 16, 24, 32. Only used in headless mode on Linux.          |

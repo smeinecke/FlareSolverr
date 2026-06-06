@@ -138,10 +138,10 @@ class TestFlareSolverr(unittest.TestCase):
         except Exception:
             pass
 
-    def _request(self, method: str, path: str, json=None, status=None, timeout=180):
+    def _request(self, method: str, path: str, json=None, status=None, timeout=180, params=None):
         url = f"{self.base_url}{path}"
         if method == "GET":
-            res = requests.get(url, timeout=timeout)
+            res = requests.get(url, params=params, timeout=timeout)
         elif method == "POST":
             res = requests.post(url, json=json, timeout=timeout)
         else:
@@ -179,6 +179,25 @@ class TestFlareSolverr(unittest.TestCase):
 
         body = HealthResponse(self._get_json(res))
         self.assertEqual(STATUS_OK, body.status)
+        self.assertIsInstance(body.sessionsCount, int)
+        self.assertIsInstance(body.activeParallelRequests, int)
+        self.assertIsInstance(body.config, dict)
+        self.assertIn("logLevel", body.config)
+        self.assertIn("headless", body.config)
+        self.assertIsNone(body.activeRequests)
+        self.assertIsNone(body.sessions)
+
+    def test_health_endpoint_with_details(self):
+        res = self._request("GET", "/health", params={"details": "true"})
+        self.assertEqual(res.status_code, 200)
+
+        body = HealthResponse(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self.assertIsInstance(body.sessionsCount, int)
+        self.assertIsInstance(body.activeParallelRequests, int)
+        self.assertIsInstance(body.activeRequests, list)
+        self.assertIsInstance(body.sessions, list)
+        self.assertIsInstance(body.config, dict)
 
     def test_v1_endpoint_wrong_cmd(self):
         res = self._request("POST", "/v1", {"cmd": "request.bad", "url": self.google_url}, status=500)

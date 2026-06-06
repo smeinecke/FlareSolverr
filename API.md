@@ -46,6 +46,97 @@ irm -UseBasicParsing 'http://localhost:8191/v1' -Headers @{"Content-Type"="appli
 
 ---
 
+## Health Endpoint
+
+`GET /health`
+
+Returns the current health status and operational metrics of the FlareSolverr instance.
+
+### Standard Response
+
+```json
+{
+  "status": "ok",
+  "sessionsCount": 2,
+  "activeParallelRequests": 1,
+  "maxParallelRequests": 5,
+  "maxSessionCount": 10,
+  "sessionMaxRuntime": 3600,
+  "sessionIdleTimeout": 900,
+  "version": "3.6.4",
+  "config": {
+    "logLevel": "info",
+    "logHtml": false,
+    "headless": true,
+    "disableMedia": false,
+    "jsInjectionEnabled": false,
+    "disableQuic": true,
+    "minimalFingerprint": true,
+    "stealthMode": "off",
+    "acceptLanguage": "en-US,en",
+    "port": 8191,
+    "host": "0.0.0.0",
+    "prometheusEnabled": false,
+    "prometheusPort": 8192,
+    "sessionMaxRuntimeSeconds": null,
+    "sessionIdleTimeoutSeconds": 900,
+    "sessionMaxCount": null,
+    "maxParallelRequests": null,
+    "chromeDisableOptimizations": false,
+    "chromeExtraFlags": []
+  }
+}
+```
+
+### Detailed Response
+
+Add `?details=true` or `?details=1` to include active requests and open session metadata:
+
+```bash
+curl 'http://localhost:8191/health?details=true'
+```
+
+```json
+{
+  "status": "ok",
+  "sessionsCount": 2,
+  "activeParallelRequests": 1,
+  "maxParallelRequests": 5,
+  "maxSessionCount": 10,
+  "sessionMaxRuntime": null,
+  "sessionIdleTimeout": 900,
+  "version": "3.6.4",
+  "config": { ... },
+  "activeRequests": [
+    {
+      "cmd": "request.get",
+      "url": "https://example.com",
+      "sessionId": "my-session",
+      "runtimeMs": 2345
+    }
+  ],
+  "sessions": [
+    {
+      "sessionId": "my-session",
+      "lifetimeSeconds": 120,
+      "idleTimeSeconds": 5,
+      "requestCount": 3,
+      "locked": true,
+      "stealthMode": "standard",
+      "enabledServices": ["cloudflare", "ddos_guard"],
+      "hasProxy": true,
+      "userAgent": "Mozilla/5.0 ...",
+      "maxRuntimeSeconds": null,
+      "idleTimeoutSeconds": 900
+    }
+  ]
+}
+```
+
+> **Note:** Credentials (proxy URLs, usernames, passwords) are never included in the health response.
+
+---
+
 ## Commands
 
 ### + `sessions.create`

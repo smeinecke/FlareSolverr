@@ -129,6 +129,16 @@ class IndexResponse(object):
 
 class HealthResponse(object):
     status: str | None = None
+    sessionsCount: int | None = None  # noqa
+    activeParallelRequests: int | None = None  # noqa
+    maxParallelRequests: int | None = None  # noqa
+    maxSessionCount: int | None = None  # noqa
+    sessionMaxRuntime: int | None = None  # noqa
+    sessionIdleTimeout: int | None = None  # noqa
+    version: str | None = None  # noqa
+    config: dict[str, Any] | None = None
+    activeRequests: list[dict[str, Any]] | None = None  # only when details=true
+    sessions: list[dict[str, Any]] | None = None  # only when details=true
 
     def __init__(self, _dict: dict[str, Any]):
         self.__dict__.update(_dict)

@@ -15,6 +15,34 @@ def test_health_response_maps_status() -> None:
     assert response.status == STATUS_OK
 
 
+def test_health_response_maps_extended_fields() -> None:
+    response = HealthResponse({
+        "status": STATUS_OK,
+        "sessionsCount": 3,
+        "activeParallelRequests": 1,
+        "maxParallelRequests": 5,
+        "maxSessionCount": 10,
+        "sessionMaxRuntime": 3600,
+        "sessionIdleTimeout": 900,
+        "version": "1.2.3",
+        "config": {"logLevel": "info", "headless": True},
+        "activeRequests": [{"cmd": "request.get", "url": "https://example.com"}],
+        "sessions": [{"sessionId": "abc", "requestCount": 2}],
+    })
+
+    assert response.status == STATUS_OK
+    assert response.sessionsCount == 3
+    assert response.activeParallelRequests == 1
+    assert response.maxParallelRequests == 5
+    assert response.maxSessionCount == 10
+    assert response.sessionMaxRuntime == 3600
+    assert response.sessionIdleTimeout == 900
+    assert response.version == "1.2.3"
+    assert response.config == {"logLevel": "info", "headless": True}
+    assert response.activeRequests == [{"cmd": "request.get", "url": "https://example.com"}]
+    assert response.sessions == [{"sessionId": "abc", "requestCount": 2}]
+
+
 def test_v1_response_wraps_solution_dict() -> None:
     response = V1ResponseBase(
         {

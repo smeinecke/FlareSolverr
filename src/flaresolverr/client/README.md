@@ -42,7 +42,7 @@ client = FlareSolverrClient(base_url="http://localhost:8191", timeout=120.0)
 
 #### Methods
 
-- `health()` - Check API health status
+- `health()` - Check API health status. Returns runtime metrics (session counts, active parallel requests, configured limits, current config). Pass `details=True` to also include in-flight requests and open session metadata.
 - `index()` - Get service information (version, user agent)
 
 #### Sub-managers

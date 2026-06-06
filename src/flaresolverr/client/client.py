@@ -533,8 +533,11 @@ class FlareSolverrClient:
         self.sessions = _SessionManager(self)
         self.request = _RequestManager(self)
 
-    def health(self) -> HealthResponse:  # noqa
+    def health(self, details: bool = False) -> HealthResponse:  # noqa
         """Check the health status of the FlareSolverr service.
+
+        Args:
+            details: If True, include active requests and open session metadata.
 
         Returns:
             HealthResponse with status "ok" if the service is healthy.
@@ -543,7 +546,8 @@ class FlareSolverrClient:
             requests.RequestException: If the health check fails.
         """
         url = f"{self.base_url}/health"
-        response = requests.get(url, timeout=self.timeout)
+        params = {"details": "true"} if details else None
+        response = requests.get(url, params=params, timeout=self.timeout)
         response.raise_for_status()
         return HealthResponse.from_dict(response.json())
 

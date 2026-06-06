@@ -84,6 +84,77 @@ backend flaresolverr_backend
 - `hash-type consistent` minimizes redistribution when backends are added or removed.
 - `option httpchk GET /health` ensures failed instances are removed from the pool automatically.
 
+## Agent-Check Load Balancing
+
+FlareSolverr can expose a raw TCP endpoint that HAProxy polls via `agent-check`. This gives HAProxy real-time load-state feedback per backend so it can dynamically reduce traffic to busy instances (`drain`) or gradually back off (`50%`) before they become fully saturated.
+
+### Responses
+
+| Response | Meaning |
+|----------|---------|
+| `ready`  | Healthy, accepting new requests |
+| `50%`    | Elevated load; HAProxy should reduce weight to 50% |
+| `drain`  | Fully saturated; finish existing sessions, send no new ones |
+
+Logic (uses the same `MAX_PARALLEL_REQUESTS` as the HTTP layer):
+
+- If `MAX_PARALLEL_REQUESTS` is **not set** → always `ready`
+- If `active_requests >= max_parallel` → `drain`
+- If `active_requests >= max_parallel * 0.75` → `50%`
+- Otherwise → `ready`
+
+### Enabling
+
+Set `AGENT_CHECK_PORT` (and optionally `AGENT_CHECK_HOST`) on each FlareSolverr instance:
+
+```yaml
+# docker-compose.yml
+services:
+  flaresolverr-1:
+    image: ghcr.io/smeinecke/flaresolverr:latest
+    environment:
+      - AGENT_CHECK_PORT=8080
+      - AGENT_CHECK_HOST=0.0.0.0
+```
+
+> **Note:** The agent-check listener usually binds to `127.0.0.1` by default. If HAProxy reaches the container from another host/container, set `AGENT_CHECK_HOST=0.0.0.0`.
+
+### HAProxy Configuration with Agent-Check
+
+```haproxy
+global
+    maxconn 4096
+
+defaults
+    mode http
+    timeout connect 5s
+    timeout client 30s
+    timeout server 60s
+    option httpchk GET /health
+
+frontend flaresolverr_frontend
+    bind *:8191
+    default_backend flaresolverr_backend
+
+backend flaresolverr_backend
+    balance hdr(X-FlareSolverr-Session)
+    hash-type consistent
+
+    # Health checks
+    option httpchk GET /health
+    http-check expect status 200
+
+    # Agent-check: HAProxy polls TCP port 8080 on each backend for load state
+    server fs1 10.0.0.11:8191 check maxconn 8 agent-check agent-port 8080
+    server fs2 10.0.0.12:8191 check maxconn 8 agent-check agent-port 8080
+    server fs3 10.0.0.13:8191 check maxconn 8 agent-check agent-port 8080
+```
+
+Key directives:
+- `agent-check` — enables TCP agent polling for this server
+- `agent-port 8080` — the TCP port where HAProxy connects for agent-check
+- `maxconn 8` — optional limit on concurrent connections per backend
+
 ### Fallback for Missing Header
 
 If a request does not contain the `X-FlareSolverr-Session` header, HAProxy falls back to distributing it across backends. Stateless requests (no session) will work on any instance. If you prefer a different fallback behavior, you can combine the header hash with a secondary algorithm:

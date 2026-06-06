@@ -144,3 +144,42 @@ def test_apply_proxy_to_session_raises_on_extension_failure(monkeypatch) -> None
 
     with pytest.raises(RuntimeError, match="bg error"):
         utils.apply_proxy_to_session(driver, {"url": "http://proxy:8080"})
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ("", None),
+        ("0", None),
+        ("-1", None),
+        ("abc", None),
+        ("8080", 8080),
+        ("12345", 12345),
+    ],
+)
+def test_get_config_agent_check_port(monkeypatch, env, expected):
+    monkeypatch.setenv("AGENT_CHECK_PORT", env)
+    assert utils.get_config_agent_check_port() == expected
+
+
+def test_get_config_agent_check_port_unset(monkeypatch):
+    monkeypatch.delenv("AGENT_CHECK_PORT", raising=False)
+    assert utils.get_config_agent_check_port() is None
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ("", "127.0.0.1"),
+        ("0.0.0.0", "0.0.0.0"),
+        ("10.0.0.1", "10.0.0.1"),
+    ],
+)
+def test_get_config_agent_check_host(monkeypatch, env, expected):
+    monkeypatch.setenv("AGENT_CHECK_HOST", env)
+    assert utils.get_config_agent_check_host() == expected
+
+
+def test_get_config_agent_check_host_unset(monkeypatch):
+    monkeypatch.delenv("AGENT_CHECK_HOST", raising=False)
+    assert utils.get_config_agent_check_host() == "127.0.0.1"

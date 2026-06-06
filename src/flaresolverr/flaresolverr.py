@@ -13,6 +13,7 @@ from flaresolverr.bottle_plugins.error_plugin import error_plugin
 from flaresolverr.bottle_plugins.logger_plugin import logger_plugin
 from flaresolverr.bottle_plugins import prometheus_plugin
 from flaresolverr.dtos import V1RequestBase
+from flaresolverr import agent_check
 from flaresolverr import flaresolverr_service
 from flaresolverr import utils
 
@@ -49,7 +50,9 @@ def health() -> dict[str, Any]:  # noqa
     Healthcheck endpoint.
     This endpoint is special because it doesn't print traces
     """
-    res = flaresolverr_service.health_endpoint()
+    details_raw = request.query.get("details", "").lower()  # pyright: ignore[reportAttributeAccessIssue]
+    details = details_raw in ("true", "1")
+    res = flaresolverr_service.health_endpoint(details=details)
     return utils.object_to_dict(res)
 
 
@@ -133,6 +136,12 @@ if __name__ == "__main__":
 
     # start session cleanup thread
     flaresolverr_service.SESSIONS_STORAGE.start_cleanup(interval_seconds=30)
+
+    # start HAProxy agent-check TCP server (optional)
+    agent_check_port = utils.get_config_agent_check_port()
+    if agent_check_port:
+        agent_check_host = utils.get_config_agent_check_host()
+        agent_check.start_agent_check_server(agent_check_host, agent_check_port)
 
     # start bootle plugins
     # plugin order is important

@@ -188,6 +188,21 @@ def get_config_chrome_extra_flags() -> list[str]:
     return [flag.strip() for flag in raw.split(",") if flag.strip()]
 
 
+def get_config_agent_check_port() -> int | None:
+    raw = os.environ.get("AGENT_CHECK_PORT", "").strip()
+    if raw == "":
+        return None
+    try:
+        val = int(raw)
+        return val if val > 0 else None
+    except ValueError:
+        return None
+
+
+def get_config_agent_check_host() -> str:
+    return os.environ.get("AGENT_CHECK_HOST", "127.0.0.1").strip() or "127.0.0.1"
+
+
 def normalize_stealth_mode(value: str | bool | None) -> str:
     """Normalize boolean/legacy values to a stealth mode enum value."""
     if value is None:

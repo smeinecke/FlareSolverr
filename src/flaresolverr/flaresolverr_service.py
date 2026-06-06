@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import platform
 import random
 import re
@@ -105,6 +106,9 @@ _NET_ERROR_CODE_RE = re.compile(r"\bERR_[A-Z0-9_]+\b")
 _MAX_PARALLEL_REQUESTS = utils.get_config_max_parallel_requests()
 _PARALLEL_REQUESTS_SEMAPHORE = threading.Semaphore(_MAX_PARALLEL_REQUESTS) if _MAX_PARALLEL_REQUESTS else None
 
+_active_requests: list[dict[str, Any]] = []
+_active_requests_lock = threading.Lock()
+
 
 def test_browser_installation() -> None:
     logging.info("Testing web browser installation...")
@@ -138,9 +142,76 @@ def index_endpoint() -> IndexResponse:
     return res
 
 
-def health_endpoint() -> HealthResponse:
+def _get_public_config() -> dict[str, Any]:
+    """Return a dictionary of non-credential configuration settings."""
+    session_max_runtime = utils.get_config_session_max_runtime()
+    session_idle_timeout = utils.get_config_session_idle_timeout()
+    return {
+        "logLevel": os.environ.get("LOG_LEVEL", "info"),
+        "logHtml": utils.get_config_log_html(),
+        "headless": utils.get_config_headless(),
+        "disableMedia": utils.get_config_disable_media(),
+        "jsInjectionEnabled": utils.get_config_js_injection_enabled(),
+        "disableQuic": utils.get_config_disable_quic(),
+        "minimalFingerprint": utils.get_config_minimal_fingerprint(),
+        "stealthMode": utils.get_config_stealth_mode(),
+        "acceptLanguage": utils.get_config_accept_language(),
+        "port": int(os.environ.get("PORT", 8191)),
+        "host": os.environ.get("HOST", "0.0.0.0"),  # nosec: B104
+        "prometheusEnabled": os.environ.get("PROMETHEUS_ENABLED", "false").lower() == "true",
+        "prometheusPort": int(os.environ.get("PROMETHEUS_PORT", 8192)),
+        "sessionMaxRuntimeSeconds": int(session_max_runtime.total_seconds()) if session_max_runtime is not None else None,
+        "sessionIdleTimeoutSeconds": int(session_idle_timeout.total_seconds()),
+        "sessionMaxCount": utils.get_config_session_max_count(),
+        "maxParallelRequests": _MAX_PARALLEL_REQUESTS,
+        "chromeDisableOptimizations": utils.get_config_chrome_disable_optimizations(),
+        "chromeExtraFlags": utils.get_config_chrome_extra_flags(),
+    }
+
+
+def health_endpoint(details: bool = False) -> HealthResponse:
     res = HealthResponse({})
     res.status = STATUS_OK
+    res.sessionsCount = len(SESSIONS_STORAGE.sessions)
+    with _active_requests_lock:
+        res.activeParallelRequests = len(_active_requests)
+    res.maxParallelRequests = _MAX_PARALLEL_REQUESTS
+    res.maxSessionCount = utils.get_config_session_max_count()
+    session_max_runtime = utils.get_config_session_max_runtime()
+    res.sessionMaxRuntime = int(session_max_runtime.total_seconds()) if session_max_runtime is not None else None
+    res.sessionIdleTimeout = int(utils.get_config_session_idle_timeout().total_seconds())
+    res.version = utils.get_flaresolverr_version()
+    res.config = _get_public_config()
+
+    if details:
+        now_ms = int(time.time() * 1000)
+        with _active_requests_lock:
+            res.activeRequests = [
+                {
+                    "cmd": r.get("cmd"),
+                    "url": r.get("url"),
+                    "sessionId": r.get("session_id"),
+                    "runtimeMs": now_ms - r.get("start_ts", now_ms),
+                }
+                for r in _active_requests
+            ]
+        with SESSIONS_STORAGE._lock:
+            res.sessions = [
+                {
+                    "sessionId": s.session_id,
+                    "lifetimeSeconds": int(s.lifetime().total_seconds()),
+                    "idleTimeSeconds": int(s.idle_time().total_seconds()),
+                    "requestCount": s.request_count,
+                    "locked": s.lock.locked(),
+                    "stealthMode": s.stealth_mode,
+                    "enabledServices": s.enabled_services,
+                    "hasProxy": s.proxy is not None,
+                    "userAgent": s.user_agent_override,
+                    "maxRuntimeSeconds": int(s.max_runtime.total_seconds()) if s.max_runtime is not None else None,
+                    "idleTimeoutSeconds": int(s.idle_timeout.total_seconds()),
+                }
+                for s in SESSIONS_STORAGE.sessions.values()
+            ]
     return res
 
 
@@ -160,6 +231,15 @@ def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
         return res
 
     try:
+        with _active_requests_lock:
+            _active_requests.append(
+                {
+                    "cmd": req.cmd,
+                    "url": req.url,
+                    "session_id": req.session,
+                    "start_ts": start_ts,
+                }
+            )
         res: V1ResponseBase
         try:
             res = _controller_v1_handler(req)
@@ -191,6 +271,18 @@ def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
         logging.info(f"Response in {(res.endTimestamp - res.startTimestamp) / 1000} s")
         return res
     finally:
+        with _active_requests_lock:
+            try:
+                _active_requests.remove(
+                    {
+                        "cmd": req.cmd,
+                        "url": req.url,
+                        "session_id": req.session,
+                        "start_ts": start_ts,
+                    }
+                )
+            except ValueError:
+                pass
         if _PARALLEL_REQUESTS_SEMAPHORE is not None:
             _PARALLEL_REQUESTS_SEMAPHORE.release()
 

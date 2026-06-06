@@ -175,11 +175,33 @@ class HealthResponse:
     """Response from the health endpoint."""
 
     status: str
+    sessionsCount: int | None = None  # noqa
+    activeParallelRequests: int | None = None  # noqa
+    maxParallelRequests: int | None = None  # noqa
+    maxSessionCount: int | None = None  # noqa
+    sessionMaxRuntime: int | None = None  # noqa
+    sessionIdleTimeout: int | None = None  # noqa
+    version: str | None = None  # noqa
+    config: dict[str, Any] | None = None
+    activeRequests: list[dict[str, Any]] | None = None
+    sessions: list[dict[str, Any]] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> HealthResponse:
         """Create a HealthResponse from a dictionary."""
-        return cls(status=data.get("status", ""))
+        return cls(
+            status=data.get("status", ""),
+            sessionsCount=data.get("sessionsCount"),
+            activeParallelRequests=data.get("activeParallelRequests"),
+            maxParallelRequests=data.get("maxParallelRequests"),
+            maxSessionCount=data.get("maxSessionCount"),
+            sessionMaxRuntime=data.get("sessionMaxRuntime"),
+            sessionIdleTimeout=data.get("sessionIdleTimeout"),
+            version=data.get("version"),
+            config=data.get("config"),
+            activeRequests=data.get("activeRequests"),
+            sessions=data.get("sessions"),
+        )
 
 
 @dataclass

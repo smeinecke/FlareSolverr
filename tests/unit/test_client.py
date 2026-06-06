@@ -410,7 +410,17 @@ class TestFlareSolverrClientHTTP:
         mock_resp.raise_for_status = MagicMock()
         with patch("flaresolverr.client.client.requests.get", return_value=mock_resp) as mock_get:
             health = client.health()
-        mock_get.assert_called_once_with("http://localhost:8191/health", timeout=120.0)
+        mock_get.assert_called_once_with("http://localhost:8191/health", params=None, timeout=120.0)
+        assert health.status == "ok"
+
+    def test_health_endpoint_with_details(self):
+        client = FlareSolverrClient("http://localhost:8191")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"status": "ok", "activeRequests": [], "sessions": []}
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.get", return_value=mock_resp) as mock_get:
+            health = client.health(details=True)
+        mock_get.assert_called_once_with("http://localhost:8191/health", params={"details": "true"}, timeout=120.0)
         assert health.status == "ok"
 
     def test_index_endpoint(self):
