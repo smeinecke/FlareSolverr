@@ -84,8 +84,8 @@ class TestSetCustomHeaders:
 
         service._set_custom_headers(req, mock_driver)
 
-        assert len(mock_driver._cdp_calls) == 1
-        cmd, params = mock_driver._cdp_calls[0]
+        assert len(mock_driver._cdp_calls) == 2
+        cmd, params = mock_driver._cdp_calls[1]
         assert cmd == "Network.setExtraHTTPHeaders"
         assert params["headers"]["Referer"] == "https://referrer.com"
         assert params["headers"]["X-Custom"] == "test-value"
@@ -105,8 +105,8 @@ class TestSetCustomHeaders:
 
         service._set_custom_headers(req, mock_driver)
 
-        assert len(mock_driver._cdp_calls) == 1
-        cmd, params = mock_driver._cdp_calls[0]
+        assert len(mock_driver._cdp_calls) == 2
+        cmd, params = mock_driver._cdp_calls[1]
         assert cmd == "Network.setExtraHTTPHeaders"
         assert params["headers"]["Referer"] == "https://referrer.com"
         assert params["headers"]["Authorization"] == "Bearer token123"
@@ -126,7 +126,7 @@ class TestSetCustomHeaders:
 
         service._set_custom_headers(req, mock_driver)
 
-        cmd, params = mock_driver._cdp_calls[0]
+        cmd, params = mock_driver._cdp_calls[1]
         assert params["headers"]["X-From-Dict"] == "dict-value"
         assert params["headers"]["X-From-String"] == "string-value"
 
@@ -146,7 +146,7 @@ class TestSetCustomHeaders:
         service._set_custom_headers(req, mock_driver)
 
         # Should still work with valid header
-        cmd, params = mock_driver._cdp_calls[0]
+        cmd, params = mock_driver._cdp_calls[1]
         assert "Valid" in params["headers"]
 
     def test_headers_with_whitespace(self):
@@ -163,7 +163,7 @@ class TestSetCustomHeaders:
 
         service._set_custom_headers(req, mock_driver)
 
-        cmd, params = mock_driver._cdp_calls[0]
+        cmd, params = mock_driver._cdp_calls[1]
         assert params["headers"]["Referer"] == "https://example.com"
 
     def test_multiple_colons_in_string(self):
@@ -180,7 +180,7 @@ class TestSetCustomHeaders:
 
         service._set_custom_headers(req, mock_driver)
 
-        cmd, params = mock_driver._cdp_calls[0]
+        cmd, params = mock_driver._cdp_calls[1]
         assert params["headers"]["Authorization"] == "Bearer: token: with: colons"
 
     def test_cdp_failure_handled_gracefully(self, caplog):
@@ -257,7 +257,7 @@ class TestHeadersIntegration:
 
         service._set_custom_headers(req, mock_driver)
 
-        cmd, params = mock_driver._cdp_calls[0]
+        cmd, params = mock_driver._cdp_calls[1]
         assert params["headers"]["X-API-Key"] == "secret123"
 
     def test_headers_preserved_in_session(self):
@@ -287,7 +287,7 @@ class TestHeadersIntegration:
         service._set_custom_headers(req2, mock_driver)
 
         # Should have new header
-        cmd, params = mock_driver._cdp_calls[0]
+        cmd, params = mock_driver._cdp_calls[1]
         assert params["headers"]["Referer"] == "https://page2.com"
 
 
@@ -310,7 +310,7 @@ class TestHeadersEdgeCases:
         service._set_custom_headers(req, mock_driver)
 
         # Should still work with valid header
-        cmd, params = mock_driver._cdp_calls[0]
+        cmd, params = mock_driver._cdp_calls[1]
         assert "Valid" in params["headers"]
 
     def test_dict_missing_name_or_value(self):
@@ -330,7 +330,7 @@ class TestHeadersEdgeCases:
         service._set_custom_headers(req, mock_driver)
 
         # Only complete dict should be used
-        cmd, params = mock_driver._cdp_calls[0]
+        cmd, params = mock_driver._cdp_calls[1]
         assert "Valid" in params["headers"]
 
     def test_special_characters_in_header_value(self):
@@ -348,7 +348,7 @@ class TestHeadersEdgeCases:
 
         service._set_custom_headers(req, mock_driver)
 
-        cmd, params = mock_driver._cdp_calls[0]
+        cmd, params = mock_driver._cdp_calls[1]
         assert "session=abc123; path=/; HttpOnly" in params["headers"]["Cookie"]
         assert "Mozilla/5.0" in params["headers"]["User-Agent"]
 
@@ -365,7 +365,7 @@ class TestHeadersEdgeCases:
 
         service._set_custom_headers(req, mock_driver)
 
-        cmd, params = mock_driver._cdp_calls[0]
+        cmd, params = mock_driver._cdp_calls[1]
         assert params["headers"]["X-Long"] == long_value
 
     def test_unicode_in_headers(self):
@@ -382,5 +382,5 @@ class TestHeadersEdgeCases:
 
         service._set_custom_headers(req, mock_driver)
 
-        cmd, params = mock_driver._cdp_calls[0]
+        cmd, params = mock_driver._cdp_calls[1]
         assert params["headers"]["X-Unicode"] == "日本語テスト"
