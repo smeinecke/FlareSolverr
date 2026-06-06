@@ -93,7 +93,7 @@ class _SessionManager:
         if session_idle_timeout is not None:
             payload["sessionIdleTimeout"] = session_idle_timeout
 
-        return self._client._post_v1(payload, session=session_id or str(uuid.uuid4()))
+        return self._client._post_v1(payload, session=session_id or str(uuid.uuid4()), create=True)
 
     def list(self) -> V1Response:
         """List all active sessions.
@@ -565,12 +565,13 @@ class FlareSolverrClient:
         response.raise_for_status()
         return IndexResponse.from_dict(response.json())
 
-    def _post_v1(self, payload: dict[str, Any], session: str | None = None) -> V1Response:
+    def _post_v1(self, payload: dict[str, Any], session: str | None = None, create: bool = False) -> V1Response:
         """Internal method to POST to the v1 API endpoint.
 
         Args:
             payload: The JSON payload to send.
             session: Optional session ID to send via X-FlareSolverr-Session header.
+            create: If True, adds X-FlareSolverr-Create header for HAProxy routing.
 
         Returns:
             Parsed V1Response.
@@ -583,6 +584,8 @@ class FlareSolverrClient:
         headers = {"Content-Type": "application/json"}
         if session is not None:
             headers["X-FlareSolverr-Session"] = session
+        if create:
+            headers["X-FlareSolverr-Create"] = "true"
 
         logger.debug(f"POST {url} with payload: {payload}")
         response = requests.post(url, headers=headers, json=payload, timeout=self.timeout)

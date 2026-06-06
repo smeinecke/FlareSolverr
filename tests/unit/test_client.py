@@ -446,6 +446,7 @@ class TestFlareSolverrClientHTTP:
         assert r.session == "abc123"
         headers = mock_post.call_args[1]["headers"]
         assert headers["X-FlareSolverr-Session"] == "abc123"
+        assert headers["X-FlareSolverr-Create"] == "true"
         payload = mock_post.call_args[1]["json"]
         assert "session" not in payload
 
@@ -462,6 +463,7 @@ class TestFlareSolverrClientHTTP:
         session_header = headers["X-FlareSolverr-Session"]
         assert isinstance(session_header, str)
         assert len(session_header) > 0
+        assert headers["X-FlareSolverr-Create"] == "true"
         payload = mock_post.call_args[1]["json"]
         assert "session" not in payload
 
@@ -476,6 +478,7 @@ class TestFlareSolverrClientHTTP:
         headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.create"
         assert headers["X-FlareSolverr-Session"] == "abc123"
+        assert headers["X-FlareSolverr-Create"] == "true"
         assert "session" not in payload
         assert payload["stealth"] is True
 
@@ -490,6 +493,7 @@ class TestFlareSolverrClientHTTP:
         headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.create"
         assert headers["X-FlareSolverr-Session"] == "abc123"
+        assert headers["X-FlareSolverr-Create"] == "true"
         assert "session" not in payload
         assert payload["stealthMode"] == "csp-safe"
 
@@ -504,6 +508,7 @@ class TestFlareSolverrClientHTTP:
         headers = mock_post.call_args[1]["headers"]
         assert payload["cmd"] == "sessions.create"
         assert headers["X-FlareSolverr-Session"] == "abc123"
+        assert headers["X-FlareSolverr-Create"] == "true"
         assert "session" not in payload
         assert payload["userAgent"] == "Mozilla/5.0 Test UA"
 
@@ -519,6 +524,7 @@ class TestFlareSolverrClientHTTP:
         assert payload["stealth"] is True
         assert payload["stealthMode"] == "csp-safe"
         assert headers["X-FlareSolverr-Session"] == "s1"
+        assert headers["X-FlareSolverr-Create"] == "true"
         assert "session" not in payload
 
     def test_session_destroy(self):

@@ -84,35 +84,22 @@ backend flaresolverr_backend
 - `hash-type consistent` minimizes redistribution when backends are added or removed.
 - `option httpchk GET /health` ensures failed instances are removed from the pool automatically.
 
-## Agent-Check Load Balancing
+## Agent-Check Protocol
 
-FlareSolverr can expose a raw TCP endpoint that HAProxy polls via `agent-check`. This gives HAProxy real-time load-state feedback per backend so it can dynamically reduce traffic to busy instances (`drain`) or gradually back off (`50%`) before they become fully saturated.
+FlareSolverr exposes a TCP agent-check endpoint (enabled via `AGENT_CHECK_PORT` and `AGENT_CHECK_HOST`) that HAProxy queries to determine backend health. The response is based on **both**:
 
-### Responses
+1. **Request load**: `active_requests / MAX_PARALLEL_REQUESTS`
+2. **Session saturation**: `sessionsCount / SESSION_MAX_COUNT`
 
-| Response | Meaning |
-|----------|---------|
-| `ready`  | Healthy, accepting new requests |
-| `50%`    | Elevated load; HAProxy should reduce weight to 50% |
-| `drain`  | Fully saturated; finish existing sessions, send no new ones |
+The backend returns the **more restrictive** of the two states:
 
-Logic:
+| State | Condition |
+|-------|-----------|
+| `ready` | Both requests < 75% capacity AND sessions < 75% capacity |
+| `50%` | Either requests >= 75% capacity OR sessions >= 75% capacity |
+| `drain` | Either requests at max capacity OR sessions at max capacity |
 
-The agent-check returns the **more restrictive** of two load dimensions:
-
-**Request load** (based on `MAX_PARALLEL_REQUESTS`):
-- If `MAX_PARALLEL_REQUESTS` is **not set** → always `ready`
-- If `active_requests >= max_parallel` → `drain`
-- If `active_requests >= max_parallel * 0.75` → `50%`
-- Otherwise → `ready`
-
-**Session saturation** (based on `SESSION_MAX_COUNT`):
-- If `SESSION_MAX_COUNT` is **not set** → always `ready`
-- If `session_count >= max_sessions` → `drain`
-- If `session_count >= max_sessions * 0.75` → `50%`
-- Otherwise → `ready`
-
-The final state is the most restrictive of the two (`drain` > `50%` > `ready`). This ensures HAProxy stops sending `sessions.create` requests to backends that are already at their browser-instance limit, preventing HTTP 503 errors.
+Example: A backend with 0 active requests but 16/16 sessions will return `drain`, signaling HAProxy to stop sending new connections.
 
 ### Enabling
 
@@ -145,25 +132,23 @@ defaults
 
 frontend flaresolverr_frontend
     bind *:8191
-    default_backend flaresolverr_backend
+    default_backend flaresolverr
 
-backend flaresolverr_backend
+backend flaresolverr
     balance hdr(X-FlareSolverr-Session)
     hash-type consistent
-
-    # Health checks
+    option forwardfor
     option httpchk GET /health
+    http-check send meth GET uri /health
     http-check expect status 200
 
-    # Agent-check: HAProxy polls TCP port 8080 on each backend for load state
-    server fs1 10.0.0.11:8191 check maxconn 8 agent-check agent-port 8080
-    server fs2 10.0.0.12:8191 check maxconn 8 agent-check agent-port 8080
-    server fs3 10.0.0.13:8191 check maxconn 8 agent-check agent-port 8080
+    server fs1 192.168.1.10:8191 check maxconn 8 agent-check agent-port 8085
+    server fs2 192.168.1.11:8191 check maxconn 8 agent-check agent-port 8085
 ```
 
 Key directives:
 - `agent-check` — enables TCP agent polling for this server
-- `agent-port 8080` — the TCP port where HAProxy connects for agent-check
+- `agent-port 8085` — the TCP port where HAProxy connects for agent-check
 - `maxconn 8` — optional limit on concurrent HTTP connections per backend
 
 > **Note:** `maxconn` limits HAProxy's HTTP connections to a backend, while FlareSolverr's `MAX_PARALLEL_REQUESTS` limits the number of browser requests it processes in parallel. These operate at different layers, but they should ideally be aligned to your actual capacity. If HAProxy allows 8 connections but FlareSolverr is already at 8 parallel requests, the 9th connection will queue in HAProxy rather than being rejected with HTTP 429.
@@ -260,6 +245,38 @@ resp = client.sessions.create(session_id="my-workflow-1")
 ```
 
 For non-Python clients or when you want to guarantee routing before the body is parsed, send the `X-FlareSolverr-Session` header explicitly on **every** request (including `sessions.create`).
+
+## Client Requirements
+
+For session-aware load balancing to work correctly, clients **must**:
+
+1. Pre-generate a session ID (UUID) before calling `sessions.create`.
+2. Include `X-FlareSolverr-Session: <session-id>` on **every** request.
+3. Include the same `session` value in the JSON body of `sessions.create`.
+4. Call `sessions.destroy` when done to free capacity.
+
+### Session Creation Routing
+
+The Python client sends an additional `X-FlareSolverr-Create: true` header on `sessions.create` requests. This allows HAProxy to route session creation round-robin to the backend with the most capacity, while all subsequent requests for that session stick to the same backend via `X-FlareSolverr-Session` hashing.
+
+```bash
+# sessions.create — routed round-robin to the backend with capacity
+# (X-FlareSolverr-Create header present)
+curl -X POST http://flaresolverr-cluster:8191/v1 \
+  -H "Content-Type: application/json" \
+  -H "X-FlareSolverr-Session: my-session-id" \
+  -H "X-FlareSolverr-Create: true" \
+  -d '{"cmd": "sessions.create", "session": "my-session-id"}'
+
+# All other requests — stick to the same backend via hash
+# (only X-FlareSolverr-Session header present)
+curl -X POST http://flaresolverr-cluster:8191/v1 \
+  -H "Content-Type: application/json" \
+  -H "X-FlareSolverr-Session: my-session-id" \
+  -d '{"cmd": "request.get", "url": "https://example.com", "session": "my-session-id"}'
+```
+
+Without the `X-FlareSolverr-Session` header, HAProxy cannot maintain session affinity and all requests (including `sessions.create`) may land on the same backend, causing `Maximum session count reached` errors even when other backends have capacity.
 
 ## Important Notes
 
