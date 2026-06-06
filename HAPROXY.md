@@ -153,7 +153,9 @@ backend flaresolverr_backend
 Key directives:
 - `agent-check` — enables TCP agent polling for this server
 - `agent-port 8080` — the TCP port where HAProxy connects for agent-check
-- `maxconn 8` — optional limit on concurrent connections per backend
+- `maxconn 8` — optional limit on concurrent HTTP connections per backend
+
+> **Note:** `maxconn` limits HAProxy's HTTP connections to a backend, while FlareSolverr's `MAX_PARALLEL_REQUESTS` limits the number of browser requests it processes in parallel. These operate at different layers, but they should ideally be aligned to your actual capacity. If HAProxy allows 8 connections but FlareSolverr is already at 8 parallel requests, the 9th connection will queue in HAProxy rather than being rejected with HTTP 429.
 
 ### Fallback for Missing Header
 
