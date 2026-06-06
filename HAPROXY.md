@@ -96,12 +96,23 @@ FlareSolverr can expose a raw TCP endpoint that HAProxy polls via `agent-check`.
 | `50%`    | Elevated load; HAProxy should reduce weight to 50% |
 | `drain`  | Fully saturated; finish existing sessions, send no new ones |
 
-Logic (uses the same `MAX_PARALLEL_REQUESTS` as the HTTP layer):
+Logic:
 
+The agent-check returns the **more restrictive** of two load dimensions:
+
+**Request load** (based on `MAX_PARALLEL_REQUESTS`):
 - If `MAX_PARALLEL_REQUESTS` is **not set** → always `ready`
 - If `active_requests >= max_parallel` → `drain`
 - If `active_requests >= max_parallel * 0.75` → `50%`
 - Otherwise → `ready`
+
+**Session saturation** (based on `SESSION_MAX_COUNT`):
+- If `SESSION_MAX_COUNT` is **not set** → always `ready`
+- If `session_count >= max_sessions` → `drain`
+- If `session_count >= max_sessions * 0.75` → `50%`
+- Otherwise → `ready`
+
+The final state is the most restrictive of the two (`drain` > `50%` > `ready`). This ensures HAProxy stops sending `sessions.create` requests to backends that are already at their browser-instance limit, preventing HTTP 503 errors.
 
 ### Enabling
 
