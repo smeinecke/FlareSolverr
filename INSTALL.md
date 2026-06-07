@@ -85,11 +85,10 @@ This is the recommended way for Windows users.
 
 ### From source code (FreeBSD/TrueNAS CORE)
 
-- Run `pkg install chromium python313 py313-pip xorg-vfbserver` command to install the required dependencies.
-- Install [uv](https://github.com/astral-sh/uv) (a fast Python package installer).
+- Run `pkg install chromium python313 xorg-vfbserver rust uv` command to install the required dependencies.
 - Clone this repository and open a shell in that path.
 - Run `uv sync` command to install FlareSolverr dependencies.
-- Run `uv run python src/flaresolverr.py` command to start FlareSolverr.
+- Run `uv run python -m flaresolverr.flaresolverr` command to start FlareSolverr.
 
 ### Systemd service
 
