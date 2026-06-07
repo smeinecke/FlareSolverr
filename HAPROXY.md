@@ -86,18 +86,12 @@ backend flaresolverr_backend
 
 ## Agent-Check Protocol
 
-FlareSolverr exposes a TCP agent-check endpoint (enabled via `AGENT_CHECK_PORT` and `AGENT_CHECK_HOST`) that HAProxy queries to determine backend health. The response is based on **both**:
-
-1. **Request load**: `active_requests / MAX_PARALLEL_REQUESTS`
-2. **Session saturation**: `sessionsCount / SESSION_MAX_COUNT`
-
-The backend returns the **more restrictive** of the two states:
+FlareSolverr exposes a TCP agent-check endpoint (enabled via `AGENT_CHECK_PORT` and `AGENT_CHECK_HOST`) that HAProxy queries to determine backend health. The response reflects **session saturation** (`sessionsCount / SESSION_MAX_COUNT`) only; request concurrency is already limited by HAProxy's `maxconn`.
 
 | State | Condition |
 |-------|-----------|
-| `ready` | Both requests < 75% capacity AND sessions < 75% capacity |
-| `50%` | Either requests >= 75% capacity OR sessions >= 75% capacity |
-| `drain` | Either requests at max capacity OR sessions at max capacity |
+| `ready` | Sessions below max capacity |
+| `drain` | Sessions at max capacity |
 
 Example: A backend with 0 active requests but 16/16 sessions will return `drain`, signaling HAProxy to stop sending new connections.
 
@@ -255,30 +249,9 @@ For session-aware load balancing to work correctly, clients **must**:
 3. Include the same `session` value in the JSON body of `sessions.create`.
 4. Call `sessions.destroy` when done to free capacity.
 
-### Session Creation Routing
+### URL Path Routing
 
-The Python client sends an additional `X-FlareSolverr-Create: true` header on `sessions.create` requests. This allows HAProxy to route session creation round-robin to the backend with the most capacity, while all subsequent requests for that session stick to the same backend via `X-FlareSolverr-Session` hashing.
-
-```bash
-# sessions.create — routed round-robin to the backend with capacity
-# (X-FlareSolverr-Create header present)
-curl -X POST http://flaresolverr-cluster:8191/v1 \
-  -H "Content-Type: application/json" \
-  -H "X-FlareSolverr-Session: my-session-id" \
-  -H "X-FlareSolverr-Create: true" \
-  -d '{"cmd": "sessions.create", "session": "my-session-id"}'
-
-# All other requests — stick to the same backend via hash
-# (only X-FlareSolverr-Session header present)
-curl -X POST http://flaresolverr-cluster:8191/v1 \
-  -H "Content-Type: application/json" \
-  -H "X-FlareSolverr-Session: my-session-id" \
-  -d '{"cmd": "request.get", "url": "https://example.com", "session": "my-session-id"}'
-```
-
-#### URL Path Routing (Alternative to Headers)
-
-FlareSolverr also accepts commands via URL path: `POST /v1/<group>/<command>`. This allows HAProxy to route based on URL alone, without inspecting JSON bodies or relying on the `X-FlareSolverr-Create` header.
+FlareSolverr accepts commands via URL path: `POST /v1/<group>/<command>`. This allows HAProxy to route based on URL alone, without inspecting JSON bodies.
 
 ```bash
 # sessions.create via URL path — HAProxy can route by path alone
@@ -333,7 +306,7 @@ backend flaresolverr_backend
 
 - **`sessions.create`** → `flaresolverr_create` backend with `balance roundrobin`. No `agent-check`, so backends always accept new sessions regardless of load. This prevents a saturated backend from rejecting `sessions.create` with HTTP 503.
 - **`sessions.destroy`** (via `DELETE /v1/sessions/<id>` or `POST /v1/sessions/destroy`) → `flaresolverr_backend` with session hash. No `agent-check` on the backend definition either, so destroy always works even when the backend is in `drain` state. The session ID from the URL or header routes to the correct backend.
-- **`request.get` / `request.post`** → `flaresolverr_backend` with session hash. Uses `agent-check` so HAProxy dynamically reduces traffic to overloaded backends (`50%` or `drain`).
+- **`request.get` / `request.post`** → `flaresolverr_backend` with session hash. Uses `agent-check` so HAProxy dynamically stops sending traffic to overloaded backends (`drain`).
 
 Without the `X-FlareSolverr-Session` header, HAProxy cannot maintain session affinity and all requests (including `sessions.create`) may land on the same backend, causing `Maximum session count reached` errors even when other backends have capacity.
 

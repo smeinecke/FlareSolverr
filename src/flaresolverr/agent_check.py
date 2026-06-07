@@ -7,27 +7,12 @@ from flaresolverr import utils
 
 
 def _compute_state() -> str:
-    """Return the HAProxy agent-check state based on current load.
+    """Return the HAProxy agent-check state based on session saturation.
 
     CRITICAL: This function must NEVER raise an exception.
     If anything fails, return 'drain' as a safe default.
     """
     try:
-        # Request load
-        max_parallel = flaresolverr_service._MAX_PARALLEL_REQUESTS  # noqa
-        with flaresolverr_service._active_requests_lock:
-            active = len(flaresolverr_service._active_requests)
-
-        if max_parallel is None:
-            req_state = "ready"
-        elif active >= max_parallel:
-            req_state = "drain"
-        elif active >= max_parallel * 0.75:
-            req_state = "50%"
-        else:
-            req_state = "ready"
-
-        # Session load — use a copy to avoid thread-safety issues
         max_sessions = utils.get_config_session_max_count()
         try:
             # Make a shallow copy to avoid mutation-during-read race
@@ -39,19 +24,9 @@ def _compute_state() -> str:
             return "drain"
 
         if max_sessions is None:
-            sess_state = "ready"
-        elif session_count >= max_sessions:
-            sess_state = "drain"
-        elif session_count >= max_sessions * 0.75:
-            sess_state = "50%"
-        else:
-            sess_state = "ready"
-
-        # Return the most restrictive state
-        if "drain" in (req_state, sess_state):
+            return "ready"
+        if session_count >= max_sessions:
             return "drain"
-        if "50%" in (req_state, sess_state):
-            return "50%"
         return "ready"
 
     except Exception:

@@ -1,38 +1,28 @@
+from unittest.mock import MagicMock
+
 from flaresolverr import agent_check
 from flaresolverr import flaresolverr_service
 
 
-def test_compute_state_ready_when_no_max_parallel(monkeypatch) -> None:
-    monkeypatch.setattr(flaresolverr_service, "_MAX_PARALLEL_REQUESTS", None)
-    monkeypatch.setattr(flaresolverr_service, "_active_requests", [])
+def test_compute_state_ready_when_no_session_limit(monkeypatch) -> None:
+    monkeypatch.setattr(agent_check.utils, "get_config_session_max_count", lambda: None)
+    monkeypatch.setattr(flaresolverr_service.SESSIONS_STORAGE, "sessions", {})
     assert agent_check._compute_state() == "ready"
 
 
-def test_compute_state_ready_when_below_75_percent(monkeypatch) -> None:
-    monkeypatch.setattr(flaresolverr_service, "_MAX_PARALLEL_REQUESTS", 8)
-    monkeypatch.setattr(flaresolverr_service, "_active_requests", [{"cmd": "request.get"}] * 5)
+def test_compute_state_ready_when_below_session_limit(monkeypatch) -> None:
+    monkeypatch.setattr(agent_check.utils, "get_config_session_max_count", lambda: 8)
+    monkeypatch.setattr(flaresolverr_service.SESSIONS_STORAGE, "sessions", {"a": 1, "b": 2})
     assert agent_check._compute_state() == "ready"
 
 
-def test_compute_state_50_percent_at_75_percent(monkeypatch) -> None:
-    monkeypatch.setattr(flaresolverr_service, "_MAX_PARALLEL_REQUESTS", 8)
-    monkeypatch.setattr(flaresolverr_service, "_active_requests", [{"cmd": "request.get"}] * 6)
-    assert agent_check._compute_state() == "50%"
-
-
-def test_compute_state_drain_at_max_parallel(monkeypatch) -> None:
-    monkeypatch.setattr(flaresolverr_service, "_MAX_PARALLEL_REQUESTS", 8)
-    monkeypatch.setattr(flaresolverr_service, "_active_requests", [{"cmd": "request.get"}] * 8)
+def test_compute_state_drain_at_session_limit(monkeypatch) -> None:
+    monkeypatch.setattr(agent_check.utils, "get_config_session_max_count", lambda: 2)
+    monkeypatch.setattr(flaresolverr_service.SESSIONS_STORAGE, "sessions", {"a": 1, "b": 2})
     assert agent_check._compute_state() == "drain"
 
 
-def test_compute_state_drain_above_max_parallel(monkeypatch) -> None:
-    monkeypatch.setattr(flaresolverr_service, "_MAX_PARALLEL_REQUESTS", 8)
-    monkeypatch.setattr(flaresolverr_service, "_active_requests", [{"cmd": "request.get"}] * 10)
+def test_compute_state_drain_above_session_limit(monkeypatch) -> None:
+    monkeypatch.setattr(agent_check.utils, "get_config_session_max_count", lambda: 2)
+    monkeypatch.setattr(flaresolverr_service.SESSIONS_STORAGE, "sessions", {"a": 1, "b": 2, "c": 3})
     assert agent_check._compute_state() == "drain"
-
-
-def test_compute_state_boundary_exactly_75_percent(monkeypatch) -> None:
-    monkeypatch.setattr(flaresolverr_service, "_MAX_PARALLEL_REQUESTS", 4)
-    monkeypatch.setattr(flaresolverr_service, "_active_requests", [{"cmd": "request.get"}] * 3)
-    assert agent_check._compute_state() == "50%"
