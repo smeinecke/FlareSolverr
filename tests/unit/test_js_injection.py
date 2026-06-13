@@ -27,8 +27,9 @@ class TestApplyJsInjection:
 
 
         with caplog.at_level(logging.WARNING):
-            svc._apply_js_injection(req, driver, "document_start")
+            result = svc._apply_js_injection(req, driver, "document_start")
 
+        assert result == []
         assert "JS_INJECTION_ENABLED" in caplog.text
         driver.execute_cdp_cmd.assert_not_called()
         driver.execute_script.assert_not_called()
@@ -38,7 +39,8 @@ class TestApplyJsInjection:
         driver = MagicMock()
         req = V1RequestBase({"cmd": "request.get", "url": "https://x.com"})
 
-        svc._apply_js_injection(req, driver, "document_start")
+        result = svc._apply_js_injection(req, driver, "document_start")
+        assert result == []
         driver.execute_cdp_cmd.assert_not_called()
 
     def test_document_start_uses_cdp(self, monkeypatch):
@@ -50,7 +52,8 @@ class TestApplyJsInjection:
             "scriptInject": [{"script": "window.foo = 1;", "point": "document_start"}],
         })
 
-        svc._apply_js_injection(req, driver, "document_start")
+        result = svc._apply_js_injection(req, driver, "document_start")
+        assert result == []
         driver.execute_cdp_cmd.assert_called_once_with(
             "Page.addScriptToEvaluateOnNewDocument", {"source": "window.foo = 1;"}
         )
@@ -65,7 +68,8 @@ class TestApplyJsInjection:
             "scriptInject": [{"script": "window.foo = 2;", "point": "document_end"}],
         })
 
-        svc._apply_js_injection(req, driver, "document_end")
+        result = svc._apply_js_injection(req, driver, "document_end")
+        assert result == []
         driver.execute_script.assert_called_once_with("window.foo = 2;")
         driver.execute_cdp_cmd.assert_not_called()
 
@@ -78,7 +82,8 @@ class TestApplyJsInjection:
             "scriptInject": [{"script": "window.foo = 3;"}],  # default point is document_idle
         })
 
-        svc._apply_js_injection(req, driver, "document_idle")
+        result = svc._apply_js_injection(req, driver, "document_idle")
+        assert result == []
         driver.execute_script.assert_called_once_with("window.foo = 3;")
 
     def test_wrong_point_is_noop(self, monkeypatch):
@@ -90,7 +95,8 @@ class TestApplyJsInjection:
             "scriptInject": [{"script": "window.foo = 1;", "point": "document_idle"}],
         })
 
-        svc._apply_js_injection(req, driver, "document_start")
+        result = svc._apply_js_injection(req, driver, "document_start")
+        assert result == []
         driver.execute_cdp_cmd.assert_not_called()
         driver.execute_script.assert_not_called()
 
@@ -106,8 +112,9 @@ class TestApplyJsInjection:
 
 
         with caplog.at_level(logging.WARNING):
-            svc._apply_js_injection(req, driver, "document_start")
+            result = svc._apply_js_injection(req, driver, "document_start")
 
+        assert result == []
         assert "cdp err" in caplog.text
 
     def test_multiple_injections_same_point(self, monkeypatch):
@@ -123,7 +130,8 @@ class TestApplyJsInjection:
             ],
         })
 
-        svc._apply_js_injection(req, driver, "document_idle")
+        result = svc._apply_js_injection(req, driver, "document_idle")
+        assert result == []
         assert driver.execute_script.call_count == 2
         assert driver.execute_script.call_args_list == [
             (("window.a = 1;",),),
@@ -143,12 +151,14 @@ class TestApplyJsInjection:
             ],
         })
 
-        svc._apply_js_injection(req, driver, "document_start")
+        result_start = svc._apply_js_injection(req, driver, "document_start")
+        assert result_start == []
         driver.execute_cdp_cmd.assert_called_once()
         driver.execute_script.assert_not_called()
 
         driver.reset_mock()
-        svc._apply_js_injection(req, driver, "document_idle")
+        result_idle = svc._apply_js_injection(req, driver, "document_idle")
+        assert result_idle == []
         driver.execute_script.assert_called_once_with("window.idle = 2;")
         driver.execute_cdp_cmd.assert_not_called()
 
@@ -257,6 +267,7 @@ class TestEvilLogicInjectionPoints:
 
         def _capture(req, driver, point):
             injected_points.append(point)
+            return []
 
         monkeypatch.setattr(svc, "_apply_js_injection", _capture)
         monkeypatch.setattr(svc, "_configure_blocked_media", lambda _req, _d: None)
@@ -288,7 +299,7 @@ class TestEvilLogicInjectionPoints:
                 return "test"
 
         driver = TrackedDriver()
-        monkeypatch.setattr(svc, "_apply_js_injection", lambda _req, _d, point: sequence.append(point))
+        monkeypatch.setattr(svc, "_apply_js_injection", lambda _req, _d, point: (sequence.append(point), [])[-1])
         monkeypatch.setattr(svc, "_configure_blocked_media", lambda _req, _d: None)
         monkeypatch.setattr(svc, "_set_custom_headers", lambda _req, _d: None)
         monkeypatch.setattr(svc, "_navigate_request", lambda _req, _d, _m, _u: None)

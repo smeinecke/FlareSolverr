@@ -969,6 +969,8 @@ def _set_request_cookies(req: V1RequestBase, driver: WebDriver, target_url: str)
     if current_origin != origin:
         driver.get(origin)
     for cookie in req.cookies:
+        if not isinstance(cookie, dict) or "name" not in cookie:
+            raise Exception(f"Each cookie must be an object with at least a 'name' field, got: {cookie!r}")
         driver.delete_cookie(cookie["name"])
         driver.add_cookie(cookie)
 
@@ -1206,25 +1208,33 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
     return challenge_res
 
 
-def _apply_js_injection(req: V1RequestBase, driver: WebDriver, point: str) -> None:
+def _remove_js_injection(driver: WebDriver, identifiers: list[str]) -> None:
+    """Remove previously added Page.addScriptToEvaluateOnNewDocument scripts."""
+    for script_id in identifiers:
+        try:
+            driver.execute_cdp_cmd("Page.removeScriptToEvaluateOnNewDocument", {"identifier": script_id})
+        except Exception as e:
+            logging.debug(f"Failed to remove injected script {script_id}: {e}")
+
+
+def _apply_js_injection(req: V1RequestBase, driver: WebDriver, point: str) -> list[str]:
     """Apply declarative JS injections for the given lifecycle point.
 
     Collects all scripts from req.scriptInject whose point matches the
     current lifecycle stage and injects them.
 
-    Args:
-        req: The incoming request.
-        driver: The active WebDriver instance.
-        point: The lifecycle point being processed (document_start, document_end,
-               document_idle).
+    Returns a list of CDP identifiers for document_start scripts so they
+    can be removed after the request (preventing accumulation across
+    multiple requests on the same session).
     """
+    identifiers: list[str] = []
     if not utils.get_config_js_injection_enabled():
         if req.scriptInject is not None:
             logging.warning("JS injection fields ignored because JS_INJECTION_ENABLED is not set to true.")
-        return
+        return identifiers
 
     if req.scriptInject is None or len(req.scriptInject) == 0:
-        return
+        return identifiers
 
     point_lc = point.lower()
     matched = []
@@ -1239,13 +1249,16 @@ def _apply_js_injection(req: V1RequestBase, driver: WebDriver, point: str) -> No
             matched.append(script)
 
     if not matched:
-        return
+        return identifiers
 
     for script in matched:
         logging.info(f"Applying JS injection at '{point}'")
         if point == "document_start":
             try:
-                driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": script})
+                result = driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": script})
+                script_id = result.get("identifier") if isinstance(result, dict) else None
+                if script_id:
+                    identifiers.append(script_id)
             except Exception as e:
                 logging.warning(f"Failed to inject script at document_start: {e}")
         else:
@@ -1253,6 +1266,7 @@ def _apply_js_injection(req: V1RequestBase, driver: WebDriver, point: str) -> No
                 driver.execute_script(script)
             except Exception as e:
                 logging.warning(f"Failed to inject script at {point}: {e}")
+    return identifiers
 
 
 def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_services: list[str]) -> ChallengeResolutionT:
@@ -1266,47 +1280,51 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
 
     _configure_blocked_media(req, driver)
     _set_custom_headers(req, driver)
-    _apply_js_injection(req, driver, "document_start")
-    # Set cookies before the main navigation so the request is sent once.
-    # We first load the origin to establish cookie domain scope, then set
-    # cookies and perform the actual navigation.
-    _set_request_cookies(req, driver, target_url)
-    turnstile_token = _navigate_request(req, driver, method, target_url)
+    injected_ids = _apply_js_injection(req, driver, "document_start")
+    try:
+        # Set cookies before the main navigation so the request is sent once.
+        # We first load the origin to establish cookie domain scope, then set
+        # cookies and perform the actual navigation.
+        _set_request_cookies(req, driver, target_url)
+        turnstile_token = _navigate_request(req, driver, method, target_url)
 
-    # wait for the page
-    if utils.get_config_log_html():
-        logging.debug(f"Response HTML:\n{driver.page_source}")
-    page_title = driver.title
+        # wait for the page
+        if utils.get_config_log_html():
+            logging.debug(f"Response HTML:\n{driver.page_source}")
+        page_title = driver.title
 
-    _apply_js_injection(req, driver, "document_end")
-    _raise_if_navigation_error(driver)
-    _raise_if_access_denied(driver, page_title)
-    detected_service = SERVICE_MANAGER.detect(driver, enabled_services)
-    if detected_service is not None:
-        # Try external captcha solver first if configured
-        solver_used = False
-        effective_solver = req.captchaSolver if req.captchaSolver is not None else get_config_captcha_solver()
-        if effective_solver != "default":
-            solver_type = _detect_captcha_type(driver)
-            if solver_type:
-                logging.info(f"Attempting to solve {solver_type} captcha with {effective_solver} solver")
-                solver_used = SOLVER_MANAGER.solve(driver, solver_type, effective_solver)
-                if solver_used:
-                    logging.info(f"Captcha solved successfully with {effective_solver}")
+        _apply_js_injection(req, driver, "document_end")
+        _raise_if_navigation_error(driver)
+        _raise_if_access_denied(driver, page_title)
+        detected_service = SERVICE_MANAGER.detect(driver, enabled_services)
+        if detected_service is not None:
+            # Try external captcha solver first if configured
+            solver_used = False
+            effective_solver = req.captchaSolver if req.captchaSolver is not None else get_config_captcha_solver()
+            if effective_solver != "default":
+                solver_type = _detect_captcha_type(driver)
+                if solver_type:
+                    logging.info(f"Attempting to solve {solver_type} captcha with {effective_solver} solver")
+                    solver_used = SOLVER_MANAGER.solve(driver, solver_type, effective_solver)
+                    if solver_used:
+                        logging.info(f"Captcha solved successfully with {effective_solver}")
 
-        if not solver_used:
-            # Fall back to default challenge resolution
-            SERVICE_MANAGER.resolve(driver, detected_service)
+            if not solver_used:
+                # Fall back to default challenge resolution
+                SERVICE_MANAGER.resolve(driver, detected_service)
 
-        logging.info("Challenge solved!")
-        res.message = "Challenge solved!"
-    else:
-        logging.info("Challenge not detected!")
-        res.message = "Challenge not detected!"
+            logging.info("Challenge solved!")
+            res.message = "Challenge solved!"
+        else:
+            logging.info("Challenge not detected!")
+            res.message = "Challenge not detected!"
 
-    _apply_js_injection(req, driver, "document_idle")
-    res.result = _build_challenge_result(req, driver, turnstile_token)
-    return res
+        _apply_js_injection(req, driver, "document_idle")
+        res.result = _build_challenge_result(req, driver, turnstile_token)
+        return res
+    finally:
+        if injected_ids:
+            _remove_js_injection(driver, injected_ids)
 
 
 def _detect_captcha_type(driver: WebDriver) -> str | None:
@@ -1442,4 +1460,5 @@ def _post_request(req: V1RequestBase, driver: WebDriver) -> None:
             <script>document.getElementById('hackForm').submit();</script>
         </body>
         </html>"""
-    driver.get("data:text/html;charset=utf-8,{html_content}".format(html_content=html_content))
+    # Use percent-encoded data: URI to avoid fragment/encoding issues
+    driver.get(f"data:text/html;charset=utf-8,{quote(html_content)}")
