@@ -319,6 +319,8 @@ jobs:
       - name: Run full integration tests
         env:
           FLARESOLVERR_URL: http://127.0.0.1:8191
+          DRIVER_BACKEND: ${{ matrix.backend }}
+          FLARESOLVERR_CUSTOM_CHROMIUM: ${{ matrix.backend == 'custom_chromium' && 'true' || '' }}
         run: |
           uv run pytest tests/integration/test_api.py tests/integration/test_js_injection.py tests/integration/test_sites.py tests/integration/test_bot_challenge.py -vv -m integration -k "not proxy"
 
