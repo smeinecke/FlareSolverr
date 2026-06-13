@@ -723,6 +723,7 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
             username = urllib.parse.unquote(parsed.username)
             password = urllib.parse.unquote(parsed.password or "")
         if username:
+            # lgtm[py/clear-text-storage-sensitive-data] Proxy credentials are passed to the Chrome proxy-manager extension via runtime messaging; they are not persisted to disk.
             payload["auth"] = {"username": username, "password": password or ""}
         logger.debug("Applying proxy to session via extension: %s:%d", host, port)
 
@@ -830,6 +831,7 @@ def create_proxy_extension(proxy: dict[str, Any]) -> str:
         f.write(manifest_json)
 
     with open(os.path.join(proxy_extension_dir, "background.js"), "w") as f:
+        # lgtm[py/clear-text-storage-sensitive-data] Proxy credentials must be in clear text for the Chrome proxy extension background script to authenticate.
         f.write(background_js)
 
     return proxy_extension_dir
