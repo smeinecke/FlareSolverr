@@ -192,12 +192,11 @@ def test_cleanup_orphaned_temp_dirs_removes_old_dirs(monkeypatch) -> None:
     """Old temp dirs matching known prefixes should be removed."""
     tmpdir = tempfile.mkdtemp()
     monkeypatch.setattr(utils.tempfile, "gettempdir", lambda: tmpdir)
-    monkeypatch.setattr(utils, "_TEMP_CLEANUP_DONE", False)
 
     old_dir = os.path.join(tmpdir, "uc-chrome-old")
     os.makedirs(old_dir)
-    # Set mtime to 2 hours ago (past the 1-hour cutoff)
-    os.utime(old_dir, (time.time() - 7200, time.time() - 7200))
+    # Set mtime to 2 minutes ago (past the 60-second cutoff)
+    os.utime(old_dir, (time.time() - 120, time.time() - 120))
 
     utils._cleanup_orphaned_temp_dirs()
     assert not os.path.exists(old_dir)
@@ -207,7 +206,6 @@ def test_cleanup_orphaned_temp_dirs_skips_recent_dirs(monkeypatch) -> None:
     """Recent temp dirs should not be removed to avoid deleting active sessions."""
     tmpdir = tempfile.mkdtemp()
     monkeypatch.setattr(utils.tempfile, "gettempdir", lambda: tmpdir)
-    monkeypatch.setattr(utils, "_TEMP_CLEANUP_DONE", False)
 
     recent_dir = os.path.join(tmpdir, "flaresolverr-chrome-active")
     os.makedirs(recent_dir)
@@ -220,33 +218,31 @@ def test_cleanup_orphaned_temp_dirs_skips_locked_dirs(monkeypatch) -> None:
     """Dirs with a SingletonLock should not be removed even if old."""
     tmpdir = tempfile.mkdtemp()
     monkeypatch.setattr(utils.tempfile, "gettempdir", lambda: tmpdir)
-    monkeypatch.setattr(utils, "_TEMP_CLEANUP_DONE", False)
 
     locked_dir = os.path.join(tmpdir, "uc-chrome-locked")
     os.makedirs(locked_dir)
     open(os.path.join(locked_dir, "SingletonLock"), "w").close()
-    os.utime(locked_dir, (time.time() - 7200, time.time() - 7200))
+    os.utime(locked_dir, (time.time() - 120, time.time() - 120))
 
     utils._cleanup_orphaned_temp_dirs()
     assert os.path.exists(locked_dir)
 
 
-def test_cleanup_orphaned_temp_dirs_runs_only_once(monkeypatch) -> None:
-    """The cleanup function should be a no-op after the first call."""
+def test_cleanup_orphaned_temp_dirs_runs_repeatedly(monkeypatch) -> None:
+    """The cleanup function can be called multiple times and still cleans up."""
     tmpdir = tempfile.mkdtemp()
     monkeypatch.setattr(utils.tempfile, "gettempdir", lambda: tmpdir)
-    monkeypatch.setattr(utils, "_TEMP_CLEANUP_DONE", False)
 
     old_dir = os.path.join(tmpdir, "fspe-old")
     os.makedirs(old_dir)
-    os.utime(old_dir, (time.time() - 7200, time.time() - 7200))
+    os.utime(old_dir, (time.time() - 120, time.time() - 120))
 
     utils._cleanup_orphaned_temp_dirs()
     assert not os.path.exists(old_dir)
 
-    # Second call should not attempt cleanup even if a new old dir appears
+    # Second call should still clean up a newly leaked dir
     new_old_dir = os.path.join(tmpdir, "fspe-older")
     os.makedirs(new_old_dir)
-    os.utime(new_old_dir, (time.time() - 7200, time.time() - 7200))
+    os.utime(new_old_dir, (time.time() - 120, time.time() - 120))
     utils._cleanup_orphaned_temp_dirs()
-    assert os.path.exists(new_old_dir)
+    assert not os.path.exists(new_old_dir)

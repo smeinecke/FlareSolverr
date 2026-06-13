@@ -300,6 +300,9 @@ class SessionsStorage:
             except (ChildProcessError, OSError):
                 break
 
+        # Clean up any leaked temp dirs from crashed or failed sessions
+        utils._cleanup_orphaned_temp_dirs()
+
         return True
 
     def get(

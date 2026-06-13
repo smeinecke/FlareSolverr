@@ -722,25 +722,17 @@ def _wait_for_debug_port(port: int, timeout: int = 15) -> None:
     raise RuntimeError(f"Chrome debug port {port} did not become ready within {timeout}s")
 
 
-_TEMP_CLEANUP_DONE = False
-
-
 def _cleanup_orphaned_temp_dirs() -> None:
-    """Remove leftover Chrome profile and extension temp directories from crashed sessions.
+    """Remove leftover Chrome profile and extension temp directories.
 
-    This is intended to run once at process startup, before any webdriver is created.
-    It skips directories that still have a SingletonLock (Chrome is still running)
-    and only removes directories older than 1 hour to avoid interfering with
-    long-running sessions started by other FlareSolverr processes.
+    This is safe to call repeatedly (e.g. on every session destroy). It skips
+    directories that still have a SingletonLock (Chrome is still running) and
+    only removes directories older than a short cutoff to avoid interfering with
+    active sessions.
     """
-    global _TEMP_CLEANUP_DONE
-    if _TEMP_CLEANUP_DONE:
-        return
-    _TEMP_CLEANUP_DONE = True
-
     tmpdir = tempfile.gettempdir()
     patterns = ["flaresolverr-chrome-*", "fspe-*", "uc-chrome-*"]
-    cutoff = time.time() - 360  # 10 minutes old
+    cutoff = time.time() - 60  # 1 minute old
 
     for pattern in patterns:
         for path in glob.glob(os.path.join(tmpdir, pattern)):
@@ -872,6 +864,10 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             driver.quit = _uc_quit_with_cleanup  # type: ignore[method-assign]
     except Exception as e:
         logging.error("Error starting Chrome: %s", e)
+        # If Chrome failed to start, the proxy extension temp dir was already
+        # created but will never be cleaned up by driver.quit(). Remove it now.
+        if proxy_ext_dir and os.path.isdir(proxy_ext_dir):
+            shutil.rmtree(proxy_ext_dir, ignore_errors=True)
         raise e
 
     _maybe_normalize_user_agent(driver, effective_stealth_mode)

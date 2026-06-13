@@ -812,6 +812,9 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
                 logging.debug("A used instance of webdriver has been destroyed")
             except Exception as e:
                 logging.debug(f"Failed to quit webdriver: {e}")
+            # Clean up any leaked temp dirs (e.g. if get_webdriver failed
+            # after creating the proxy extension temp dir)
+            utils._cleanup_orphaned_temp_dirs()
 
 
 def _resolve_request_stealth_mode(req: V1RequestBase) -> str | None:
