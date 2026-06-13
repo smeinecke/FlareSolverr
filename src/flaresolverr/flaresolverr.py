@@ -194,6 +194,11 @@ if __name__ == "__main__":
     # Get current OS for global variable
     utils.get_current_platform()
 
+    # Clean up leftover temp dirs from previous crashed sessions before any
+    # webdriver is created, so we don't accidentally delete data for still
+    # running sessions in other processes.
+    utils._cleanup_orphaned_temp_dirs()
+
     # test browser installation
     flaresolverr_service.test_browser_installation()
 

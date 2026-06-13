@@ -441,7 +441,7 @@ class Patcher(object):
             timeout = 3  # stop trying after this many seconds
             t = time.monotonic()
             now = lambda: time.monotonic()
-            while now() - t > timeout:
+            while now() - t < timeout:
                 # we don't want to wait until the end of time
                 try:
                     if self.user_multi_procs:

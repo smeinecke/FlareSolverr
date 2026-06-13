@@ -1,3 +1,4 @@
+import glob
 import hashlib
 import json
 import logging
@@ -395,6 +396,8 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
     options.add_argument("--disable-setuid-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--no-zygote")
+    options.add_argument("--disk-cache-size=1")
+    options.add_argument("--media-cache-size=1")
 
     if not get_config_chrome_disable_optimizations():
         options.add_argument("--renderer-process-limit=1")
@@ -717,6 +720,42 @@ def _wait_for_debug_port(port: int, timeout: int = 15) -> None:
         except (ConnectionRefusedError, OSError):
             time.sleep(0.2)
     raise RuntimeError(f"Chrome debug port {port} did not become ready within {timeout}s")
+
+
+_TEMP_CLEANUP_DONE = False
+
+
+def _cleanup_orphaned_temp_dirs() -> None:
+    """Remove leftover Chrome profile and extension temp directories from crashed sessions.
+
+    This is intended to run once at process startup, before any webdriver is created.
+    It skips directories that still have a SingletonLock (Chrome is still running)
+    and only removes directories older than 1 hour to avoid interfering with
+    long-running sessions started by other FlareSolverr processes.
+    """
+    global _TEMP_CLEANUP_DONE
+    if _TEMP_CLEANUP_DONE:
+        return
+    _TEMP_CLEANUP_DONE = True
+
+    tmpdir = tempfile.gettempdir()
+    patterns = ["flaresolverr-chrome-*", "fspe-*", "uc-chrome-*"]
+    cutoff = time.time() - 360  # 10 minutes old
+
+    for pattern in patterns:
+        for path in glob.glob(os.path.join(tmpdir, pattern)):
+            try:
+                if not os.path.isdir(path):
+                    continue
+                # Skip if Chrome still holds a lock on this profile
+                if os.path.exists(os.path.join(path, "SingletonLock")):
+                    continue
+                mtime = os.stat(path).st_mtime
+                if mtime < cutoff:
+                    shutil.rmtree(path, ignore_errors=True)
+                    logging.debug("Cleaned up orphaned temp dir: %s", path)
+            except OSError:
+                pass
 
 
 def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None, logging_prefs: dict[str, str] | None = None) -> WebDriver:

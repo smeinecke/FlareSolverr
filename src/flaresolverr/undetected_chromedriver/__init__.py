@@ -393,7 +393,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             logger.debug("user_data_dir property found in options object: %s" % user_data_dir)
             return user_data_dir, keep_user_data_dir
 
-        user_data_dir = os.path.normpath(tempfile.mkdtemp())
+        user_data_dir = os.path.normpath(tempfile.mkdtemp(prefix="uc-chrome-"))
         keep_user_data_dir = False
         arg = "--user-data-dir=%s" % user_data_dir
         options.add_argument(arg)
@@ -776,8 +776,31 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             logger.debug("gracefully closed browser")
         except Exception as e:  # noqa
             pass
+        # Wait for the browser process to actually die before attempting
+        # to remove the temp profile, otherwise rmtree fails with
+        # "Device or resource busy" / "Text file busy".
+        try:
+            if hasattr(self, "browser_pid"):
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    try:
+                        os.kill(self.browser_pid, 0)
+                    except (ProcessLookupError, OSError):
+                        break
+                    time.sleep(0.1)
+                else:
+                    # Still alive after 3s: escalate to SIGKILL
+                    try:
+                        os.kill(self.browser_pid, 9)
+                        logger.debug("sent SIGKILL to browser")
+                    except (ProcessLookupError, OSError):
+                        pass
+                    # Brief wait after SIGKILL
+                    time.sleep(0.5)
+        except Exception:
+            pass
         if hasattr(self, "keep_user_data_dir") and hasattr(self, "user_data_dir") and not self.keep_user_data_dir:
-            for _ in range(5):
+            for _ in range(10):
                 try:
                     shutil.rmtree(self.user_data_dir, ignore_errors=False)
                 except FileNotFoundError:
@@ -789,8 +812,16 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                     break
 
                 try:
-                    time.sleep(0.1)
+                    time.sleep(0.2)
                 except OSError:
+                    pass
+            else:
+                # Final attempt with ignore_errors so we at least try to free
+                # what we can rather than leaving the whole tree behind.
+                try:
+                    shutil.rmtree(self.user_data_dir, ignore_errors=True)
+                    logger.debug("removed %s with ignore_errors=True" % self.user_data_dir)
+                except Exception:
                     pass
 
         # dereference patcher, so patcher can start cleaning up as well.
