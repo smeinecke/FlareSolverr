@@ -216,9 +216,17 @@ def health_endpoint(details: bool = False) -> HealthResponse:
     return res
 
 
+def _redact_request_for_log(req_dict: dict) -> dict:
+    """Return a copy of the request dict with proxy password redacted."""
+    proxy = req_dict.get("proxy")
+    if isinstance(proxy, dict) and "password" in proxy:
+        req_dict = {**req_dict, "proxy": {**proxy, "password": "***"}}
+    return req_dict
+
+
 def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
     start_ts = int(time.time() * 1000)
-    logging.info(f"Incoming request => POST /v1 body: {utils.object_to_dict(req)}")
+    logging.info(f"Incoming request => POST /v1 body: {_redact_request_for_log(utils.object_to_dict(req))}")
 
     if _PARALLEL_REQUESTS_SEMAPHORE is not None and not _PARALLEL_REQUESTS_SEMAPHORE.acquire(blocking=False):
         res = V1ResponseBase({})
@@ -1379,7 +1387,7 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
     headers_json = json.dumps(headers_dict)
 
     # Navigate to the target URL first to establish the correct origin,
-    # then perform the raw POST via synchronous XHR and replace the document
+    # then perform the raw POST via asynchronous XHR and replace the document
     # content so driver.current_url stays correct.
     driver.get(target_url)
 
@@ -1387,7 +1395,7 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
     (function() {{
         try {{
             var xhr = new XMLHttpRequest();
-            xhr.open('POST', {json.dumps(target_url)}, false);
+            xhr.open('POST', {json.dumps(target_url)}, true);
             var headers = {headers_json};
             for (var name in headers) {{
                 if (headers.hasOwnProperty(name)) {{
