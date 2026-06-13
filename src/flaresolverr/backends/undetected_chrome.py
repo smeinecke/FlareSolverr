@@ -162,6 +162,9 @@ def _build_chrome_options(effective_stealth_mode: str) -> uc.ChromeOptions:
     if platform.machine().startswith(("arm", "aarch")):
         options.add_argument("--disable-gpu-sandbox")
 
+    if utils.get_config_headless() and os.name != "nt":
+        options.add_argument("--use-gl=swiftshader")
+
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
 
