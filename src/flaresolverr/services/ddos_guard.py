@@ -3,12 +3,11 @@
 import logging
 
 logger = logging.getLogger(__name__)
+import time
 
-from selenium.common import TimeoutException
-from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.wait import WebDriverWait
 
+from flaresolverr.backends.browser_context import BrowserContext
 from flaresolverr.services.base import ChallengeService, _wait_for_redirect
 from flaresolverr.utils import get_config_browser_wait_timeout
 
@@ -29,17 +28,23 @@ class DDoSGuardManualCaptchaError(RuntimeError):
     """DDoS-Guard escalated to a manual captcha that FlareSolverr cannot solve."""
 
 
-def _title_matches_ignoring_case(title: str):
-    def _predicate(driver: WebDriver) -> bool:
-        return (driver.title or "").lower() == title.lower()
-
-    return _predicate
+def _wait_for_title_change(driver: BrowserContext, title: str, timeout: float) -> bool:
+    """Wait until the document title no longer matches, ignoring case."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if (driver.title or "").lower() != title.lower():
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(0.1)
+    return False
 
 
 class DDoSGuardService(ChallengeService):
     name = "ddos_guard"
 
-    def _has_selector(self, driver: WebDriver, selectors: list[str]) -> bool:
+    def _has_selector(self, driver: BrowserContext, selectors: list[str]) -> bool:
         for selector in selectors:
             try:
                 if len(driver.find_elements(By.CSS_SELECTOR, selector)) > 0:
@@ -49,13 +54,13 @@ class DDoSGuardService(ChallengeService):
                 continue
         return False
 
-    def _raise_if_manual_captcha(self, driver: WebDriver) -> None:
+    def _raise_if_manual_captcha(self, driver: BrowserContext) -> None:
         if self._has_selector(driver, DDOS_GUARD_CAPTCHA_SELECTORS):
             raise DDoSGuardManualCaptchaError(
                 "DDoS-Guard returned its manual captcha page: the automated browser check failed for this IP and browser, and FlareSolverr cannot solve captchas."
             )
 
-    def detect(self, driver: WebDriver) -> bool:
+    def detect(self, driver: BrowserContext) -> bool:
         try:
             page_title = (driver.title or "").strip()
         except Exception:  # noqa: BLE001
@@ -70,7 +75,7 @@ class DDoSGuardService(ChallengeService):
             return True
         return False
 
-    def resolve(self, driver: WebDriver) -> None:
+    def resolve(self, driver: BrowserContext) -> None:
         self._raise_if_manual_captcha(driver)
         html_element = self._get_html_element(driver)
         if html_element is None:
@@ -83,9 +88,10 @@ class DDoSGuardService(ChallengeService):
             try:
                 for title in DDOS_GUARD_TITLES:
                     logger.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
-                    WebDriverWait(driver, browser_wait_timeout).until_not(_title_matches_ignoring_case(title))
+                    if not _wait_for_title_change(driver, title, browser_wait_timeout):
+                        raise TimeoutError("Timed out waiting for DDoS-Guard title to change")
                 break
-            except TimeoutException:
+            except Exception:  # noqa: BLE001
                 logger.debug("Timeout waiting for selector")
                 self._raise_if_manual_captcha(driver)
                 html_element = self._get_html_element(driver)

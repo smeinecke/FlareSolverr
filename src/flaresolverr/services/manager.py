@@ -4,8 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from selenium.webdriver.chrome.webdriver import WebDriver
-
+from flaresolverr.backends.browser_context import BrowserContext
 from flaresolverr.services.base import ChallengeService
 
 
@@ -27,7 +26,7 @@ class ServiceManager:
         """Get a registered challenge service by name."""
         return self._services.get(name)
 
-    def detect(self, driver: WebDriver, enabled_services: list[str]) -> str | None:
+    def detect(self, driver: BrowserContext, enabled_services: list[str]) -> str | None:
         """Detect which enabled service has an active challenge.
 
         Returns:
@@ -43,7 +42,7 @@ class ServiceManager:
                 return name
         return None
 
-    def resolve(self, driver: WebDriver, service_name: str) -> None:
+    def resolve(self, driver: BrowserContext, service_name: str) -> None:
         """Resolve the challenge for the given service.
 
         Raises:

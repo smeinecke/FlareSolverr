@@ -6,14 +6,10 @@ logger = logging.getLogger(__name__)
 import time
 from typing import Any
 
-from selenium.common import TimeoutException
-from selenium.webdriver.chrome.webdriver import WebDriver
-from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.expected_conditions import presence_of_element_located, title_is
-from selenium.webdriver.support.wait import WebDriverWait
 
+from flaresolverr.backends.browser_context import BrowserContext
 from flaresolverr.services.base import ChallengeService, _wait_for_redirect
 from flaresolverr.utils import (
     _human_like_click,
@@ -47,7 +43,7 @@ CLOUDFLARE_SELECTORS = [
 class CloudflareService(ChallengeService):
     name = "cloudflare"
 
-    def detect(self, driver: WebDriver) -> bool:
+    def detect(self, driver: BrowserContext) -> bool:
         try:
             page_title = (driver.title or "").strip()
         except Exception:  # noqa: BLE001
@@ -68,7 +64,7 @@ class CloudflareService(ChallengeService):
                 return True
         return False
 
-    def resolve(self, driver: WebDriver) -> None:
+    def resolve(self, driver: BrowserContext) -> None:
         html_element = self._get_html_element(driver)
         if html_element is None:
             return
@@ -95,12 +91,14 @@ class CloudflareService(ChallengeService):
             try:
                 for title in CLOUDFLARE_TITLES:
                     logger.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
-                    WebDriverWait(driver, browser_wait_timeout).until_not(title_is(title))
+                    if not driver.wait_for_title_not(title, browser_wait_timeout):
+                        raise TimeoutError("Timed out waiting for Cloudflare title to change")
                 for selector in CLOUDFLARE_SELECTORS:
                     logger.debug("Waiting for selector (attempt " + str(attempt) + "): " + selector)
-                    WebDriverWait(driver, browser_wait_timeout).until_not(presence_of_element_located((By.CSS_SELECTOR, selector)))
+                    if not driver.wait_for_absence(By.CSS_SELECTOR, selector, browser_wait_timeout):
+                        raise TimeoutError("Timed out waiting for Cloudflare selector to disappear")
                 break
-            except TimeoutException:
+            except Exception:  # noqa: BLE001
                 logger.debug("Timeout waiting for selector")
                 page_source = ""
                 try:
@@ -150,7 +148,7 @@ class CloudflareService(ChallengeService):
 
         _wait_for_redirect(driver, html_element, browser_wait_timeout)
 
-    def get_debug_info(self, driver: WebDriver, stealth_mode: str | None = None) -> dict[str, Any] | None:
+    def get_debug_info(self, driver: BrowserContext, stealth_mode: str | None = None) -> dict[str, Any] | None:
         """Collect a bounded failure record for Cloudflare challenge timeouts.
 
         Includes the generic browser/response evidence plus Cloudflare-specific
@@ -197,7 +195,7 @@ class CloudflareService(ChallengeService):
         info["challengePresent"] = _safe(lambda: self.detect(driver), None)
         return info
 
-    def _probe_challenge_state(self, driver: WebDriver) -> dict[str, Any] | None:
+    def _probe_challenge_state(self, driver: BrowserContext) -> dict[str, Any] | None:
         """Evaluate the visible challenge DOM state in one round-trip.
 
         All checks are visibility-aware: hidden template markup (which always
@@ -249,7 +247,7 @@ class CloudflareService(ChallengeService):
             """
         )
 
-    def _should_attempt_verify_click(self, driver: WebDriver) -> bool:
+    def _should_attempt_verify_click(self, driver: BrowserContext) -> bool:
         try:
             state = self._probe_challenge_state(driver)
         except Exception as e:  # noqa: BLE001
@@ -277,10 +275,10 @@ class CloudflareService(ChallengeService):
         logger.debug("_should_attempt_verify_click: False (no markers). iframes=%s", state.get("iframeSrcs"))
         return False
 
-    def _click_verify(self, driver: WebDriver, num_tabs: int = 1) -> None:
+    def _click_verify(self, driver: BrowserContext, num_tabs: int = 1) -> None:
         try:
             logger.debug("Try to find the Cloudflare verify checkbox...")
-            actions = ActionChains(driver)
+            actions = driver.action_chain()
             actions.pause(_random_delay(4.0, 6.0))
             for _ in range(num_tabs):
                 actions.send_keys(Keys.TAB).pause(_random_delay(0.08, 0.15))
@@ -290,7 +288,7 @@ class CloudflareService(ChallengeService):
         except Exception:  # noqa: BLE001
             logger.debug("Cloudflare verify checkbox not found on the page.")
         finally:
-            driver.switch_to.default_content()
+            driver.switch_to_default_content()
 
         try:
             logger.debug("Try to find the Cloudflare 'Verify you are human' button...")
