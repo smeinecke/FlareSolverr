@@ -722,17 +722,26 @@ def _wait_for_debug_port(port: int, timeout: int = 15) -> None:
     raise RuntimeError(f"Chrome debug port {port} did not become ready within {timeout}s")
 
 
+_LAST_CLEANUP_TIME = 0.0
+
+
 def _cleanup_orphaned_temp_dirs() -> None:
     """Remove leftover Chrome profile and extension temp directories.
 
     This is safe to call repeatedly (e.g. on every session destroy). It skips
     directories that still have a SingletonLock (Chrome is still running) and
     only removes directories older than a short cutoff to avoid interfering with
-    active sessions.
+    active sessions.  Rate-limited to at most once per minute.
     """
+    global _LAST_CLEANUP_TIME
+    now = time.time()
+    if now - _LAST_CLEANUP_TIME < 60:
+        return
+    _LAST_CLEANUP_TIME = now
+
     tmpdir = tempfile.gettempdir()
     patterns = ["flaresolverr-chrome-*", "fspe-*", "uc-chrome-*"]
-    cutoff = time.time() - 300  # 5 minutes old
+    cutoff = now - 300  # 5 minutes old
 
     for pattern in patterns:
         for path in glob.glob(os.path.join(tmpdir, pattern)):
