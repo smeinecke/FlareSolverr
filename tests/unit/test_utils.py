@@ -195,8 +195,8 @@ def test_cleanup_orphaned_temp_dirs_removes_old_dirs(monkeypatch) -> None:
 
     old_dir = os.path.join(tmpdir, "uc-chrome-old")
     os.makedirs(old_dir)
-    # Set mtime to 2 minutes ago (past the 60-second cutoff)
-    os.utime(old_dir, (time.time() - 120, time.time() - 120))
+    # Set mtime to 10 minutes ago (past the 5-minute cutoff)
+    os.utime(old_dir, (time.time() - 600, time.time() - 600))
 
     utils._cleanup_orphaned_temp_dirs()
     assert not os.path.exists(old_dir)
@@ -222,7 +222,7 @@ def test_cleanup_orphaned_temp_dirs_skips_locked_dirs(monkeypatch) -> None:
     locked_dir = os.path.join(tmpdir, "uc-chrome-locked")
     os.makedirs(locked_dir)
     open(os.path.join(locked_dir, "SingletonLock"), "w").close()
-    os.utime(locked_dir, (time.time() - 120, time.time() - 120))
+    os.utime(locked_dir, (time.time() - 600, time.time() - 600))
 
     utils._cleanup_orphaned_temp_dirs()
     assert os.path.exists(locked_dir)
@@ -235,7 +235,7 @@ def test_cleanup_orphaned_temp_dirs_runs_repeatedly(monkeypatch) -> None:
 
     old_dir = os.path.join(tmpdir, "fspe-old")
     os.makedirs(old_dir)
-    os.utime(old_dir, (time.time() - 120, time.time() - 120))
+    os.utime(old_dir, (time.time() - 600, time.time() - 600))
 
     utils._cleanup_orphaned_temp_dirs()
     assert not os.path.exists(old_dir)
@@ -243,6 +243,6 @@ def test_cleanup_orphaned_temp_dirs_runs_repeatedly(monkeypatch) -> None:
     # Second call should still clean up a newly leaked dir
     new_old_dir = os.path.join(tmpdir, "fspe-older")
     os.makedirs(new_old_dir)
-    os.utime(new_old_dir, (time.time() - 120, time.time() - 120))
+    os.utime(new_old_dir, (time.time() - 600, time.time() - 600))
     utils._cleanup_orphaned_temp_dirs()
     assert not os.path.exists(new_old_dir)

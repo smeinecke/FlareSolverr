@@ -732,7 +732,7 @@ def _cleanup_orphaned_temp_dirs() -> None:
     """
     tmpdir = tempfile.gettempdir()
     patterns = ["flaresolverr-chrome-*", "fspe-*", "uc-chrome-*"]
-    cutoff = time.time() - 60  # 1 minute old
+    cutoff = time.time() - 300  # 5 minutes old
 
     for pattern in patterns:
         for path in glob.glob(os.path.join(tmpdir, pattern)):
@@ -769,6 +769,7 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
     if browser_executable_path:
         options.binary_location = browser_executable_path
 
+    user_data_dir = None
     try:
         if custom_chromium:
             if not browser_executable_path:
@@ -864,10 +865,13 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             driver.quit = _uc_quit_with_cleanup  # type: ignore[method-assign]
     except Exception as e:
         logging.error("Error starting Chrome: %s", e)
-        # If Chrome failed to start, the proxy extension temp dir was already
-        # created but will never be cleaned up by driver.quit(). Remove it now.
+        # If Chrome failed to start, the proxy extension temp dir and the
+        # user data dir were already created but will never be cleaned up by
+        # driver.quit(). Remove them now.
         if proxy_ext_dir and os.path.isdir(proxy_ext_dir):
             shutil.rmtree(proxy_ext_dir, ignore_errors=True)
+        if user_data_dir and os.path.isdir(user_data_dir):
+            shutil.rmtree(user_data_dir, ignore_errors=True)
         raise e
 
     _maybe_normalize_user_agent(driver, effective_stealth_mode)
