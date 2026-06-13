@@ -65,7 +65,7 @@ class TestBackendCreation(unittest.TestCase):
         # This prevents "user data directory already in use" errors in CI.
         if os.name != "nt":
             os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
-            os.system("pkill -f chromium >/dev/null 2>&1 || true")
+            os.system("pkill -f -- '--no-sandbox' >/dev/null 2>&1 || true")
 
     def _create_and_navigate(self, backend_name: str) -> None:
         """Helper: create driver, navigate to example.com, verify title."""
@@ -243,7 +243,7 @@ class TestBrowserContextProtocol(unittest.TestCase):
     def tearDown(self):
         if os.name != "nt":
             os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
-            os.system("pkill -f chromium >/dev/null 2>&1 || true")
+            os.system("pkill -f -- '--no-sandbox' >/dev/null 2>&1 || true")
 
     def _test_protocol(self, backend_name: str) -> None:
         backend = backends.get_backend(backend_name)
@@ -438,7 +438,7 @@ class TestBackendScreenshot(unittest.TestCase):
     def tearDown(self):
         if os.name != "nt":
             os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
-            os.system("pkill -f chromium >/dev/null 2>&1 || true")
+            os.system("pkill -f -- '--no-sandbox' >/dev/null 2>&1 || true")
 
     def _test_screenshot(self, backend_name: str) -> None:
         backend = backends.get_backend(backend_name)
@@ -518,7 +518,7 @@ class TestBackendJavaScriptDom(unittest.TestCase):
     def tearDown(self):
         if os.name != "nt":
             os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
-            os.system("pkill -f chromium >/dev/null 2>&1 || true")
+            os.system("pkill -f -- '--no-sandbox' >/dev/null 2>&1 || true")
 
     def _test_js_dom(self, backend_name: str) -> None:
         backend = backends.get_backend(backend_name)
@@ -611,7 +611,7 @@ class TestBackendWaitConditions(unittest.TestCase):
     def tearDown(self):
         if os.name != "nt":
             os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
-            os.system("pkill -f chromium >/dev/null 2>&1 || true")
+            os.system("pkill -f -- '--no-sandbox' >/dev/null 2>&1 || true")
 
     def _test_waits(self, backend_name: str) -> None:
         backend = backends.get_backend(backend_name)
