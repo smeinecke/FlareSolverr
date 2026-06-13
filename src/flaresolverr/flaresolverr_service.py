@@ -960,10 +960,14 @@ def _set_request_cookies(req: V1RequestBase, driver: WebDriver, target_url: str)
     if req.cookies is None or len(req.cookies) == 0:
         return
     logging.debug("Setting cookies...")
-    # Navigate to the origin first so Chrome accepts domain-scoped cookies.
+    # Navigate to the origin first so Chrome accepts domain-scoped cookies,
+    # but skip if we're already on the same origin.
     parsed = urlparse(target_url)
     origin = f"{parsed.scheme}://{parsed.netloc}"
-    driver.get(origin)
+    current = urlparse(driver.current_url)
+    current_origin = f"{current.scheme}://{current.netloc}"
+    if current_origin != origin:
+        driver.get(origin)
     for cookie in req.cookies:
         driver.delete_cookie(cookie["name"])
         driver.add_cookie(cookie)
