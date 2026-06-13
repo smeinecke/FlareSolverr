@@ -812,10 +812,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         if enabled_services is None:
             enabled_services = ["cloudflare", "ddos_guard"]
         if req.waitInSeconds and req.waitInSeconds > 0 and req.waitInSeconds >= timeout * 0.8:
-            logging.warning(
-                f"waitInSeconds ({req.waitInSeconds}s) is close to maxTimeout ({timeout}s); "
-                "the request may time out before the wait completes."
-            )
+            logging.warning(f"waitInSeconds ({req.waitInSeconds}s) is close to maxTimeout ({timeout}s); the request may time out before the wait completes.")
         challenge_result = func_timeout(timeout, _evil_logic, (req, driver, method, enabled_services))
         if session is not None:
             session.request_count += 1
