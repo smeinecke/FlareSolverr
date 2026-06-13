@@ -408,7 +408,6 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
         options.add_argument("--disable-component-update")
         options.add_argument("--metrics-recording-only")
         options.add_argument("--no-pings")
-        options.add_argument("--in-process-gpu")
         options.add_argument("--disable-features=MediaRouter,GlobalMediaControls,AutofillServerCommunication,OptimizationHints,Translate")
 
     for extra_flag in get_config_chrome_extra_flags():
@@ -431,6 +430,13 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
 
     if platform.machine().startswith(("arm", "aarch")):
         options.add_argument("--disable-gpu-sandbox")
+
+    if get_config_headless() and os.name != "nt":
+        # Force SwiftShader (software GL) so the GPU process doesn't try to
+        # open a real GL context and crash with a CHECK failure when no GPU is
+        # available (e.g. CI, Docker, headless servers).  WebGL still works via
+        # SwiftShader; --webgl-unmasked-* flags still override the fingerprint.
+        options.add_argument("--use-gl=swiftshader")
 
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
