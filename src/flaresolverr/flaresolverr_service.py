@@ -220,7 +220,7 @@ def _redact_request_for_log(req_dict: dict) -> dict:
     """Return a copy of the request dict with proxy password redacted."""
     proxy = req_dict.get("proxy")
     if isinstance(proxy, dict) and "password" in proxy:
-        req_dict = {**req_dict, "proxy": {**proxy, "password": "***"}}
+        req_dict = {**req_dict, "proxy": {**proxy, "password": "***"}}  # nosec B105
     return req_dict
 
 
