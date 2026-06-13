@@ -1393,21 +1393,27 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
 
     script = f"""
     (function() {{
-        try {{
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', {json.dumps(target_url)}, true);
-            var headers = {headers_json};
-            for (var name in headers) {{
-                if (headers.hasOwnProperty(name)) {{
-                    xhr.setRequestHeader(name, headers[name]);
-                }}
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', {json.dumps(target_url)}, true);
+        var headers = {headers_json};
+        for (var name in headers) {{
+            if (headers.hasOwnProperty(name)) {{
+                xhr.setRequestHeader(name, headers[name]);
             }}
-            xhr.send({json.dumps(post_data)});
+        }}
+        xhr.onload = function() {{
             document.open();
             document.write(xhr.responseText);
             document.close();
             window.__flaresolverr_raw_post_status = xhr.status;
             window.__flaresolverr_raw_post_done = true;
+        }};
+        xhr.onerror = function() {{
+            window.__flaresolverr_raw_post_error = 'Network error';
+            window.__flaresolverr_raw_post_done = true;
+        }};
+        try {{
+            xhr.send({json.dumps(post_data)});
         }} catch (e) {{
             window.__flaresolverr_raw_post_error = e.toString();
             window.__flaresolverr_raw_post_done = true;
