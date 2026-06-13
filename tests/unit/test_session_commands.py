@@ -381,7 +381,7 @@ class TestSessionsCdp:
         _register_session(_patch_sessions_storage, driver)
 
         req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1"})
-        with pytest.raises(Exception, match="Error executing CDP command"):
+        with pytest.raises(Exception, match="'cdp.cmd' is mandatory"):
             svc._cmd_sessions_cdp(req)
 
     def test_cdp_command_error_raises(self, _patch_sessions_storage):

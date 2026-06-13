@@ -746,6 +746,8 @@ def _cmd_sessions_cdp(req: V1RequestBase) -> V1ResponseBase:
         driver = session.driver
         cdp_cmd = req.cdp.get("cmd") if req.cdp else None
         cdp_params = req.cdp.get("params", {}) if req.cdp else {}
+        if not cdp_cmd:
+            raise Exception("Request parameter 'cdp.cmd' is mandatory in 'sessions.cdp' command.")
         logging.debug(f"sessions.cdp (session_id={session_id}, cmd={cdp_cmd})")
 
         try:
@@ -824,7 +826,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         raise Exception("Error solving the challenge. " + str(e).replace("\n", "\\n"))
     finally:
         # Release session lock only if this thread acquired it
-        if lock_acquired:
+        if lock_acquired and session is not None:
             session.lock.release()
             logging.debug(f"session lock released (session_id={session.session_id})")
         # Quit one-off webdriver instances created for non-session requests
@@ -1072,6 +1074,8 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
                         logging.debug(f"Action click: alert already gone: {alert_err}")
             logging.debug(f"Action click: done selector={selector}")
         elif action_type == "wait_for":
+            if selector is None:
+                raise Exception("Action 'wait_for' requires a 'selector' field.")
             timeout_ms = action.get("timeout")
             wait_timeout = timeout_ms / 1000.0 if timeout_ms is not None else default_action_timeout
             logging.debug(f"Action wait_for: selector={selector}, timeout={wait_timeout}s")
