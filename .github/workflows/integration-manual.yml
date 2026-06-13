@@ -167,6 +167,7 @@ jobs:
   backend-matrix:
     name: Backend Matrix Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -227,7 +228,7 @@ jobs:
           SKIP_BACKEND_CAMOUFOX: ${{ matrix.backend != 'camoufox' && 'true' || '' }}
           SKIP_BACKEND_SELENIUMBASE: ${{ matrix.backend != 'seleniumbase' && 'true' || '' }}
         run: |
-          uv run pytest tests/integration/test_backends.py -vv -m integration -k "${{ matrix.backend }}"
+          uv run pytest tests/integration/test_backends.py -vv -m integration -k "${{ matrix.backend }}" --timeout=120
 
       - name: Run backend creation smoke test
         env:
@@ -239,7 +240,7 @@ jobs:
           SKIP_BACKEND_CAMOUFOX: ${{ matrix.backend != 'camoufox' && 'true' || '' }}
           SKIP_BACKEND_SELENIUMBASE: ${{ matrix.backend != 'seleniumbase' && 'true' || '' }}
         run: |
-          uv run pytest tests/integration/test_backends.py::TestBackendCreation -vv -m integration -k "${{ matrix.backend }}"
+          uv run pytest tests/integration/test_backends.py::TestBackendCreation -vv -m integration -k "${{ matrix.backend }}" --timeout=120
 
   full-integration-matrix:
     name: Full Integration Tests (${{ matrix.backend }})

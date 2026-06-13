@@ -60,8 +60,7 @@ class TestBackendCreation(unittest.TestCase):
     the required dependencies are not installed.
     """
 
-    @classmethod
-    def tearDownClass(cls):
+    def tearDown(self):
         # Aggressive cleanup: kill any leftover Chrome / chromium processes.
         # This prevents "user data directory already in use" errors in CI.
         if os.name != "nt":
@@ -241,8 +240,7 @@ class TestBrowserContextProtocol(unittest.TestCase):
     Uses a real browser context from each available backend.
     """
 
-    @classmethod
-    def tearDownClass(cls):
+    def tearDown(self):
         if os.name != "nt":
             os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
             os.system("pkill -f chromium >/dev/null 2>&1 || true")
@@ -437,8 +435,7 @@ class TestApiWithBackends(unittest.TestCase):
 class TestBackendScreenshot(unittest.TestCase):
     """Verify screenshots are valid PNG images."""
 
-    @classmethod
-    def tearDownClass(cls):
+    def tearDown(self):
         if os.name != "nt":
             os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
             os.system("pkill -f chromium >/dev/null 2>&1 || true")
@@ -518,8 +515,7 @@ class TestBackendScreenshot(unittest.TestCase):
 class TestBackendJavaScriptDom(unittest.TestCase):
     """Verify JavaScript can read and modify the DOM."""
 
-    @classmethod
-    def tearDownClass(cls):
+    def tearDown(self):
         if os.name != "nt":
             os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
             os.system("pkill -f chromium >/dev/null 2>&1 || true")
@@ -612,8 +608,7 @@ class TestBackendJavaScriptDom(unittest.TestCase):
 class TestBackendWaitConditions(unittest.TestCase):
     """Verify wait_for_visibility and wait_for_title on real pages."""
 
-    @classmethod
-    def tearDownClass(cls):
+    def tearDown(self):
         if os.name != "nt":
             os.system("pkill -f 'chrome.*--remote-debugging' >/dev/null 2>&1 || true")
             os.system("pkill -f chromium >/dev/null 2>&1 || true")

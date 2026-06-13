@@ -35,6 +35,14 @@ def _is_custom_chromium() -> bool:
     if _CUSTOM_CHROMIUM is not None:
         return _CUSTOM_CHROMIUM
 
+    env_override = os.environ.get("FLARESOLVERR_CUSTOM_CHROMIUM", "").lower()
+    if env_override in ("1", "true"):
+        _CUSTOM_CHROMIUM = True
+        return True
+    if env_override in ("0", "false"):
+        _CUSTOM_CHROMIUM = False
+        return False
+
     machine = platform.machine().lower()
     if machine not in ("x86_64", "amd64", "aarch64", "arm64"):
         _CUSTOM_CHROMIUM = False
