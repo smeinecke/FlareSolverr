@@ -274,3 +274,28 @@ def test_cleanup_orphaned_temp_dirs_rate_limited(monkeypatch) -> None:
     os.utime(new_old_dir, (time.time() - 600, time.time() - 600))
     utils._cleanup_orphaned_temp_dirs()
     assert os.path.exists(new_old_dir)
+
+
+def test_get_webdriver_cleans_proxy_ext_dir_on_failure(monkeypatch) -> None:
+    """If Chrome fails to start, the proxy extension temp dir must be removed."""
+    tmpdir = tempfile.mkdtemp()
+    ext_dir = os.path.join(tmpdir, "fspe-failtest")
+    os.makedirs(ext_dir)
+    monkeypatch.setattr(
+        utils, "_build_stealth_extension_dir", lambda: (ext_dir, "extid")
+    )
+    monkeypatch.setattr(utils, "get_chrome_exe_path", lambda: "/fake/chrome")
+    monkeypatch.setattr(utils, "_is_custom_chromium", lambda: True)
+    monkeypatch.setattr(utils, "_configure_headless", lambda: False)
+    monkeypatch.setattr(utils, "_find_free_port", lambda: 9999)
+    monkeypatch.setattr(utils, "_resolve_driver_paths", lambda: (None, None))
+    import subprocess
+
+    def failing_popen(*args, **kwargs):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(subprocess, "Popen", failing_popen)
+
+    with pytest.raises(OSError, match="No space left on device"):
+        utils.get_webdriver()
+    assert not os.path.exists(ext_dir)

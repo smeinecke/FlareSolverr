@@ -15,9 +15,8 @@ def _compute_state() -> str:
     try:
         max_sessions = utils.get_config_session_max_count()
         try:
-            # Make a shallow copy to avoid mutation-during-read race
-            sessions_copy = dict(flaresolverr_service.SESSIONS_STORAGE.sessions)
-            session_count = len(sessions_copy)
+            with flaresolverr_service.SESSIONS_STORAGE._lock:
+                session_count = len(flaresolverr_service.SESSIONS_STORAGE.sessions)
         except Exception:
             # If we can't read sessions, assume overloaded to be safe
             logging.warning("Agent-check: could not read session count, assuming drain")

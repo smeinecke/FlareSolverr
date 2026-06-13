@@ -92,7 +92,20 @@ class V1RequestBase(object):
     scriptInject: list[dict[str, Any]] | None = None  # noqa
 
     def __init__(self, _dict: dict[str, Any]):
-        self.__dict__.update(_dict)
+        # Explicit allowlist to prevent arbitrary attribute injection from JSON input
+        known_attrs = {
+            "cmd", "cookies", "maxTimeout", "proxy", "session",
+            "session_ttl_minutes", "sessionMaxRuntime", "sessionIdleTimeout",
+            "headers", "userAgent", "acceptLanguage", "stealth", "stealthMode",
+            "url", "postData", "postDataRaw", "postDataContentType",
+            "returnOnlyCookies", "returnScreenshot", "download", "returnRawHtml",
+            "waitInSeconds", "script", "selector", "disableMedia",
+            "tabs_till_verify", "actions", "captchaSolver", "enabledServices", "cdp",
+            "scriptInject",
+        }
+        for key, value in _dict.items():
+            if key in known_attrs:
+                setattr(self, key, value)
 
 
 class V1ResponseBase(object):

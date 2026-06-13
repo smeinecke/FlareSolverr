@@ -502,7 +502,7 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
         payload = {"mode": "direct"}
         logging.debug("Clearing proxy on session via extension")
     elif not _is_proxy_valid(proxy):
-        raise RuntimeError(f"Invalid proxy config (schema required, e.g. http://): {proxy!r}")
+        raise RuntimeError(f"Invalid proxy config (schema required, e.g. http:// or socks5://): {proxy!r}")
     else:
         proxy_url = proxy["url"]
         _check_proxy_reachable(proxy_url)

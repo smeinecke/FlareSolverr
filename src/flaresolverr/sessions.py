@@ -169,7 +169,7 @@ class SessionsStorage:
                 if session.user_agent_override is not None:
                     utils.apply_user_agent_override(session.driver, session.user_agent_override, accept_language)
                 session.accept_language_override = accept_language
-            elif session.accept_language_override != accept_language:
+            elif session.accept_language_override is not None and session.accept_language_override != accept_language:
                 raise ValueError(
                     f"Session '{session.session_id}' already initialized with acceptLanguage={session.accept_language_override!r}. "
                     f"Requested acceptLanguage={accept_language!r}. Destroy/recreate the session to change this setting."
