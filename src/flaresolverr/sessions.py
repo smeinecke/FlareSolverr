@@ -6,7 +6,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, cast
 from uuid import uuid1
 
 from selenium.webdriver.chrome.webdriver import WebDriver
@@ -134,16 +134,13 @@ def _apply_proxy_to_driver(driver: WebDriver | BrowserContext, proxy: dict[str, 
     """Apply proxy changes to a driver, handling both raw WebDriver and BrowserContext backends."""
     # BrowserContext backends (Playwright, Camoufox, SeleniumBrowserContext)
     if hasattr(driver, "apply_proxy"):
-        driver.apply_proxy(proxy)
+        cast(BrowserContext, driver).apply_proxy(proxy)
         return
     # Raw WebDriver with Chrome extension (undetected_chromedriver)
     if hasattr(driver, "_proxy_ext_id"):
-        utils.apply_proxy_to_session(driver, proxy)
+        utils.apply_proxy_to_session(cast(WebDriver, driver), proxy)
         return
-    raise NotImplementedError(
-        "Dynamic proxy switching is not supported by this backend. "
-        "Destroy and recreate the session to change the proxy."
-    )
+    raise NotImplementedError("Dynamic proxy switching is not supported by this backend. Destroy and recreate the session to change the proxy.")
 
 
 class SessionsStorage:

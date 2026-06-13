@@ -79,6 +79,9 @@ class MockWebDriver:
     def close(self):
         pass
 
+    def switch_to_default_content(self):
+        pass
+
 
 class TestTurnstileRetryFix:
     """Tests for turnstile captcha retry fix."""
@@ -240,6 +243,9 @@ class TestTurnstileIntegration:
             def execute_script(self, script):
                 return None
 
+            def switch_to_default_content(self):
+                pass
+
         driver = MockTurnstileDriver()
 
         req = V1RequestBase({
@@ -271,6 +277,9 @@ class TestTurnstileEdgeCases:
             def find_elements(self, by, value):
                 return []
 
+            def switch_to_default_content(self):
+                pass
+
         driver = NoTurnstileDriver()
 
         req = V1RequestBase({
@@ -288,6 +297,9 @@ class TestTurnstileEdgeCases:
         class AnyDriver:
             def __init__(self):
                 self.switch_to = MagicMock()
+
+            def switch_to_default_content(self):
+                pass
 
         driver = AnyDriver()
 

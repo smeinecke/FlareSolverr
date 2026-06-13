@@ -3,14 +3,10 @@
 import logging
 import time
 
-from selenium.common import TimeoutException
-from selenium.webdriver.chrome.webdriver import WebDriver
-from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.expected_conditions import presence_of_element_located, title_is
-from selenium.webdriver.support.wait import WebDriverWait
 
+from flaresolverr.backends.browser_context import BrowserContext
 from flaresolverr.services.base import ChallengeService, _wait_for_redirect
 from flaresolverr.utils import _human_like_click, _random_delay
 
@@ -39,7 +35,7 @@ CLOUDFLARE_SELECTORS = [
 class CloudflareService(ChallengeService):
     name = "cloudflare"
 
-    def detect(self, driver: WebDriver) -> bool:
+    def detect(self, driver: BrowserContext) -> bool:
         try:
             page_title = (driver.title or "").strip()
         except Exception:
@@ -60,7 +56,7 @@ class CloudflareService(ChallengeService):
                 return True
         return False
 
-    def resolve(self, driver: WebDriver) -> None:
+    def resolve(self, driver: BrowserContext) -> None:
         html_element = self._get_html_element(driver)
         if html_element is None:
             return
@@ -73,12 +69,14 @@ class CloudflareService(ChallengeService):
             try:
                 for title in CLOUDFLARE_TITLES:
                     logging.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
-                    WebDriverWait(driver, SHORT_TIMEOUT).until_not(title_is(title))
+                    if driver.wait_for_title_not(title, SHORT_TIMEOUT):
+                        continue
                 for selector in CLOUDFLARE_SELECTORS:
                     logging.debug("Waiting for selector (attempt " + str(attempt) + "): " + selector)
-                    WebDriverWait(driver, SHORT_TIMEOUT).until_not(presence_of_element_located((By.CSS_SELECTOR, selector)))
+                    if driver.wait_for_absence(By.CSS_SELECTOR, selector, SHORT_TIMEOUT):
+                        continue
                 break
-            except TimeoutException:
+            except Exception:
                 logging.debug("Timeout waiting for selector")
                 page_source = ""
                 try:
@@ -101,9 +99,10 @@ class CloudflareService(ChallengeService):
                 if html_element is None:
                     continue
 
-        _wait_for_redirect(driver, html_element, SHORT_TIMEOUT)
+        if html_element is not None:
+            _wait_for_redirect(driver, html_element, SHORT_TIMEOUT)
 
-    def _should_attempt_verify_click(self, driver: WebDriver) -> bool:
+    def _should_attempt_verify_click(self, driver: BrowserContext) -> bool:
         try:
             if driver.find_elements(By.XPATH, "//input[@type='button' and @value='Verify you are human']"):
                 return True
@@ -140,10 +139,10 @@ class CloudflareService(ChallengeService):
             logging.debug("_should_attempt_verify_click: exception %s", e)
             return False
 
-    def _click_verify(self, driver: WebDriver, num_tabs: int = 1) -> None:
+    def _click_verify(self, driver: BrowserContext, num_tabs: int = 1) -> None:
         try:
             logging.debug("Try to find the Cloudflare verify checkbox...")
-            actions = ActionChains(driver)
+            actions = driver.action_chain()
             actions.pause(_random_delay(4.0, 6.0))
             for _ in range(num_tabs):
                 actions.send_keys(Keys.TAB).pause(_random_delay(0.08, 0.15))
@@ -153,7 +152,7 @@ class CloudflareService(ChallengeService):
         except Exception:
             logging.debug("Cloudflare verify checkbox not found on the page.")
         finally:
-            driver.switch_to.default_content()
+            driver.switch_to_default_content()
 
         try:
             logging.debug("Try to find the Cloudflare 'Verify you are human' button...")

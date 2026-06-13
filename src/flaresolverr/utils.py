@@ -39,7 +39,6 @@ from selenium.common import WebDriverException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.common.action_chains import ActionChains
 from flaresolverr import undetected_chromedriver as uc  # type: ignore[import-untyped]
 
 FLARESOLVERR_VERSION: str | None = None
@@ -583,6 +582,77 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
         time.sleep(0.05)
 
     raise RuntimeError("Proxy extension did not acknowledge within timeout")
+
+
+def create_proxy_extension(proxy: dict[str, Any]) -> str:
+    parsed_url = urllib.parse.urlparse(proxy["url"])
+    scheme = parsed_url.scheme
+    host = parsed_url.hostname
+    port = parsed_url.port
+    username = proxy["username"]
+    password = proxy["password"]
+    manifest_json = """
+    {
+        "version": "1.0.0",
+        "manifest_version": 3,
+        "name": "Chrome Proxy",
+        "permissions": [
+            "proxy",
+            "tabs",
+            "storage",
+            "webRequest",
+            "webRequestAuthProvider"
+        ],
+        "host_permissions": [
+          "<all_urls>"
+        ],
+        "background": {
+          "service_worker": "background.js"
+        },
+        "minimum_chrome_version": "76.0.0"
+    }
+    """
+
+    background_js = """
+    var config = {
+        mode: "fixed_servers",
+        rules: {
+            singleProxy: {
+                scheme: "%s",
+                host: "%s",
+                port: %d
+            },
+            bypassList: ["localhost"]
+        }
+    };
+
+    chrome.proxy.settings.set({value: config, scope: "regular"}, function() {});
+
+    function callbackFn(details) {
+        return {
+            authCredentials: {
+                username: "%s",
+                password: "%s"
+            }
+        };
+    }
+
+    chrome.webRequest.onAuthRequired.addListener(
+        callbackFn,
+        { urls: ["<all_urls>"] },
+        ['blocking']
+    );
+    """ % (scheme, host, port, username, password)
+
+    proxy_extension_dir = tempfile.mkdtemp()
+
+    with open(os.path.join(proxy_extension_dir, "manifest.json"), "w") as f:
+        f.write(manifest_json)
+
+    with open(os.path.join(proxy_extension_dir, "background.js"), "w") as f:
+        f.write(background_js)
+
+    return proxy_extension_dir
 
 
 def _resolve_driver_paths() -> tuple[str | None, str | None]:
@@ -1181,7 +1251,7 @@ def _generate_bezier_curve(start: tuple[float, float], end: tuple[float, float],
     return curve_points
 
 
-def _human_like_click(driver: WebDriver, element) -> None:
+def _human_like_click(driver: BrowserContext, element) -> None:
     """Perform a human-like mouse movement and click with bezier curves and randomness."""
     location = element.location
     size = element.size
@@ -1212,7 +1282,7 @@ def _human_like_click(driver: WebDriver, element) -> None:
 
     points = _generate_bezier_curve((start_x, start_y), (target_x, target_y), control_points=random.randint(1, 2))  # nosec B311
 
-    actions = ActionChains(driver)
+    actions = driver.action_chain()
     first_x, first_y = points[0]
     anchor_dx = round(first_x - element_center_x)
     anchor_dy = round(first_y - element_center_y)

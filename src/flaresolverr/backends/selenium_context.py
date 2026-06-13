@@ -44,6 +44,9 @@ class SeleniumElement(Element):
     def size(self) -> dict[str, int]:
         return self._element.size
 
+    def is_displayed(self) -> bool:
+        return self._element.is_displayed()
+
 
 class SeleniumActionChainBuilder(ActionChainBuilder):
     """Wraps Selenium ActionChains."""
@@ -67,6 +70,13 @@ class SeleniumActionChainBuilder(ActionChainBuilder):
 
     def move_by_offset(self, x: int, y: int) -> "SeleniumActionChainBuilder":
         self._actions.move_by_offset(x, y)
+        return self
+
+    def move_to_element_with_offset(self, element: Element, xoffset: int, yoffset: int) -> "SeleniumActionChainBuilder":
+        unwrapped = self._unwrap(element)
+        if unwrapped is None:
+            raise ValueError("move_to_element_with_offset requires a non-None element")
+        self._actions.move_to_element_with_offset(unwrapped, xoffset, yoffset)
         return self
 
     def pause(self, seconds: float) -> "SeleniumActionChainBuilder":
@@ -133,6 +143,12 @@ class SeleniumBrowserContext(BrowserContext):
 
     def get_cookies(self) -> list[dict[str, Any]]:
         return self._driver.get_cookies()
+
+    def delete_all_cookies(self) -> None:
+        self._driver.delete_all_cookies()
+
+    def get_log(self, log_type: str) -> list[dict[str, Any]]:
+        return self._driver.get_log(log_type)
 
     def get_screenshot_as_base64(self) -> str:
         return self._driver.get_screenshot_as_base64()
