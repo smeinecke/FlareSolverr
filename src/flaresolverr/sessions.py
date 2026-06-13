@@ -399,6 +399,16 @@ class SessionsStorage:
         self._cleanup_thread.start()
         logging.debug("Session cleanup thread started")
 
+    def destroy_all(self) -> list[str]:
+        """Destroy all sessions immediately. Returns list of destroyed session IDs."""
+        destroyed: list[str] = []
+        with self._lock:
+            snapshot = list(self.sessions.keys())
+        for session_id in snapshot:
+            if self.destroy(session_id):
+                destroyed.append(session_id)
+        return destroyed
+
     def stop_cleanup(self) -> None:
         """Signal the background cleanup thread to stop and wait for it."""
         if self._cleanup_thread is not None and self._cleanup_thread.is_alive():
