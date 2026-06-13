@@ -10,6 +10,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import urllib.parse
 from typing import Any
@@ -723,6 +724,7 @@ def _wait_for_debug_port(port: int, timeout: int = 15) -> None:
 
 
 _LAST_CLEANUP_TIME = 0.0
+_CLEANUP_LOCK = threading.Lock()
 
 
 def _cleanup_orphaned_temp_dirs() -> None:
@@ -735,9 +737,10 @@ def _cleanup_orphaned_temp_dirs() -> None:
     """
     global _LAST_CLEANUP_TIME
     now = time.time()
-    if now - _LAST_CLEANUP_TIME < 60:
-        return
-    _LAST_CLEANUP_TIME = now
+    with _CLEANUP_LOCK:
+        if now - _LAST_CLEANUP_TIME < 60:
+            return
+        _LAST_CLEANUP_TIME = now
 
     tmpdir = tempfile.gettempdir()
     patterns = ["flaresolverr-chrome-*", "fspe-*", "uc-chrome-*"]
