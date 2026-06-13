@@ -10,7 +10,7 @@ import time
 from datetime import timedelta
 from html import escape
 from typing import Any, cast
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlparse
 
 from func_timeout import FunctionTimedOut, func_timeout
 from selenium.common import UnexpectedAlertPresentException
@@ -811,6 +811,11 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             enabled_services = session.enabled_services
         if enabled_services is None:
             enabled_services = ["cloudflare", "ddos_guard"]
+        if req.waitInSeconds and req.waitInSeconds > 0 and req.waitInSeconds >= timeout * 0.8:
+            logging.warning(
+                f"waitInSeconds ({req.waitInSeconds}s) is close to maxTimeout ({timeout}s); "
+                "the request may time out before the wait completes."
+            )
         challenge_result = func_timeout(timeout, _evil_logic, (req, driver, method, enabled_services))
         if session is not None:
             session.request_count += 1
@@ -850,7 +855,7 @@ def _resolve_request_stealth_mode(req: V1RequestBase) -> str | None:
 def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
     token_input = driver.find_element(By.CSS_SELECTOR, "input[name='cf-turnstile-response']")
     current_value = token_input.get_attribute("value")
-    while True:
+    for attempt in range(30):
         cloudflare_svc = SERVICE_MANAGER.get_service("cloudflare")
         if isinstance(cloudflare_svc, CloudflareService):
             cloudflare_svc._click_verify(driver, num_tabs=tabs)
@@ -877,6 +882,8 @@ def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
             el.focus();
         """)
         time.sleep(1)
+    logging.warning("Failed to extract turnstile token after 30 attempts")
+    return None
 
 
 def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver) -> str | None:
@@ -949,17 +956,17 @@ def _navigate_request(req: V1RequestBase, driver: WebDriver, method: str, target
     return _resolve_turnstile_captcha(req, driver)
 
 
-def _set_request_cookies(req: V1RequestBase, driver: WebDriver, method: str, target_url: str) -> None:
+def _set_request_cookies(req: V1RequestBase, driver: WebDriver, target_url: str) -> None:
     if req.cookies is None or len(req.cookies) == 0:
         return
     logging.debug("Setting cookies...")
+    # Navigate to the origin first so Chrome accepts domain-scoped cookies.
+    parsed = urlparse(target_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    driver.get(origin)
     for cookie in req.cookies:
         driver.delete_cookie(cookie["name"])
         driver.add_cookie(cookie)
-    if method == "POST":
-        _post_request(req, driver)
-    else:
-        driver.get(target_url)
 
 
 def _raise_if_access_denied(driver: WebDriver, page_title: str) -> None:
@@ -1256,8 +1263,11 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
     _configure_blocked_media(req, driver)
     _set_custom_headers(req, driver)
     _apply_js_injection(req, driver, "document_start")
+    # Set cookies before the main navigation so the request is sent once.
+    # We first load the origin to establish cookie domain scope, then set
+    # cookies and perform the actual navigation.
+    _set_request_cookies(req, driver, target_url)
     turnstile_token = _navigate_request(req, driver, method, target_url)
-    _set_request_cookies(req, driver, method, target_url)
 
     # wait for the page
     if utils.get_config_log_html():

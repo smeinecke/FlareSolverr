@@ -60,10 +60,9 @@ class DefaultSolver(CaptchaSolver):
 class SolverManager:
     """Manages available captcha solvers and routes to the appropriate one."""
 
-    _solvers: dict[str, CaptchaSolver] = {}
-    _default_solver: CaptchaSolver = DefaultSolver()
-
     def __init__(self):
+        self._solvers: dict[str, CaptchaSolver] = {}
+        self._default_solver: CaptchaSolver = DefaultSolver()
         self._register_builtin_solvers()
 
     def _register_builtin_solvers(self) -> None:
