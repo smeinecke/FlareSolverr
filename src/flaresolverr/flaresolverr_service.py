@@ -20,6 +20,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.expected_conditions import presence_of_element_located, visibility_of_element_located
 from selenium.webdriver.support.wait import WebDriverWait
 
+from flaresolverr import sessions
 from flaresolverr import utils
 from flaresolverr.captcha_solvers import SOLVER_MANAGER, get_available_solvers, get_config_captcha_solver
 from flaresolverr.dtos import (
@@ -428,6 +429,20 @@ def _cmd_sessions_destroy(req: V1RequestBase) -> V1ResponseBase:
     return V1ResponseBase({"status": STATUS_OK, "message": "The session has been removed."})
 
 
+def _get_session_locked(session_id: str) -> sessions.Session:
+    """Look up a session under SESSIONS_STORAGE._lock and acquire its driver lock.
+
+    Raises Exception if the session doesn't exist.  This avoids the TOCTOU race
+    between SESSIONS_STORAGE.exists() and SESSIONS_STORAGE.sessions[session_id].
+    """
+    with SESSIONS_STORAGE._lock:
+        session = SESSIONS_STORAGE.sessions.get(session_id)
+    if session is None:
+        raise Exception("The session doesn't exist.")
+    session.lock.acquire()
+    return session
+
+
 def _cmd_sessions_cleanup(req: V1RequestBase) -> V1ResponseBase:
     destroyed = SESSIONS_STORAGE.cleanup()
     return V1ResponseBase({"status": STATUS_OK, "message": f"Cleaned up {len(destroyed)} session(s).", "sessions": destroyed})
@@ -437,168 +452,170 @@ def _cmd_sessions_get(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
         raise Exception("Request parameter 'session' is mandatory in 'sessions.get' command.")
-    if not SESSIONS_STORAGE.exists(session_id):
-        raise Exception("The session doesn't exist.")
 
-    session = SESSIONS_STORAGE.sessions[session_id]
-    driver = session.driver
-    logging.debug(f"sessions.get (session_id={session_id})")
+    session = _get_session_locked(session_id)
+    try:
+        driver = session.driver
+        logging.debug(f"sessions.get (session_id={session_id})")
 
-    result = ChallengeResolutionResultT({})
-    result.url = driver.current_url
-    result.title = _safe_driver_call(lambda: driver.title, None)
-    result.response = _safe_driver_call(lambda: driver.page_source, None)
-    result.cookies = _safe_driver_call(driver.get_cookies, [])
-    result.userAgent = _safe_driver_call(lambda: driver.execute_script("return navigator.userAgent"), None)
+        result = ChallengeResolutionResultT({})
+        result.url = driver.current_url
+        result.title = _safe_driver_call(lambda: driver.title, None)
+        result.response = _safe_driver_call(lambda: driver.page_source, None)
+        result.cookies = _safe_driver_call(driver.get_cookies, [])
+        result.userAgent = _safe_driver_call(lambda: driver.execute_script("return navigator.userAgent"), None)
 
-    res = V1ResponseBase({})
-    res.status = STATUS_OK
-    res.message = "Session info retrieved successfully."
-    res.solution = result
-    return res
+        res = V1ResponseBase({})
+        res.status = STATUS_OK
+        res.message = "Session info retrieved successfully."
+        res.solution = result
+        return res
+    finally:
+        session.lock.release()
 
 
 def _cmd_sessions_eval(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
         raise Exception("Request parameter 'session' is mandatory in 'sessions.eval' command.")
-    if not SESSIONS_STORAGE.exists(session_id):
-        raise Exception("The session doesn't exist.")
-
     script = req.script
     if script is None:
         raise Exception("Request parameter 'script' is mandatory in 'sessions.eval' command.")
 
-    session = SESSIONS_STORAGE.sessions[session_id]
-    driver = session.driver
-    logging.debug(f"sessions.eval (session_id={session_id})")
-
+    session = _get_session_locked(session_id)
     try:
-        result = driver.execute_script(script)
-    except Exception as e:
-        raise Exception(f"Error executing script: {e}")
+        driver = session.driver
+        logging.debug(f"sessions.eval (session_id={session_id})")
 
-    result_obj = ChallengeResolutionResultT({})
-    result_obj.evalResult = result
-    result_obj.url = driver.current_url
-    result_obj.cookies = _safe_driver_call(driver.get_cookies, [])
+        try:
+            result = driver.execute_script(script)
+        except Exception as e:
+            raise Exception(f"Error executing script: {e}")
 
-    res = V1ResponseBase({})
-    res.status = STATUS_OK
-    res.message = "Script executed successfully."
-    res.solution = result_obj
-    return res
+        result_obj = ChallengeResolutionResultT({})
+        result_obj.evalResult = result
+        result_obj.url = driver.current_url
+        result_obj.cookies = _safe_driver_call(driver.get_cookies, [])
+
+        res = V1ResponseBase({})
+        res.status = STATUS_OK
+        res.message = "Script executed successfully."
+        res.solution = result_obj
+        return res
+    finally:
+        session.lock.release()
 
 
 def _cmd_sessions_network(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
         raise Exception("Request parameter 'session' is mandatory in 'sessions.network' command.")
-    if not SESSIONS_STORAGE.exists(session_id):
-        raise Exception("The session doesn't exist.")
 
-    session = SESSIONS_STORAGE.sessions[session_id]
-    driver = session.driver
-    logging.debug(f"sessions.network (session_id={session_id})")
-
+    session = _get_session_locked(session_id)
     try:
-        logs = driver.get_log("performance")
-    except Exception as e:
-        raise Exception(f"Error getting network logs: {e}")
+        driver = session.driver
+        logging.debug(f"sessions.network (session_id={session_id})")
 
-    parsed_logs = []
-    for entry in logs:
         try:
-            msg = json.loads(entry["message"])["message"]
-            parsed_logs.append(
-                {
-                    "method": msg.get("method"),
-                    "params": msg.get("params"),
-                }
-            )
-        except Exception:  # nosec B110
-            pass
+            logs = driver.get_log("performance")
+        except Exception as e:
+            raise Exception(f"Error getting network logs: {e}")
 
-    result = ChallengeResolutionResultT({})
-    result.networkLogs = parsed_logs
-    result.url = driver.current_url
+        parsed_logs = []
+        for entry in logs:
+            try:
+                msg = json.loads(entry["message"])["message"]
+                parsed_logs.append(
+                    {
+                        "method": msg.get("method"),
+                        "params": msg.get("params"),
+                    }
+                )
+            except Exception:  # nosec B110
+                pass
 
-    res = V1ResponseBase({})
-    res.status = STATUS_OK
-    res.message = f"Retrieved {len(parsed_logs)} network log entries."
-    res.solution = result
-    return res
+        result = ChallengeResolutionResultT({})
+        result.networkLogs = parsed_logs
+        result.url = driver.current_url
+
+        res = V1ResponseBase({})
+        res.status = STATUS_OK
+        res.message = f"Retrieved {len(parsed_logs)} network log entries."
+        res.solution = result
+        return res
+    finally:
+        session.lock.release()
 
 
 def _cmd_sessions_click(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
         raise Exception("Request parameter 'session' is mandatory in 'sessions.click' command.")
-    if not SESSIONS_STORAGE.exists(session_id):
-        raise Exception("The session doesn't exist.")
-
     selector = req.selector
     if selector is None:
         raise Exception("Request parameter 'selector' is mandatory in 'sessions.click' command.")
 
-    session = SESSIONS_STORAGE.sessions[session_id]
-    driver = session.driver
-    logging.debug(f"sessions.click (session_id={session_id}, selector={selector})")
-
+    session = _get_session_locked(session_id)
     try:
-        element = driver.find_element(By.XPATH, selector)
-        if not element.is_displayed():
-            raise Exception("Element is not displayed.")
-        if element.get_attribute("disabled"):
-            raise Exception("Element is disabled.")
-        _human_like_click(driver, element)
-    except Exception as e:
-        raise Exception(f"Error clicking element: {e}")
+        driver = session.driver
+        logging.debug(f"sessions.click (session_id={session_id}, selector={selector})")
 
-    result = ChallengeResolutionResultT({})
-    result.url = driver.current_url
-    result.cookies = _safe_driver_call(driver.get_cookies, [])
+        try:
+            element = driver.find_element(By.XPATH, selector)
+            if not element.is_displayed():
+                raise Exception("Element is not displayed.")
+            if element.get_attribute("disabled"):
+                raise Exception("Element is disabled.")
+            _human_like_click(driver, element)
+        except Exception as e:
+            raise Exception(f"Error clicking element: {e}")
 
-    res = V1ResponseBase({})
-    res.status = STATUS_OK
-    res.message = "Element clicked successfully."
-    res.solution = result
-    return res
+        result = ChallengeResolutionResultT({})
+        result.url = driver.current_url
+        result.cookies = _safe_driver_call(driver.get_cookies, [])
+
+        res = V1ResponseBase({})
+        res.status = STATUS_OK
+        res.message = "Element clicked successfully."
+        res.solution = result
+        return res
+    finally:
+        session.lock.release()
 
 
 def _cmd_sessions_action(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
         raise Exception("Request parameter 'session' is mandatory in 'sessions.action' command.")
-    if not SESSIONS_STORAGE.exists(session_id):
-        raise Exception("The session doesn't exist.")
-
     actions = req.actions
     if actions is None:
         raise Exception("Request parameter 'actions' is mandatory in 'sessions.action' command.")
 
-    session = SESSIONS_STORAGE.sessions[session_id]
-    driver = session.driver
-    logging.debug(f"sessions.action (session_id={session_id}, actions={len(actions)})")
-
+    session = _get_session_locked(session_id)
     try:
-        action_results = _execute_actions(driver, actions)
-    except Exception as e:
-        raise Exception(f"Error executing actions: {e}")
+        driver = session.driver
+        logging.debug(f"sessions.action (session_id={session_id}, actions={len(actions)})")
 
-    result = ChallengeResolutionResultT({})
-    result.url = driver.current_url
-    result.title = _safe_driver_call(lambda: driver.title, None)
-    result.cookies = _safe_driver_call(driver.get_cookies, [])
-    eval_values = [r for r in action_results if r is not None]
-    if eval_values:
-        result.evalResult = eval_values if len(eval_values) > 1 else eval_values[0]
+        try:
+            action_results = _execute_actions(driver, actions)
+        except Exception as e:
+            raise Exception(f"Error executing actions: {e}")
 
-    res = V1ResponseBase({})
-    res.status = STATUS_OK
-    res.message = "Actions executed successfully."
-    res.solution = result
-    return res
+        result = ChallengeResolutionResultT({})
+        result.url = driver.current_url
+        result.title = _safe_driver_call(lambda: driver.title, None)
+        result.cookies = _safe_driver_call(driver.get_cookies, [])
+        eval_values = [r for r in action_results if r is not None]
+        if eval_values:
+            result.evalResult = eval_values if len(eval_values) > 1 else eval_values[0]
+
+        res = V1ResponseBase({})
+        res.status = STATUS_OK
+        res.message = "Actions executed successfully."
+        res.solution = result
+        return res
+    finally:
+        session.lock.release()
 
 
 def _clear_session_context(driver: WebDriver) -> None:
@@ -665,85 +682,88 @@ def _cmd_sessions_clear(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
         raise Exception("Request parameter 'session' is mandatory in 'sessions.clear' command.")
-    if not SESSIONS_STORAGE.exists(session_id):
-        raise Exception("The session doesn't exist.")
 
-    session = SESSIONS_STORAGE.sessions[session_id]
-    driver = session.driver
-    logging.debug(f"sessions.clear (session_id={session_id})")
-
+    session = _get_session_locked(session_id)
     try:
-        _clear_session_context(driver)
-    except Exception as e:
-        raise Exception(f"Error clearing session context: {e}")
+        driver = session.driver
+        logging.debug(f"sessions.clear (session_id={session_id})")
 
-    result = ChallengeResolutionResultT({})
-    result.url = driver.current_url
-    result.title = _safe_driver_call(lambda: driver.title, None)
-    result.cookies = _safe_driver_call(driver.get_cookies, [])
+        try:
+            _clear_session_context(driver)
+        except Exception as e:
+            raise Exception(f"Error clearing session context: {e}")
 
-    res = V1ResponseBase({})
-    res.status = STATUS_OK
-    res.message = "Session context cleared successfully."
-    res.solution = result
-    return res
+        result = ChallengeResolutionResultT({})
+        result.url = driver.current_url
+        result.title = _safe_driver_call(lambda: driver.title, None)
+        result.cookies = _safe_driver_call(driver.get_cookies, [])
+
+        res = V1ResponseBase({})
+        res.status = STATUS_OK
+        res.message = "Session context cleared successfully."
+        res.solution = result
+        return res
+    finally:
+        session.lock.release()
 
 
 def _cmd_sessions_screenshot(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
         raise Exception("Request parameter 'session' is mandatory in 'sessions.screenshot' command.")
-    if not SESSIONS_STORAGE.exists(session_id):
-        raise Exception("The session doesn't exist.")
 
-    session = SESSIONS_STORAGE.sessions[session_id]
-    driver = session.driver
-    logging.debug(f"sessions.screenshot (session_id={session_id})")
-
+    session = _get_session_locked(session_id)
     try:
-        screenshot_b64 = driver.get_screenshot_as_base64()
-    except Exception as e:
-        raise Exception(f"Error capturing screenshot: {e}")
+        driver = session.driver
+        logging.debug(f"sessions.screenshot (session_id={session_id})")
 
-    result = ChallengeResolutionResultT({})
-    result.screenshot = screenshot_b64
-    result.url = driver.current_url
-    result.title = _safe_driver_call(lambda: driver.title, None)
+        try:
+            screenshot_b64 = driver.get_screenshot_as_base64()
+        except Exception as e:
+            raise Exception(f"Error capturing screenshot: {e}")
 
-    res = V1ResponseBase({})
-    res.status = STATUS_OK
-    res.message = "Screenshot captured successfully."
-    res.solution = result
-    return res
+        result = ChallengeResolutionResultT({})
+        result.screenshot = screenshot_b64
+        result.url = driver.current_url
+        result.title = _safe_driver_call(lambda: driver.title, None)
+
+        res = V1ResponseBase({})
+        res.status = STATUS_OK
+        res.message = "Screenshot captured successfully."
+        res.solution = result
+        return res
+    finally:
+        session.lock.release()
 
 
 def _cmd_sessions_cdp(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
         raise Exception("Request parameter 'session' is mandatory in 'sessions.cdp' command.")
-    if not SESSIONS_STORAGE.exists(session_id):
-        raise Exception("The session doesn't exist.")
 
-    session = SESSIONS_STORAGE.sessions[session_id]
-    driver = session.driver
-    cdp_cmd = req.cdp.get("cmd") if req.cdp else None
-    cdp_params = req.cdp.get("params", {}) if req.cdp else {}
-    logging.debug(f"sessions.cdp (session_id={session_id}, cmd={cdp_cmd})")
-
+    session = _get_session_locked(session_id)
     try:
-        cdp_result = driver.execute_cdp_cmd(cdp_cmd, cdp_params)
-    except Exception as e:
-        raise Exception(f"Error executing CDP command: {e}")
+        driver = session.driver
+        cdp_cmd = req.cdp.get("cmd") if req.cdp else None
+        cdp_params = req.cdp.get("params", {}) if req.cdp else {}
+        logging.debug(f"sessions.cdp (session_id={session_id}, cmd={cdp_cmd})")
 
-    result = ChallengeResolutionResultT({})
-    result.url = driver.current_url
-    result.evalResult = cdp_result
+        try:
+            cdp_result = driver.execute_cdp_cmd(cdp_cmd, cdp_params)
+        except Exception as e:
+            raise Exception(f"Error executing CDP command: {e}")
 
-    res = V1ResponseBase({})
-    res.status = STATUS_OK
-    res.message = "CDP command executed successfully."
-    res.solution = result
-    return res
+        result = ChallengeResolutionResultT({})
+        result.url = driver.current_url
+        result.evalResult = cdp_result
+
+        res = V1ResponseBase({})
+        res.status = STATUS_OK
+        res.message = "CDP command executed successfully."
+        res.solution = result
+        return res
+    finally:
+        session.lock.release()
 
 
 def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
@@ -751,6 +771,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
     timeout = int(max_timeout) / 1000
     driver = None
     session = None
+    lock_acquired = False
     req_stealth_mode = _resolve_request_stealth_mode(req)
     try:
         if req.session:
@@ -778,6 +799,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             # Acquire lock to prevent concurrent access to the same session
             logging.debug(f"acquiring session lock (session_id={session_id})")
             session.lock.acquire()
+            lock_acquired = True
             logging.debug(f"session lock acquired (session_id={session_id})")
         else:
             driver = utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode)
@@ -799,8 +821,8 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
     except Exception as e:
         raise Exception("Error solving the challenge. " + str(e).replace("\n", "\\n"))
     finally:
-        # Release session lock if it was acquired
-        if session is not None and session.lock.locked():
+        # Release session lock only if this thread acquired it
+        if lock_acquired:
             session.lock.release()
             logging.debug(f"session lock released (session_id={session.session_id})")
         # Quit one-off webdriver instances created for non-session requests
@@ -991,7 +1013,9 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
     """
     default_action_timeout = 15
     eval_results: list[Any | None] = []
-    for action in actions:
+    for i, action in enumerate(actions):
+        if not isinstance(action, dict):
+            raise Exception(f"Action at index {i} is not an object (got {type(action).__name__}), expected dict with 'type' key.")
         action_type = action.get("type")
         selector = action.get("selector")
         if action_type == "fill":
@@ -1375,7 +1399,7 @@ def _post_request(req: V1RequestBase, driver: WebDriver) -> None:
     if req.postDataRaw is not None:
         _post_request_raw(req, driver)
         return
-    post_form = f'<form id="hackForm" action="{req.url}" method="POST">'
+    post_form = f'<form id="hackForm" action="{escape(req.url)}" method="POST">'
     query_string = req.postData if req.postData and req.postData[0] != "?" else req.postData[1:] if req.postData else ""
     pairs = query_string.split("&")
     for pair in pairs:
