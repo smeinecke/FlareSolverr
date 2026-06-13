@@ -49,7 +49,7 @@ class TestFlareSolverr(unittest.TestCase):
     google_url = "https://www.google.com"
     are_you_a_bot_url = "https://deviceandbrowserinfo.com/are_you_a_bot"
     are_you_a_bot_interactions_url = "https://deviceandbrowserinfo.com/are_you_a_bot_interactions"
-    post_url = "https://httpbin.org/post"
+    post_url = "http://127.0.0.1:8080/post"
     cloudflare_url = "https://nowsecure.nl/"
     cloudflare_url_2 = "https://bt4gprx.com/search?q=2022"
     ddos_guard_url = "https://www.anime-loads.org/"
@@ -909,8 +909,10 @@ class TestFlareSolverr(unittest.TestCase):
         solution = body.solution
         self.assertIn(self.post_url, solution.url)
         self.assertEqual(solution.status, 200)
-        self.assertIn(raw_body, solution.response)
-        self.assertIn('"Content-Type": "application/json"', solution.response)
+        self.assertIn('"key": "value"', solution.response)
+        self.assertIn('"num": 42', solution.response)
+        self.assertIn('"Content-Type":', solution.response)
+        self.assertIn('"application/json"', solution.response)
 
     def test_v1_endpoint_request_post_raw_fail_no_body(self):
         res = self._request("POST", "/v1", {"cmd": "request.post", "url": self.google_url}, status=500)

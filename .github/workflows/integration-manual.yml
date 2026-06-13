@@ -70,6 +70,12 @@ jobs:
                 - "127.0.0.1:1080:1080"
               networks:
                 - test-network
+            go-httpbin:
+              image: mccutchen/go-httpbin:latest
+              ports:
+                - "127.0.0.1:8080:8080"
+              networks:
+                - test-network
           networks:
             test-network:
               driver: bridge
@@ -104,6 +110,19 @@ jobs:
           done
           echo "Proxy readiness check failed"
           docker compose -f docker-compose.test.yml logs
+          exit 1
+
+      - name: Wait for go-httpbin to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8080/get >/dev/null 2>&1; then
+              echo "go-httpbin is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "go-httpbin failed to start"
+          docker compose -f docker-compose.test.yml logs go-httpbin
           exit 1
 
       - name: Run integration tests (non-proxy scenarios)
