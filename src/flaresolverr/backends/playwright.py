@@ -553,6 +553,21 @@ class PlaywrightBackend:
             context = browser.new_context(viewport={"width": 1920, "height": 1080})
             page = context.new_page()
 
+            if stealth_mode != utils.STEALTH_MODE_OFF:
+                default_ua = page.evaluate("navigator.userAgent")
+                if isinstance(default_ua, str):
+                    normalized_ua = utils.sanitize_user_agent(default_ua)
+                    if normalized_ua != default_ua:
+                        page.set_extra_http_headers({"User-Agent": normalized_ua})
+                        ua_script = (
+                            "Object.defineProperty(navigator, 'userAgent', {"
+                            f"  get: function() {{ return '{normalized_ua.replace(chr(39), chr(92) + chr(39))}'; }}"
+                            "});"
+                        )
+                        page.add_init_script(ua_script)
+                        page.evaluate(ua_script)
+                        logging.info("Normalized default user-agent by removing HeadlessChrome token.")
+
             logging.debug("Playwright Chromium browser launched (stealth_mode=%s).", stealth_mode)
             return pw, browser, page
 
