@@ -1203,6 +1203,9 @@ class TestFlareSolverr(unittest.TestCase):
 
     def test_v1_endpoint_sessions_click(self):
         """sessions.click clicks an element by XPath."""
+        # Google's DOM varies by region and headless detection; skip in CI
+        if os.environ.get("GITHUB_ACTIONS"):
+            self.skipTest("sessions.click test skipped on GitHub Actions (Google DOM unreliable)")
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_click_session"})
         self._request("POST", "/v1", {"cmd": "request.get", "session": "test_click_session", "url": self.google_url})
 
