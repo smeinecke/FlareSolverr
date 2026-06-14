@@ -532,11 +532,8 @@ def _cmd_sessions_network(req: V1RequestBase) -> V1ResponseBase:
             logs = driver.get_log("performance")
         except Exception as e:
             error_msg = str(e)
-            if (
-                "log type" in error_msg.lower() and "not found" in error_msg.lower()
-            ) or (
-                "not supported" in error_msg.lower()
-                and "performance" in error_msg.lower()
+            if ("log type" in error_msg.lower() and "not found" in error_msg.lower()) or (
+                "not supported" in error_msg.lower() and "performance" in error_msg.lower()
             ):
                 logging.warning(f"Performance logs not available for this backend: {e}")
                 logs = []
