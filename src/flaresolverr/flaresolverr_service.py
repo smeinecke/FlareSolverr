@@ -527,7 +527,12 @@ def _cmd_sessions_network(req: V1RequestBase) -> V1ResponseBase:
         try:
             logs = driver.get_log("performance")
         except Exception as e:
-            raise Exception(f"Error getting network logs: {e}")
+            error_msg = str(e)
+            if "log type" in error_msg.lower() and "not found" in error_msg.lower():
+                logging.warning(f"Performance logs not available for this backend: {e}")
+                logs = []
+            else:
+                raise Exception(f"Error getting network logs: {e}")
 
         parsed_logs = []
         for entry in logs:
