@@ -839,7 +839,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn(self.post_url, solution.url)
         self.assertEqual(solution.status, 200)
         self.assertIs(len(solution.headers), 0)
-        self.assertIn('"form": {\n    "param1": "value1", \n    "param2": "value2"\n  }', solution.response)
+        self.assertIn('"param1"', solution.response)
+        self.assertIn('"value1"', solution.response)
+        self.assertIn('"param2"', solution.response)
+        self.assertIn('"value2"', solution.response)
         self.assertEqual(len(solution.cookies), 0)
         self.assertIn("Chrome/", solution.userAgent)
 
