@@ -1288,6 +1288,11 @@ def _human_like_click(driver: BrowserContext, element) -> None:
     first_x, first_y = points[0]
     anchor_dx = round(first_x - element_center_x)
     anchor_dy = round(first_y - element_center_y)
+    # Clamp offsets so the initial position stays within viewport bounds
+    max_dx = min(element_center_x, viewport_width - element_center_x)
+    max_dy = min(element_center_y, viewport_height - element_center_y)
+    anchor_dx = max(-int(max_dx), min(int(max_dx), anchor_dx))
+    anchor_dy = max(-int(max_dy), min(int(max_dy), anchor_dy))
     actions.move_to_element_with_offset(element, anchor_dx, anchor_dy)
     actions.pause(_random_delay(0.02, 0.06))
 
