@@ -35,20 +35,10 @@ pytestmark = pytest.mark.integration
 
 
 def _skip_unless_custom_chromium(test_case: unittest.TestCase) -> None:
-    """Skip bot challenge tests when they are expected to fail.
-
-    Skips when:
-    - Running on GitHub Actions (GITHUB_ACTIONS is set)
-    - GITHUB_RUNNER env var is set to any value
-    - DRIVER_BACKEND is not custom_chromium
-    """
+    """Skip bot challenge tests on backends that cannot pass them."""
     backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
     if backend != "custom_chromium":
         test_case.skipTest(f"Bot challenge tests skipped on backend '{backend}'")
-    if os.environ.get("GITHUB_ACTIONS"):
-        test_case.skipTest("Bot challenge tests skipped on GitHub Actions (blocked IPs)")
-    if os.environ.get("GITHUB_RUNNER"):
-        test_case.skipTest("Bot challenge tests skipped (GITHUB_RUNNER is set)")
 
 
 class TestBotChallenge(unittest.TestCase):
