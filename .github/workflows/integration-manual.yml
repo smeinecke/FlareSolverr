@@ -333,6 +333,7 @@ jobs:
       - name: Run full integration tests
         env:
           FLARESOLVERR_URL: http://127.0.0.1:8191
+          HTTPBIN_URL: http://127.0.0.1:8080
           DRIVER_BACKEND: ${{ matrix.backend }}
           FLARESOLVERR_CUSTOM_CHROMIUM: ${{ matrix.backend == 'custom_chromium' && 'true' || '' }}
         run: |
