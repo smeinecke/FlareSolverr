@@ -46,10 +46,11 @@ class TestFlareSolverr(unittest.TestCase):
     proxy_http_check_url = os.environ.get("PROXY_HTTP_CHECK_URL", "http://127.0.0.1:8888")
     proxy_http_check_url_2 = os.environ.get("PROXY_HTTP_CHECK_URL_2", "http://127.0.0.1:8889")
     proxy_socks_check_url = os.environ.get("PROXY_SOCKS_CHECK_URL", "socks5://127.0.0.1:1080")
+    httpbin_url = os.environ.get("HTTPBIN_URL", "http://127.0.0.1:8080")
     google_url = "https://www.google.com"
     are_you_a_bot_url = "https://deviceandbrowserinfo.com/are_you_a_bot"
     are_you_a_bot_interactions_url = "https://deviceandbrowserinfo.com/are_you_a_bot_interactions"
-    post_url = "http://127.0.0.1:8080/post"
+    post_url = f"{httpbin_url}/post"
     cloudflare_url = "https://nowsecure.nl/"
     cloudflare_url_2 = "https://bt4gprx.com/search?q=2022"
     ddos_guard_url = "https://www.anime-loads.org/"
