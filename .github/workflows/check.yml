@@ -310,6 +310,20 @@ jobs:
         run: |
           uv pip install --no-cache-dir 'seleniumbase>=4.30'
 
+      - name: Start go-httpbin
+        run: |
+          docker run -d --name go-httpbin -p 127.0.0.1:8080:8080 mccutchen/go-httpbin:latest
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8080/get >/dev/null 2>&1; then
+              echo "go-httpbin is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "go-httpbin failed to start"
+          docker logs go-httpbin
+          exit 1
+
       - name: Start FlareSolverr server
         env:
           DRIVER_BACKEND: ${{ matrix.backend }}
@@ -341,3 +355,5 @@ jobs:
         run: |
           pkill -f "flaresolverr.flaresolverr" || true
           cat /tmp/flaresolverr.log || true
+          docker stop go-httpbin >/dev/null 2>&1 || true
+          docker rm go-httpbin >/dev/null 2>&1 || true

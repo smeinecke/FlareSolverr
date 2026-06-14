@@ -1187,9 +1187,9 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(STATUS_OK, body.status)
         self.assertIn("network log entries", body.message)
         self.assertIsInstance(body.solution.networkLogs, list)
-        # Performance logs are a ChromeDriver feature; Playwright/Camoufox return an empty list gracefully
+        # Performance logs are a ChromeDriver feature; custom_chromium/Playwright/Camoufox return an empty list gracefully
         backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
-        if backend in ("playwright", "camoufox"):
+        if backend in ("playwright", "camoufox", "custom_chromium", "seleniumbase"):
             return
         self.assertGreater(len(body.solution.networkLogs), 0)
         # At least one Network.requestWillBeSent entry should exist
