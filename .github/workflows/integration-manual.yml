@@ -298,6 +298,11 @@ jobs:
 
       - name: Start go-httpbin
         run: |
+          for attempt in {1..3}; do
+            docker pull mccutchen/go-httpbin:latest && break
+            echo "Docker pull attempt $attempt failed, retrying..."
+            sleep 5
+          done
           docker run -d --name go-httpbin -p 127.0.0.1:8080:8080 mccutchen/go-httpbin:latest
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:8080/get >/dev/null 2>&1; then
