@@ -3,12 +3,11 @@ import os
 import urllib.parse
 from typing import Any
 
-from selenium.webdriver.chrome.webdriver import WebDriver
 from flaresolverr import utils
 
 
 class SeleniumBaseBackend:
-    def create_driver(self, proxy: dict[str, Any] | None, stealth_mode: str) -> WebDriver:
+    def create_driver(self, proxy: dict[str, Any] | None, stealth_mode: str) -> Any:
         logging.debug("Launching web browser (seleniumbase)...")
         try:
             from seleniumbase import Driver  # pyright: ignore[reportMissingImports]
