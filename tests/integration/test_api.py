@@ -883,7 +883,10 @@ class TestFlareSolverr(unittest.TestCase):
 
         body = V1ResponseBase(self._get_json(res))
         self.assertEqual(STATUS_ERROR, body.status)
-        self.assertIn("Message: unknown error: net::ERR_NAME_NOT_RESOLVED", body.message)
+        self.assertTrue(
+            "ERR_NAME_NOT_RESOLVED" in body.message,
+            f"Expected ERR_NAME_NOT_RESOLVED in message, got: {body.message}",
+        )
 
     def test_v1_endpoint_request_get_deprecated_param(self):
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.google_url, "userAgent": "Test User-Agent"})
@@ -909,11 +912,16 @@ class TestFlareSolverr(unittest.TestCase):
         solution = body.solution
         self.assertIn(self.post_url, solution.url)
         self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
-        self.assertIn('"param1"', solution.response)
-        self.assertIn('"value1"', solution.response)
-        self.assertIn('"param2"', solution.response)
-        self.assertIn('"value2"', solution.response)
+        backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+        if backend in ("undetected_chromedriver", "custom_chromium"):
+            self.assertGreater(len(solution.headers), 0)
+        else:
+            self.assertIs(len(solution.headers), 0)
+        # go-httpbin can return scalar or array form values; accept field names loosely.
+        self.assertIn("param1", solution.response)
+        self.assertIn("value1", solution.response)
+        self.assertIn("param2", solution.response)
+        self.assertIn("value2", solution.response)
         self.assertEqual(len(solution.cookies), 0)
         self.assertTrue(
             "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
@@ -1191,7 +1199,7 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("'script' is mandatory", body.message)
 
     def test_v1_endpoint_sessions_network(self):
-        """sessions.network returns performance log entries."""
+        """sessions.network returns performance log entries when supported."""
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_network_session"})
         self._request("POST", "/v1", {"cmd": "request.get", "session": "test_network_session", "url": self.google_url})
 
@@ -1202,6 +1210,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(STATUS_OK, body.status)
         self.assertIn("network log entries", body.message)
         self.assertIsInstance(body.solution.networkLogs, list)
+        # Performance logs are a ChromeDriver feature; Playwright/Camoufox return an empty list gracefully
+        backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+        if backend in ("playwright", "camoufox"):
+            return
         self.assertGreater(len(body.solution.networkLogs), 0)
         # At least one Network.requestWillBeSent entry should exist
         methods = {e.get("method") for e in body.solution.networkLogs}

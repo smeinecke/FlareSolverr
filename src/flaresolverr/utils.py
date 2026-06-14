@@ -1058,7 +1058,7 @@ def parse_performance_log_entries(logs: list[dict[str, Any]]) -> list[dict[str, 
     return parsed
 
 
-def get_performance_log(driver: WebDriver) -> list[dict[str, Any]]:
+def get_performance_log(driver: WebDriver | BrowserContext) -> list[dict[str, Any]]:
     """Safely retrieve and parse the browser's performance log.
 
     Returns an empty list if the backend does not expose performance logs.
@@ -1068,8 +1068,13 @@ def get_performance_log(driver: WebDriver) -> list[dict[str, Any]]:
     try:
         logs = driver.get_log("performance")
     except Exception as e:
-        error_msg = str(e)
-        if "log type" in error_msg.lower() and "not found" in error_msg.lower():
+        error_msg = str(e).lower()
+        unsupported = (
+            ("log type" in error_msg and "not found" in error_msg)
+            or ("not supported" in error_msg and "performance" in error_msg)
+            or isinstance(e, NotImplementedError)
+        )
+        if unsupported:
             logger.warning(f"Performance logs not available for this backend: {e}")
             return []
         raise RuntimeError(f"Error getting network logs: {e}") from e
