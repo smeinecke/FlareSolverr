@@ -253,6 +253,7 @@ class TestFlareSolverr(unittest.TestCase):
         )
 
     def test_v1_endpoint_request_get_are_you_a_bot_reports_result(self):
+        _skip_unless_custom_chromium(self)
         res = self._request(
             "POST",
             "/v1",
