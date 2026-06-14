@@ -17,7 +17,7 @@ from selenium.webdriver.common.by import By
 
 from flaresolverr import sessions
 from flaresolverr import utils
-from flaresolverr.backends.browser_context import BrowserContext
+from flaresolverr.backends.browser_context import BrowserContext, get_browser_context
 from flaresolverr.captcha_solvers import SOLVER_MANAGER, get_available_solvers, get_config_captcha_solver
 from flaresolverr.dtos import (
     STATUS_ERROR,
@@ -574,7 +574,7 @@ def _cmd_sessions_click(req: V1RequestBase) -> V1ResponseBase:
 
     session = _get_session_locked(session_id)
     try:
-        driver = cast(BrowserContext, session.driver)
+        driver = get_browser_context(session.driver)
         logging.debug(f"sessions.click (session_id={session_id}, selector={selector})")
 
         try:
@@ -610,7 +610,7 @@ def _cmd_sessions_action(req: V1RequestBase) -> V1ResponseBase:
 
     session = _get_session_locked(session_id)
     try:
-        driver = cast(BrowserContext, session.driver)
+        driver = get_browser_context(session.driver)
         logging.debug(f"sessions.action (session_id={session_id}, actions={len(actions)})")
 
         try:
@@ -702,7 +702,7 @@ def _cmd_sessions_clear(req: V1RequestBase) -> V1ResponseBase:
 
     session = _get_session_locked(session_id)
     try:
-        driver = cast(BrowserContext, session.driver)
+        driver = get_browser_context(session.driver)
         logging.debug(f"sessions.clear (session_id={session_id})")
 
         try:
@@ -814,14 +814,14 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             else:
                 logging.debug(f"existing session is used to perform the request (session_id={session_id}, lifetime={str(session.lifetime())}, ttl={str(ttl)})")
 
-            driver = cast(BrowserContext, session.driver)
+            driver = get_browser_context(session.driver)
             # Acquire lock to prevent concurrent access to the same session
             logging.debug(f"acquiring session lock (session_id={session_id})")
             session.lock.acquire()
             lock_acquired = True
             logging.debug(f"session lock acquired (session_id={session_id})")
         else:
-            driver = cast(BrowserContext, utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode))
+            driver = get_browser_context(utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode))
             if req.userAgent is not None:
                 utils.apply_user_agent_override(driver, req.userAgent, req.acceptLanguage or utils.get_config_accept_language())
             logging.debug("New instance of webdriver has been created to perform the request")
