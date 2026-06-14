@@ -348,6 +348,7 @@ jobs:
         env:
           FLARESOLVERR_URL: http://127.0.0.1:8191
           HTTPBIN_URL: http://127.0.0.1:8080
+          DRIVER_BACKEND: ${{ matrix.backend }}
         run: |
           uv run pytest tests/integration/test_api.py tests/integration/test_js_injection.py tests/integration/test_sites.py tests/integration/test_bot_challenge.py -vv -m integration -k "not proxy"
 
