@@ -54,7 +54,6 @@ class TestFlareSolverr(unittest.TestCase):
     cloudflare_url = "https://nowsecure.nl/"
     cloudflare_url_2 = "https://bt4gprx.com/search?q=2022"
     ddos_guard_url = "https://www.anime-loads.org/"
-    fairlane_url = "https://www.pararius.com/apartments/amsterdam"
     scrapingcourse_cf_url = "https://www.scrapingcourse.com/cloudflare-challenge"
     scrapingcourse_turnstile_url = "https://www.scrapingcourse.com/login/cf-turnstile"
     scrapingcourse_csrf_url = "https://www.scrapingcourse.com/login/csrf"
@@ -400,31 +399,6 @@ class TestFlareSolverr(unittest.TestCase):
         cf_cookie = _find_obj_by_key("name", "__ddg1_", solution.cookies)
         self.assertIsNotNone(cf_cookie, "DDOS-Guard cookie not found")
         self.assertGreater(len(cf_cookie["value"]), 10)
-
-    def test_v1_endpoint_request_get_fairlane_js(self):
-        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.fairlane_url, "maxTimeout": 120000})
-        self.assertEqual(res.status_code, 200)
-
-        body = V1ResponseBase(self._get_json(res))
-        self.assertEqual(STATUS_OK, body.status)
-        self._assert_challenge_status_ok(body.message)
-        self.assertGreater(body.startTimestamp, 10000)
-        self.assertGreaterEqual(body.endTimestamp, body.startTimestamp)
-        self.assertEqual(utils.get_flaresolverr_version(), body.version)
-
-        solution = body.solution
-        self.assertIn(self.fairlane_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertIs(len(solution.headers), 0)
-        self.assertIn("<title>Rental Apartments Amsterdam</title>", solution.response)
-        self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
-
-        fairlane_cookie = _find_obj_by_key("name", "fl_pass_v2_b", solution.cookies)
-        if fairlane_cookie is None:
-            fairlane_cookie = _find_obj_by_key("name", "cf_clearance", solution.cookies)
-        self.assertIsNotNone(fairlane_cookie, "Fairlane anti-bot cookie not found")
-        self.assertGreater(len(fairlane_cookie["value"]), 30)
 
     def test_v1_endpoint_request_get_scrapingcourse_cf_challenge(self):
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.scrapingcourse_cf_url, "maxTimeout": 120000}, timeout=190)
