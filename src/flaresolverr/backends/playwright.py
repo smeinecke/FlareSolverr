@@ -365,7 +365,16 @@ class PlaywrightBrowserContext(BrowserContext):
                     self._page.add_init_script(params.get("source", ""))
                     return {}
                 if method == "Emulation.setUserAgentOverride":
-                    self._page.set_extra_http_headers({"User-Agent": params.get("userAgent", "")})
+                    user_agent = params.get("userAgent", "")
+                    self._page.set_extra_http_headers({"User-Agent": user_agent})
+                    # Override navigator.userAgent so JS-based bot detection sees the custom UA
+                    ua_script = (
+                        "Object.defineProperty(navigator, 'userAgent', {"
+                        f"  get: function() {{ return '{user_agent.replace(chr(39), chr(92) + chr(39))}'; }}"
+                        "});"
+                    )
+                    self._page.add_init_script(ua_script)
+                    self._page.evaluate(ua_script)
                     return {}
                 if method == "Network.setExtraHTTPHeaders":
                     self._page.set_extra_http_headers(params.get("headers", {}))
@@ -459,7 +468,7 @@ class PlaywrightBrowserContext(BrowserContext):
         return self.execute_script("return navigator.userAgent")
 
     def apply_user_agent_override(self, user_agent: str) -> None:
-        logging.debug("User agent override not yet implemented for Playwright backend")
+        self.execute_cdp_cmd("Emulation.setUserAgentOverride", {"userAgent": user_agent})
 
     def apply_proxy(self, proxy: dict[str, Any] | None) -> None:
         def _update():
