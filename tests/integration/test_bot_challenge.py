@@ -34,6 +34,23 @@ except ImportError as e:
 pytestmark = pytest.mark.integration
 
 
+def _skip_unless_custom_chromium(test_case: unittest.TestCase) -> None:
+    """Skip bot challenge tests when they are expected to fail.
+
+    Skips when:
+    - Running on GitHub Actions (GITHUB_ACTIONS is set)
+    - GITHUB_RUNNER env var is set to any value
+    - DRIVER_BACKEND is not custom_chromium
+    """
+    backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+    if backend != "custom_chromium":
+        test_case.skipTest(f"Bot challenge tests skipped on backend '{backend}'")
+    if os.environ.get("GITHUB_ACTIONS"):
+        test_case.skipTest("Bot challenge tests skipped on GitHub Actions (blocked IPs)")
+    if os.environ.get("GITHUB_RUNNER"):
+        test_case.skipTest("Bot challenge tests skipped (GITHUB_RUNNER is set)")
+
+
 class TestBotChallenge(unittest.TestCase):
     """Test FlareSolverr against bot detection challenge pages."""
 
@@ -110,6 +127,7 @@ class TestBotChallenge(unittest.TestCase):
             print(json.dumps(value, indent=2, default=str))
 
     def test_static_challenge_basic_stealth(self):
+        _skip_unless_custom_chromium(self)
         """
         Test that FlareSolverr basic stealth measures work against static challenge.
 
@@ -172,6 +190,7 @@ class TestBotChallenge(unittest.TestCase):
         self._print_diagnostics(diagnostics)
 
     def test_interaction_challenge_form_submission(self):
+        _skip_unless_custom_chromium(self)
         """
         Test that FlareSolverr can interact with the challenge form and produce results.
 
@@ -234,6 +253,7 @@ class TestBotChallenge(unittest.TestCase):
             print(f"\nDetected interaction bot indicators: {failed_tests}")
 
     def test_challenge_with_json_output(self):
+        _skip_unless_custom_chromium(self)
         """
         Test that the JSON output endpoint works and shows passing results.
 
