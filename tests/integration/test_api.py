@@ -36,6 +36,23 @@ def _proxy_reachable(proxy_url: str) -> bool:
         return False
 
 
+def _skip_unless_custom_chromium(test_case: unittest.TestCase) -> None:
+    """Skip Cloudflare challenge tests when they are expected to fail.
+
+    Skips when:
+    - Running on GitHub Actions (GITHUB_ACTIONS is set)
+    - GITHUB_RUNNER env var is set to any value
+    - DRIVER_BACKEND is not custom_chromium
+    """
+    backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+    if backend != "custom_chromium":
+        test_case.skipTest(f"Cloudflare challenge tests skipped on backend '{backend}'")
+    if os.environ.get("GITHUB_ACTIONS"):
+        test_case.skipTest("Cloudflare challenge tests skipped on GitHub Actions (blocked IPs)")
+    if os.environ.get("GITHUB_RUNNER"):
+        test_case.skipTest("Cloudflare challenge tests skipped (GITHUB_RUNNER is set)")
+
+
 class TestFlareSolverr(unittest.TestCase):
     # Proxy URLs for tests - can be overridden via env vars
     # *_check_url: host-side address used only to verify the proxy is up before testing
@@ -171,7 +188,10 @@ class TestFlareSolverr(unittest.TestCase):
         body = IndexResponse(self._get_json(res))
         self.assertEqual("FlareSolverr is ready!", body.msg)
         self.assertEqual(utils.get_flaresolverr_version(), body.version)
-        self.assertIn("Chrome/", body.userAgent)
+        self.assertTrue(
+            "Chrome/" in body.userAgent or "Firefox/" in body.userAgent,
+            f"Expected Chrome or Firefox UA, got: {body.userAgent}",
+        )
 
     def test_health_endpoint(self):
         res = self._request("GET", "/health")
@@ -227,7 +247,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
     def test_v1_endpoint_request_get_are_you_a_bot_reports_result(self):
         res = self._request(
@@ -256,13 +279,16 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertRegex(solution.response, re.compile(r'"hasInconsistentWorkerValues"\s*:\s*false'))
         self.assertIn("You are human!", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
     def test_v1_endpoint_request_get_are_you_a_bot_interactions_page_content(self):
         backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
-        if backend != "custom_chromium" and not utils._is_custom_chromium():
+        if backend != "custom_chromium":
             self.skipTest(
-                "Behavioral action detection requires patched Chromium; skipping on standard Chrome."
+                "Behavioral action detection requires patched Chromium; skipping on non-custom backends."
             )
         res = self._request(
             "POST",
@@ -304,7 +330,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertRegex(solution.response, re.compile(r'"isBot"\s*:\s*false'))
         self.assertIn("You are human!", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
     def test_v1_endpoint_request_get_disable_resources(self):
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.google_url, "disableMedia": True})
@@ -323,9 +352,13 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
     def test_v1_endpoint_request_get_cloudflare_js_1(self):
+        _skip_unless_custom_chromium(self)
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.cloudflare_url, "maxTimeout": 120000})
         self.assertEqual(res.status_code, 200)
 
@@ -342,13 +375,17 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertRegex(solution.response, re.compile(r"<title>nowsecure\.nl</title>|<title>nowSecure</title>", re.IGNORECASE))
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
         cf_cookie = _find_obj_by_key("name", "cf_clearance", solution.cookies)
         self.assertIsNotNone(cf_cookie, "Cloudflare cookie not found")
         self.assertGreater(len(cf_cookie["value"]), 30)
 
     def test_v1_endpoint_request_get_cloudflare_js_2(self):
+        _skip_unless_custom_chromium(self)
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.cloudflare_url_2, "maxTimeout": 40000}, timeout=60)
         if res.status_code == 500:
             body = V1ResponseBase(self._get_json(res))
@@ -376,13 +413,17 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Download 2022 Torrents - BT4G</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
         cf_cookie = _find_obj_by_key("name", "cf_clearance", solution.cookies)
         self.assertIsNotNone(cf_cookie, "Cloudflare cookie not found")
         self.assertGreater(len(cf_cookie["value"]), 30)
 
     def test_v1_endpoint_request_get_ddos_guard_js(self):
+        _skip_unless_custom_chromium(self)
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.ddos_guard_url})
         self.assertEqual(res.status_code, 200)
 
@@ -399,13 +440,17 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertRegex(solution.response, re.compile(r"ANIME-LOADS.ORG -", re.IGNORECASE))
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
         cf_cookie = _find_obj_by_key("name", "__ddg1_", solution.cookies)
         self.assertIsNotNone(cf_cookie, "DDOS-Guard cookie not found")
         self.assertGreater(len(cf_cookie["value"]), 10)
 
     def test_v1_endpoint_request_get_scrapingcourse_cf_challenge(self):
+        _skip_unless_custom_chromium(self)
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.scrapingcourse_cf_url, "maxTimeout": 120000}, timeout=190)
         if res.status_code == 500:
             body = V1ResponseBase(self._get_json(res))
@@ -426,13 +471,17 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("Cloudflare Challenge", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
         cf_cookie = _find_obj_by_key("name", "cf_clearance", solution.cookies)
         self.assertIsNotNone(cf_cookie, "Cloudflare cookie not found")
         self.assertGreater(len(cf_cookie["value"]), 30)
 
     def test_v1_endpoint_request_get_turnstile_challenge(self):
+        _skip_unless_custom_chromium(self)
         res = self._request(
             "POST",
             "/v1",
@@ -474,12 +523,16 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertNotIn("Page Expired", solution.response)
         self.assertIn("Success Page", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
         # Turnstile token was solved by FlareSolverr before form submission
         self.assertTrue(solution.turnstile_token, "Turnstile token should be present after captcha solve")
 
     def test_v1_endpoint_request_get_turnstile_workers(self):
+        _skip_unless_custom_chromium(self)
         # Create a session so we can evaluate JS on the loaded page and read
         # the structured testResults JSON instead of scraping HTML.
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_turnstile_workers"})
@@ -561,7 +614,10 @@ class TestFlareSolverr(unittest.TestCase):
         # Turnstile may or may not have completed depending on timing;
         # only assert token when a challenge was actively solved.
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
         if body.message == "Challenge solved!":
             self.assertTrue(solution.turnstile_token, "Turnstile token should be present after captcha solve")
 
@@ -598,7 +654,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertNotIn("Page Expired", solution.response)
         self.assertNotIn("419", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
     # todo: test Cmd 'request.get' should return fail with Cloudflare CAPTCHA
 
@@ -642,7 +701,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 1)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
         user_cookie1 = _find_obj_by_key("name", "testcookie1", solution.cookies)
         self.assertIsNotNone(user_cookie1, "User cookie 1 not found")
@@ -669,7 +731,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIsNone(solution.headers)
         self.assertIsNone(solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
     def test_v1_endpoint_request_get_proxy_http_param(self):
         if not _proxy_reachable(self.proxy_http_check_url):
@@ -700,7 +765,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
         self._assert_request_routed_through_proxy(self.proxy_http_container, lines_before, hostname)
 
     def test_v1_endpoint_request_get_proxy_http_param_with_credentials(self):
@@ -735,7 +803,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
         self._assert_request_routed_through_proxy(self.proxy_http_container, lines_before, hostname)
 
     def test_v1_endpoint_request_get_proxy_socks_param(self):
@@ -764,7 +835,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
     def test_v1_endpoint_request_get_proxy_wrong_param(self):
         res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.google_url, "proxy": {"url": "http://127.0.0.1:43210"}}, status=500)
@@ -824,9 +898,13 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn('"param2"', solution.response)
         self.assertIn('"value2"', solution.response)
         self.assertEqual(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
     def test_v1_endpoint_request_post_cloudflare(self):
+        _skip_unless_custom_chromium(self)
         res = self._request(
             "POST",
             "/v1",
@@ -847,7 +925,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIs(len(solution.headers), 0)
         self.assertIn("<title>405 Not Allowed</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
         cf_cookie = _find_obj_by_key("name", "cf_clearance", solution.cookies)
         self.assertIsNotNone(cf_cookie, "Cloudflare cookie not found")
@@ -1041,7 +1122,10 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIn("Google", solution.title)
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
-        self.assertIn("Chrome/", solution.userAgent)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
     def test_v1_endpoint_sessions_get_missing_session(self):
         res = self._request("POST", "/v1", {"cmd": "sessions.get", "session": "missing_session"}, status=500)

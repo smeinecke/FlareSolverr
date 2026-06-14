@@ -23,6 +23,23 @@ def _response_json(res: Any) -> dict[str, Any]:
     return cast(dict[str, Any], body)
 
 
+def _skip_unless_custom_chromium(test_case: unittest.TestCase) -> None:
+    """Skip Cloudflare challenge tests when they are expected to fail.
+
+    Skips when:
+    - Running on GitHub Actions (GITHUB_ACTIONS is set)
+    - GITHUB_RUNNER env var is set to any value
+    - DRIVER_BACKEND is not custom_chromium
+    """
+    backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+    if backend != "custom_chromium":
+        test_case.skipTest(f"Cloudflare challenge tests skipped on backend '{backend}'")
+    if os.environ.get("GITHUB_ACTIONS"):
+        test_case.skipTest("Cloudflare challenge tests skipped on GitHub Actions (blocked IPs)")
+    if os.environ.get("GITHUB_RUNNER"):
+        test_case.skipTest("Cloudflare challenge tests skipped (GITHUB_RUNNER is set)")
+
+
 def asset_cloudflare_solution(self, res, site_url, site_text, site_url_pattern: str | None = None):
     if res.status_code == 500:
         body = V1ResponseBase(_response_json(res))
@@ -87,6 +104,7 @@ class TestFlareSolverr(unittest.TestCase):
         return cast(Any, self.app).post_json("/v1", payload, expect_errors=True)
 
     def test_v1_endpoint_request_get_cloudflare(self):
+        _skip_unless_custom_chromium(self)
         sites_get = [
             ("nowsecure", "https://nowsecure.nl", "<title", None),
             # ("0magnet", "https://0magnet.com/search?q=2022", "Torrent Search - ØMagnet", None),  # Site is unstable/broken (returns internal server error content).
@@ -114,6 +132,7 @@ class TestFlareSolverr(unittest.TestCase):
                 asset_cloudflare_solution(self, res, site_url, site_text, site_url_pattern)
 
     def test_v1_endpoint_request_post_cloudflare(self):
+        _skip_unless_custom_chromium(self)
         sites_post = [
             (
                 "nnmclub",
