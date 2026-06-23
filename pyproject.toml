@@ -56,7 +56,7 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=6.0.0",
     "radon>=6.0.1",
-    "ruff>=0.15.17",
+    "ruff>=0.15.18",
     "tox>=4.55.1",
     "vulture>=2.14",
     "WebTest==3.0.7",
