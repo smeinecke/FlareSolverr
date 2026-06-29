@@ -13,7 +13,7 @@ from typing import Any, cast
 from urllib.parse import quote, unquote, urlparse
 
 from func_timeout import FunctionTimedOut, func_timeout
-from selenium.common import UnexpectedAlertPresentException, WebDriverException
+from selenium.common import UnexpectedAlertPresentException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
@@ -1184,29 +1184,12 @@ def _get_download_content(driver: WebDriver, url: str) -> tuple[str, bool, dict[
     return page_source or "", False, None
 
 
-def _retry_driver_read(read_fn, retries: int = 3, delay: float = 0.5):
-    """Retry a driver property read that may transiently fail during navigation."""
-    last_exc = None
-    for attempt in range(1, retries + 1):
-        try:
-            return read_fn()
-        except WebDriverException as exc:
-            msg = str(exc).lower()
-            if "no such execution context" in msg or "aborted by navigation" in msg:
-                logging.debug("Driver read failed transiently (%s), retry %d/%d", exc, attempt, retries)
-                last_exc = exc
-                time.sleep(delay)
-                continue
-            raise
-    raise last_exc
-
-
 def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_token: str | None) -> ChallengeResolutionResultT:
     challenge_res = ChallengeResolutionResultT({})
     logging.debug("_build_challenge_result: reading current_url")
-    challenge_res.url = _retry_driver_read(lambda: driver.current_url)
+    challenge_res.url = utils.retry_driver_read(lambda: driver.current_url)
     logging.debug("_build_challenge_result: reading userAgent")
-    challenge_res.userAgent = _retry_driver_read(lambda: utils.get_user_agent(driver))
+    challenge_res.userAgent = utils.retry_driver_read(lambda: utils.get_user_agent(driver))
     challenge_res.turnstile_token = turnstile_token
     challenge_res.status = 200  # todo: fix, selenium not provides this info
 
@@ -1232,11 +1215,11 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
                 challenge_res.headers = download_headers
         else:
             logging.debug("_build_challenge_result: reading page_source")
-            challenge_res.response = _retry_driver_read(lambda: driver.page_source)
+            challenge_res.response = utils.retry_driver_read(lambda: driver.page_source)
 
     # Get cookies after waiting to ensure all challenge cookies are captured
     logging.debug("_build_challenge_result: reading cookies")
-    challenge_res.cookies = _retry_driver_read(lambda: driver.get_cookies())
+    challenge_res.cookies = utils.retry_driver_read(lambda: driver.get_cookies())
 
     if req.returnScreenshot:
         challenge_res.screenshot = driver.get_screenshot_as_base64()  # noqa

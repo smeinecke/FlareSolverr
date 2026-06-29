@@ -33,6 +33,7 @@ except ModuleNotFoundError:
     Xvfb = None  # type: ignore[misc,assignment]
 
 from selenium import webdriver
+from selenium.common import WebDriverException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -1011,6 +1012,23 @@ def extract_version_nt_folder() -> str:
                     # Found a Chrome version.
                     return match.group(0)
     return ""
+
+
+def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
+    """Retry a driver property read that may transiently fail during navigation."""
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            return read_fn()
+        except WebDriverException as exc:
+            msg = str(exc).lower()
+            if "no such execution context" in msg or "aborted by navigation" in msg:
+                logging.debug("Driver read failed transiently (%s), retry %d/%d", exc, attempt, retries)
+                last_exc = exc
+                time.sleep(delay)
+                continue
+            raise
+    raise last_exc
 
 
 def _fetch_user_agent(driver: WebDriver) -> str:

@@ -9,6 +9,7 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 
+from flaresolverr import utils
 from flaresolverr.services.base import ChallengeService, _wait_for_redirect
 
 SHORT_TIMEOUT = 10
@@ -58,9 +59,9 @@ class BraveService(ChallengeService):
         while True:
             attempt += 1
             try:
-                current_url = driver.current_url or ""
+                current_url = utils.retry_driver_read(lambda: driver.current_url or "")
             except Exception as e:
-                logging.debug("Brave resolve: current_url failed (%s), breaking", e)
+                logging.debug("Brave resolve: current_url failed after retries (%s), breaking", e)
                 break
             if not current_url.startswith("https://search.brave.com/"):
                 logging.debug("Brave resolve: left brave.com (%s), breaking", current_url)
