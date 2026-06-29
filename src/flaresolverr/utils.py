@@ -717,16 +717,20 @@ def _find_free_port() -> int:
         return int(s.getsockname()[1])
 
 
-def _wait_for_debug_port(port: int, timeout: int = 15) -> None:
+def _wait_for_debug_port(port: int, timeout: int = 30) -> None:
     """Poll until Chrome's remote-debugging port is accepting connections."""
-    deadline = time.time() + timeout
+    start = time.time()
+    deadline = start + timeout
     while time.time() < deadline:
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=1):
+                elapsed = time.time() - start
+                logging.debug("Chrome debug port %d ready after %.1fs", port, elapsed)
                 return
         except (ConnectionRefusedError, OSError):
             time.sleep(0.2)
-    raise RuntimeError(f"Chrome debug port {port} did not become ready within {timeout}s")
+    elapsed = time.time() - start
+    raise RuntimeError(f"Chrome debug port {port} did not become ready within {elapsed:.1f}s")
 
 
 _LAST_CLEANUP_TIME = 0.0
@@ -815,7 +819,12 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             logging.debug("Started custom Chromium manually (PID %d, debug port %d)", chrome_proc.pid, debug_port)
 
             # Wait for Chrome to open the debug port
-            _wait_for_debug_port(debug_port, timeout=15)
+            try:
+                _wait_for_debug_port(debug_port)
+            except RuntimeError:
+                alive = chrome_proc.poll() is None
+                logging.debug("Chrome process alive=%s, returncode=%s", alive, chrome_proc.poll())
+                raise
 
             opts = ChromeOptions()
             opts.add_experimental_option("debuggerAddress", f"127.0.0.1:{debug_port}")
