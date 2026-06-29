@@ -48,8 +48,10 @@ class BraveService(ChallengeService):
             return False
 
     def resolve(self, driver: WebDriver) -> None:
+        logging.debug("Brave resolve: starting")
         html_element = self._get_html_element(driver)
         if html_element is None:
+            logging.debug("Brave resolve: no html element at entry, aborting")
             return
         attempt = 0
 
@@ -57,37 +59,48 @@ class BraveService(ChallengeService):
             attempt += 1
             try:
                 current_url = driver.current_url or ""
-            except Exception:
-                logging.debug("Brave resolve: page navigation in progress, breaking")
+            except Exception as e:
+                logging.debug("Brave resolve: current_url failed (%s), breaking", e)
                 break
             if not current_url.startswith("https://search.brave.com/"):
+                logging.debug("Brave resolve: left brave.com (%s), breaking", current_url)
                 break
 
-            if not self._page_has_captcha(driver):
+            has_captcha = self._page_has_captcha(driver)
+            logging.debug("Brave resolve: attempt %d, has_captcha=%s", attempt, has_captcha)
+            if not has_captcha:
+                logging.debug("Brave resolve: no captcha detected, breaking")
                 break
-
-            logging.debug("Brave challenge active (attempt %d)", attempt)
 
             button = self._find_clickable_verify_button(driver)
             if button is not None:
-                logging.debug("Brave Verify/Try again button clickable, clicking...")
-                button.click()
-                logging.debug("Brave button clicked, waiting for it to become clickable again or challenge to resolve...")
+                logging.debug("Brave resolve: clickable button found, clicking...")
+                try:
+                    button.click()
+                    logging.debug("Brave resolve: button clicked")
+                except Exception as e:
+                    logging.debug("Brave resolve: button.click() failed (%s), retrying...", e)
+                    html_element = self._get_html_element(driver)
+                    if html_element is None:
+                        logging.debug("Brave resolve: no html element after click failure, breaking")
+                        break
+                    continue
                 try:
                     WebDriverWait(driver, SHORT_TIMEOUT).until(lambda d: not self._page_has_captcha(d) or self._find_clickable_verify_button(d) is not None)
-                    # If challenge is resolved, the next loop iteration will break.
-                    # If button became clickable again, we loop and click again.
                 except TimeoutException:
-                    logging.debug("Timeout waiting for Brave button state change or challenge resolution, retrying...")
+                    logging.debug("Brave resolve: timeout waiting for state change, retrying...")
                 html_element = self._get_html_element(driver)
                 if html_element is None:
+                    logging.debug("Brave resolve: no html element after wait, continuing")
                     continue
             else:
-                logging.debug("Brave Verify button not clickable (not visible or disabled), waiting...")
+                logging.debug("Brave resolve: no clickable button, sleeping 2s")
                 time.sleep(2)
                 continue
 
+        logging.debug("Brave resolve: waiting for redirect stabilization")
         _wait_for_redirect(driver, html_element, SHORT_TIMEOUT)
+        logging.debug("Brave resolve: finished")
 
     def _page_has_captcha(self, driver: WebDriver) -> bool:
         try:

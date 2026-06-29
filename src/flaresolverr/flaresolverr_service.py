@@ -1186,10 +1186,12 @@ def _get_download_content(driver: WebDriver, url: str) -> tuple[str, bool, dict[
 
 def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_token: str | None) -> ChallengeResolutionResultT:
     challenge_res = ChallengeResolutionResultT({})
+    logging.debug("_build_challenge_result: reading current_url")
     challenge_res.url = driver.current_url
-    challenge_res.status = 200  # todo: fix, selenium not provides this info
+    logging.debug("_build_challenge_result: reading userAgent")
     challenge_res.userAgent = utils.get_user_agent(driver)
     challenge_res.turnstile_token = turnstile_token
+    challenge_res.status = 200  # todo: fix, selenium not provides this info
 
     if not req.returnOnlyCookies:
         challenge_res.headers = {}  # todo: fix, selenium not provides this info
@@ -1205,15 +1207,18 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
             time.sleep(req.waitInSeconds)
 
         if req.download:
+            logging.debug("_build_challenge_result: reading download content")
             content, is_binary, download_headers = _get_download_content(driver, driver.current_url)
             challenge_res.response = content
             challenge_res.isBinary = is_binary
             if download_headers:
                 challenge_res.headers = download_headers
         else:
+            logging.debug("_build_challenge_result: reading page_source")
             challenge_res.response = driver.page_source
 
     # Get cookies after waiting to ensure all challenge cookies are captured
+    logging.debug("_build_challenge_result: reading cookies")
     challenge_res.cookies = driver.get_cookies()
 
     if req.returnScreenshot:
@@ -1325,7 +1330,9 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
 
             if not solver_used:
                 # Fall back to default challenge resolution
+                logging.debug("_evil_logic: resolving challenge for service=%s", detected_service)
                 SERVICE_MANAGER.resolve(driver, detected_service)
+                logging.debug("_evil_logic: challenge resolution finished")
 
             logging.info("Challenge solved!")
             res.message = "Challenge solved!"
@@ -1334,7 +1341,9 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
             res.message = "Challenge not detected!"
 
         _apply_js_injection(req, driver, "document_idle")
+        logging.debug("_evil_logic: building challenge result")
         res.result = _build_challenge_result(req, driver, turnstile_token)
+        logging.debug("_evil_logic: challenge result built successfully")
         return res
     finally:
         if injected_ids:
