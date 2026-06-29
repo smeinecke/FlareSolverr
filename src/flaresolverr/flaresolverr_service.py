@@ -1336,6 +1336,8 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
 
             logging.info("Challenge solved!")
             res.message = "Challenge solved!"
+            logging.debug("_evil_logic: waiting for post-challenge page to stabilize")
+            utils.wait_for_page_stable(driver)
         else:
             logging.info("Challenge not detected!")
             res.message = "Challenge not detected!"

@@ -1014,6 +1014,30 @@ def extract_version_nt_folder() -> str:
     return ""
 
 
+def wait_for_page_stable(driver: WebDriver, timeout: float = 15.0, poll: float = 0.5) -> None:
+    """Wait until document.readyState is 'complete' and the execution context is stable.
+
+    After a navigation triggered by a challenge resolver the new page may not be
+    ready to receive JavaScript calls for several seconds.  Plain retries on
+    individual driver reads burn time waiting for ChromeDriver's own command
+    timeout (~2-3 s per attempt).  This function uses a tight poll loop so we
+    detect readiness as soon as it becomes available.
+    """
+    import time as _time
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        try:
+            state = driver.execute_script("return document.readyState")
+            if state == "complete":
+                return
+        except WebDriverException as exc:
+            msg = str(exc).lower()
+            if "no such execution context" not in msg and "aborted by navigation" not in msg:
+                raise
+        _time.sleep(poll)
+    logging.debug("wait_for_page_stable: timed out after %.0fs, proceeding anyway", timeout)
+
+
 def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
     """Retry a driver property read that may transiently fail during navigation."""
     last_exc = None
