@@ -129,6 +129,7 @@ jobs:
         if: ${{ github.event.inputs.scope == 'non-proxy' || github.event.inputs.scope == 'all' }}
         env:
           FLARESOLVERR_URL: http://127.0.0.1:8191
+          HTTPBIN_URL: http://go-httpbin:8080
         run: |
           uv run pytest -m integration tests/integration -k "not proxy_http_param and not proxy_http_param_with_credentials and not proxy_socks_param" -vv
 
@@ -136,6 +137,7 @@ jobs:
         if: ${{ github.event.inputs.scope == 'proxy' || github.event.inputs.scope == 'all' }}
         env:
           FLARESOLVERR_URL: http://127.0.0.1:8191
+          HTTPBIN_URL: http://go-httpbin:8080
           PROXY_HTTP_URL: http://proxy-http:8888
           PROXY_SOCKS_URL: socks5://proxy-socks:1080
           PROXY_HTTP_CHECK_URL: http://127.0.0.1:8888

@@ -20,6 +20,7 @@ pytestmark = pytest.mark.integration
 
 class TestJsInjection(unittest.TestCase):
     base_url = None
+    httpbin_url = os.environ.get("HTTPBIN_URL", "http://127.0.0.1:8080")
     _js_injection_enabled = None  # cached server-side capability
 
     @classmethod
@@ -59,7 +60,7 @@ class TestJsInjection(unittest.TestCase):
             f"{self.base_url}/v1",
             json={
                 "cmd": "request.get",
-                "url": "http://127.0.0.1:8080/html",
+                "url": f"{self.httpbin_url}/html",
                 "scriptInject": [{"script": "window.__fs_probe = 'enabled';"}],
                 "actions": [{"type": "eval", "script": "return window.__fs_probe"}],
             },
@@ -81,7 +82,7 @@ class TestJsInjection(unittest.TestCase):
         """eval action with returnResult:true (default) captures result."""
         res = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "actions": [{"type": "eval", "script": "return document.title", "returnResult": True}],
         })
         self.assertEqual(res.status_code, 200)
@@ -95,7 +96,7 @@ class TestJsInjection(unittest.TestCase):
         """eval action with returnResult:false does not capture result."""
         res = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "actions": [{"type": "eval", "script": "return 'should-not-appear'", "returnResult": False}],
         })
         self.assertEqual(res.status_code, 200)
@@ -110,7 +111,7 @@ class TestJsInjection(unittest.TestCase):
         """eval action without explicit returnResult defaults to capturing."""
         res = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "actions": [{"type": "eval", "script": "return 'captured'"}],
         })
         self.assertEqual(res.status_code, 200)
@@ -128,7 +129,7 @@ class TestJsInjection(unittest.TestCase):
 
         res = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "scriptInject": [{"script": "document.title = 'HACKED';"}],
         })
         self.assertEqual(res.status_code, 200)
@@ -146,7 +147,7 @@ class TestJsInjection(unittest.TestCase):
 
         res = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "scriptInject": [{"script": "window.__fs_idle = 'idle-ok';", "point": "document_idle"}],
             "actions": [{"type": "eval", "script": "return window.__fs_idle"}],
         })
@@ -163,7 +164,7 @@ class TestJsInjection(unittest.TestCase):
 
         res = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "scriptInject": [{"script": "window.__fs_end = 'end-ok';", "point": "document_end"}],
             "actions": [{"type": "eval", "script": "return window.__fs_end"}],
         })
@@ -180,7 +181,7 @@ class TestJsInjection(unittest.TestCase):
 
         res = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "scriptInject": [{"script": "window.__fs_start = 'start-ok';", "point": "document_start"}],
             "actions": [{"type": "eval", "script": "return window.__fs_start"}],
         })
@@ -197,7 +198,7 @@ class TestJsInjection(unittest.TestCase):
 
         res = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "scriptInject": [{"script": "window.__fs_default = 'default-ok';"}],
             "actions": [{"type": "eval", "script": "return window.__fs_default"}],
         })
@@ -219,7 +220,7 @@ class TestJsInjection(unittest.TestCase):
         # First request with injection
         r2 = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "session": "test_js_inject_session",
             "scriptInject": [{"script": "window.__fs_sess = 'session-ok';", "point": "document_idle"}],
         })
@@ -242,7 +243,7 @@ class TestJsInjection(unittest.TestCase):
 
         res = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "scriptInject": [{"script": "window.__fs_combo = 42;", "point": "document_idle"}],
             "actions": [
                 {"type": "wait", "seconds": 1},
@@ -280,7 +281,7 @@ class TestJsInjection(unittest.TestCase):
 
         res = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "scriptInject": [{"script": "", "point": "document_idle"}],
         })
         self.assertEqual(res.status_code, 200)
@@ -295,7 +296,7 @@ class TestJsInjection(unittest.TestCase):
 
         res = self._request({
             "cmd": "request.post",
-            "url": "http://127.0.0.1:8080/post",
+            "url": f"{self.httpbin_url}/post",
             "postData": "foo=bar",
             "scriptInject": [{"script": "window.__fs_post = 'post-ok';", "point": "document_idle"}],
             "actions": [{"type": "eval", "script": "return window.__fs_post"}],
@@ -313,7 +314,7 @@ class TestJsInjection(unittest.TestCase):
 
         res = self._request({
             "cmd": "request.get",
-            "url": "http://127.0.0.1:8080/html",
+            "url": f"{self.httpbin_url}/html",
             "scriptInject": [
                 {"script": "window.__fs_a = 'start';", "point": "document_start"},
                 {"script": "window.__fs_b = 'idle';", "point": "document_idle"},

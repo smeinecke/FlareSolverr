@@ -24,13 +24,13 @@ classifiers = [
 requires-python = ">=3.11"
 dependencies = [
     "bottle==0.13.4",
-    "certifi==2026.5.20",
+    "certifi==2026.6.17",
     "func-timeout==4.3.5",
     "packaging==26.2",
     "pefile==2024.8.26; platform_system == 'Windows'",
     "prometheus-client==0.25.0",
     "requests==2.33.0",
-    "selenium==4.44.0",
+    "selenium==4.45.0",
     "tomli>=1.1.0; python_version < '3.11'",
     "waitress==3.0.2",
     "websockets==16.0",
@@ -39,7 +39,7 @@ dependencies = [
 
 [project.optional-dependencies]
 build = [
-    "pyinstaller==6.20.0",
+    "pyinstaller==6.21.0",
 ]
 test = [
     "WebTest==3.0.7",
@@ -50,13 +50,13 @@ test = [
 dev = [
     "bandit>=1.9.2",
     "pre-commit>=4.6.0",
-    "pyinstaller==6.20.0",
+    "pyinstaller==6.21.0",
     "pyright==1.1.410",
-    "pytest>=9.0.1",
+    "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=6.0.0",
     "radon>=6.0.1",
-    "ruff>=0.15.17",
+    "ruff>=0.15.18",
     "tox>=4.55.1",
     "vulture>=2.14",
     "WebTest==3.0.7",
