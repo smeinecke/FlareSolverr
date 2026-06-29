@@ -1019,7 +1019,10 @@ def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
     last_exc = None
     for attempt in range(1, retries + 1):
         try:
-            return read_fn()
+            result = read_fn()
+            if attempt > 1:
+                logging.debug("Driver read succeeded after %d retries", attempt - 1)
+            return result
         except WebDriverException as exc:
             msg = str(exc).lower()
             if "no such execution context" in msg or "aborted by navigation" in msg:
