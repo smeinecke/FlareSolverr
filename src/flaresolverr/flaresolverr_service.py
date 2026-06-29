@@ -1206,7 +1206,7 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
     logging.debug("_build_challenge_result: reading current_url")
     challenge_res.url = _retry_driver_read(lambda: driver.current_url)
     logging.debug("_build_challenge_result: reading userAgent")
-    challenge_res.userAgent = utils.get_user_agent(driver)
+    challenge_res.userAgent = _retry_driver_read(lambda: utils.get_user_agent(driver))
     challenge_res.turnstile_token = turnstile_token
     challenge_res.status = 200  # todo: fix, selenium not provides this info
 
