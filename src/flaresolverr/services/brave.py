@@ -48,84 +48,46 @@ class BraveService(ChallengeService):
             logging.debug("Brave detect failed due to navigation in progress, assuming not detected")
             return False
 
-    def _safe_page_source(self, driver: WebDriver) -> str:
-        """Safely get a snippet of page source for debugging."""
-        try:
-            src = driver.page_source
-            return src[:2000] if src else "<empty>"
-        except Exception as e:
-            return f"<unavailable: {e}>"
-
-    def _safe_current_url(self, driver: WebDriver) -> str:
-        """Safely get current URL for debugging."""
-        try:
-            return driver.current_url or "<empty>"
-        except Exception as e:
-            return f"<unavailable: {e}>"
-
     def resolve(self, driver: WebDriver) -> None:
-        logging.debug("Brave resolve: starting")
         html_element = self._get_html_element(driver)
         if html_element is None:
-            logging.debug("Brave resolve: no html element at entry, aborting")
             return
         attempt = 0
 
         while True:
             attempt += 1
-            safe_url = self._safe_current_url(driver)
-            logging.debug("Brave resolve: attempt %d, url=%s", attempt, safe_url)
             try:
                 current_url = utils.retry_driver_read(lambda: driver.current_url or "")
-            except Exception as e:
-                logging.debug("Brave resolve: current_url failed after retries (%s), breaking", e)
-                logging.debug("Brave resolve: page_source at break: %s", self._safe_page_source(driver))
+            except Exception:
                 break
             if not current_url.startswith("https://search.brave.com/"):
-                logging.debug("Brave resolve: left brave.com (%s), breaking", current_url)
-                logging.debug("Brave resolve: page_source at break: %s", self._safe_page_source(driver))
                 break
 
             has_captcha = self._page_has_captcha(driver)
-            logging.debug("Brave resolve: attempt %d, has_captcha=%s", attempt, has_captcha)
             if not has_captcha:
-                logging.debug("Brave resolve: no captcha detected, breaking")
-                logging.debug("Brave resolve: page_source at break: %s", self._safe_page_source(driver))
                 break
 
-            logging.debug("Brave resolve: page_source (has_captcha=True): %s", self._safe_page_source(driver))
             button = self._find_clickable_verify_button(driver)
             if button is not None:
-                logging.debug("Brave resolve: clickable button found, clicking...")
                 try:
                     button.click()
-                    logging.debug("Brave resolve: button clicked")
-                except Exception as e:
-                    logging.debug("Brave resolve: button.click() failed (%s), retrying...", e)
-                    logging.debug("Brave resolve: page_source after click failure: %s", self._safe_page_source(driver))
+                except Exception:
                     html_element = self._get_html_element(driver)
                     if html_element is None:
-                        logging.debug("Brave resolve: no html element after click failure, breaking")
                         break
                     continue
                 try:
                     WebDriverWait(driver, SHORT_TIMEOUT).until(lambda d: not self._page_has_captcha(d) or self._find_clickable_verify_button(d) is not None)
                 except TimeoutException:
-                    logging.debug("Brave resolve: timeout waiting for state change, retrying...")
-                    logging.debug("Brave resolve: page_source after timeout: %s", self._safe_page_source(driver))
+                    pass
                 html_element = self._get_html_element(driver)
                 if html_element is None:
-                    logging.debug("Brave resolve: no html element after wait, continuing")
                     continue
             else:
-                logging.debug("Brave resolve: no clickable button, sleeping 2s")
-                logging.debug("Brave resolve: page_source (no button): %s", self._safe_page_source(driver))
                 time.sleep(2)
                 continue
 
-        logging.debug("Brave resolve: waiting for redirect stabilization")
         _wait_for_redirect(driver, html_element, SHORT_TIMEOUT)
-        logging.debug("Brave resolve: finished")
 
     def _page_has_captcha(self, driver: WebDriver) -> bool:
         try:
