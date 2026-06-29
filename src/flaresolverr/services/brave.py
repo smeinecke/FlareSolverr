@@ -9,7 +9,7 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 
-from flaresolverr.services.base import ChallengeService
+from flaresolverr.services.base import ChallengeService, _wait_for_redirect
 
 SHORT_TIMEOUT = 10
 
@@ -48,6 +48,9 @@ class BraveService(ChallengeService):
             return False
 
     def resolve(self, driver: WebDriver) -> None:
+        html_element = self._get_html_element(driver)
+        if html_element is None:
+            return
         attempt = 0
 
         while True:
@@ -74,14 +77,17 @@ class BraveService(ChallengeService):
                     WebDriverWait(driver, SHORT_TIMEOUT).until(lambda d: not self._page_has_captcha(d) or self._find_clickable_verify_button(d) is not None)
                     # If challenge is resolved, the next loop iteration will break.
                     # If button became clickable again, we loop and click again.
-                    continue
                 except TimeoutException:
                     logging.debug("Timeout waiting for Brave button state change or challenge resolution, retrying...")
+                html_element = self._get_html_element(driver)
+                if html_element is None:
                     continue
             else:
                 logging.debug("Brave Verify button not clickable (not visible or disabled), waiting...")
                 time.sleep(2)
                 continue
+
+        _wait_for_redirect(driver, html_element, SHORT_TIMEOUT)
 
     def _page_has_captcha(self, driver: WebDriver) -> bool:
         try:
