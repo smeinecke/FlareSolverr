@@ -36,12 +36,16 @@ class _BraveDriverMock:
         self._idx = 0
         self.current_url = "https://search.brave.com/captcha"
         self._find_elements = MagicMock(return_value=[])
+        self._html_element = MagicMock()
 
     @property
     def page_source(self):
         val = self._page_sources[min(self._idx, len(self._page_sources) - 1)]
         self._idx += 1
         return val
+
+    def find_element(self, by, value):
+        return self._html_element
 
     def find_elements(self, by, value):
         return self._find_elements(by, value)

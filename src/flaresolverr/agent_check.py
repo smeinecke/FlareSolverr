@@ -47,6 +47,8 @@ class AgentCheckHandler(socketserver.BaseRequestHandler):
             logging.exception("Agent-check _compute_state failed")
         try:
             self.request.sendall(f"{state}\n".encode())
+        except (ConnectionResetError, BrokenPipeError):
+            logging.debug("Agent-check client closed connection before response could be sent")
         except Exception:
             logging.exception("Agent-check sendall failed")
         finally:
