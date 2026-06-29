@@ -28,7 +28,7 @@ except ModuleNotFoundError:
     pefile = None  # type: ignore[misc]
 
 try:
-    from xvfbwrapper import Xvfb
+    from xvfbwrapper import Xvfb  # pyright: ignore[reportMissingImports]
 except ModuleNotFoundError:
     Xvfb = None  # type: ignore[misc,assignment]
 
@@ -1024,6 +1024,7 @@ def wait_for_page_stable(driver: WebDriver, timeout: float = 15.0, poll: float =
     detect readiness as soon as it becomes available.
     """
     import time as _time
+
     deadline = _time.monotonic() + timeout
     while _time.monotonic() < deadline:
         try:
@@ -1040,7 +1041,7 @@ def wait_for_page_stable(driver: WebDriver, timeout: float = 15.0, poll: float =
 
 def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
     """Retry a driver property read that may transiently fail during navigation."""
-    last_exc = None
+    last_exc: WebDriverException | None = None
     for attempt in range(1, retries + 1):
         try:
             result = read_fn()
@@ -1055,6 +1056,8 @@ def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
                 time.sleep(delay)
                 continue
             raise
+    if last_exc is None:
+        raise RuntimeError("retry_driver_read exhausted retries without a captured exception")
     raise last_exc
 
 

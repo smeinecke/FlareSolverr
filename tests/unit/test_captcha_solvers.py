@@ -35,6 +35,11 @@ class MockWebDriver:
     def find_elements(self, by, value):
         return []
 
+    def execute_script(self, script):
+        if "document.readyState" in script:
+            return "complete"
+        return None
+
 
 class TestCaptchaSolverBase:
     """Tests for the abstract CaptchaSolver base class."""
