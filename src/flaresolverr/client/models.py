@@ -148,6 +148,7 @@ class V1Response:
     startTimestamp: int | None = None
     endTimestamp: int | None = None
     version: str | None = None  # noqa
+    details: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> V1Response:
@@ -162,6 +163,7 @@ class V1Response:
             startTimestamp=data.get("startTimestamp"),
             endTimestamp=data.get("endTimestamp"),
             version=data.get("version"),
+            details=data.get("details"),
         )
 
     @property

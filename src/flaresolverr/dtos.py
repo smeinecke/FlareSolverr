@@ -131,6 +131,14 @@ class V1RequestBase(object):
                 setattr(self, key, value)
 
 
+class ChallengeError(Exception):
+    """Exception that carries optional debug details for challenge failures."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.details = details
+
+
 class V1ResponseBase(object):
     # V1ResponseBase
     status: str | None = None
@@ -143,6 +151,9 @@ class V1ResponseBase(object):
 
     # V1ResponseSolution
     solution: ChallengeResolutionResultT | None = None
+
+    # Optional debug details for error responses (e.g. Brave challenge timeout info)
+    details: dict[str, Any] | None = None
 
     # hidden vars
     __error_500__: bool = False

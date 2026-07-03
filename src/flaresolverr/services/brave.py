@@ -3,6 +3,7 @@
 import logging
 import re
 import time
+from typing import Any
 
 from selenium.common import TimeoutException
 from selenium.webdriver.chrome.webdriver import WebDriver
@@ -67,6 +68,7 @@ class BraveService(ChallengeService):
             if not has_captcha:
                 break
 
+            driver._flaresolverr_brave_debug = self._collect_debug_state(driver, attempt)
             button = self._find_clickable_verify_button(driver)
             if button is not None:
                 try:
@@ -94,6 +96,30 @@ class BraveService(ChallengeService):
             return bool(BRAVE_CAPTCHA_RE.search(driver.page_source))
         except Exception:
             return False
+
+    def _collect_debug_state(self, driver: WebDriver, attempt: int) -> dict[str, Any]:
+        """Collect debug state for Brave challenge resolution."""
+        state: dict[str, Any] = {"attempts": attempt}
+        try:
+            state["url"] = driver.current_url or ""
+        except Exception:
+            state["url"] = ""
+        try:
+            state["title"] = driver.title or ""
+        except Exception:
+            state["title"] = ""
+        try:
+            html = driver.page_source or ""
+            state["captcha_present"] = bool(BRAVE_CAPTCHA_RE.search(html))
+            state["page_source_snippet"] = html[:500]
+        except Exception:
+            state["captcha_present"] = False
+            state["page_source_snippet"] = ""
+        state["button_found"] = self._find_clickable_verify_button(driver) is not None
+        return state
+
+    def get_debug_info(self, driver: WebDriver) -> dict[str, Any] | None:
+        return getattr(driver, "_flaresolverr_brave_debug", None)
 
     def _find_clickable_verify_button(self, driver: WebDriver):
         """Find a verify button that is visible and not disabled."""

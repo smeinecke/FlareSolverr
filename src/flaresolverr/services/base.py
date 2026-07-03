@@ -1,6 +1,7 @@
 """Base class for challenge services."""
 
 import logging
+from typing import Any
 
 from abc import ABC, abstractmethod
 
@@ -39,3 +40,7 @@ class ChallengeService(ABC):
         except Exception:
             logging.debug("Could not find html element during navigation")
             return None
+
+    def get_debug_info(self, driver: WebDriver) -> dict[str, Any] | None:
+        """Return debug state dict for this service, or None if not available."""
+        return None

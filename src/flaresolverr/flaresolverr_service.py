@@ -26,6 +26,7 @@ from flaresolverr.captcha_solvers import SOLVER_MANAGER, get_available_solvers, 
 from flaresolverr.dtos import (
     STATUS_ERROR,
     STATUS_OK,
+    ChallengeError,
     ChallengeResolutionResultT,
     ChallengeResolutionT,
     HealthResponse,
@@ -262,6 +263,13 @@ def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
             res.version = utils.get_flaresolverr_version()  # noqa
             logging.warning("Request rejected: " + str(e))
             return res
+        except ChallengeError as e:
+            res = V1ResponseBase({})
+            res.__error_500__ = True
+            res.status = STATUS_ERROR
+            res.message = "Error: " + str(e)
+            res.details = e.details
+            logging.error(res.message)
         except Exception as e:
             res = V1ResponseBase({})
             res.__error_500__ = True
@@ -834,7 +842,22 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             session.touch()
         return cast(ChallengeResolutionT, challenge_result)
     except FunctionTimedOut:
-        raise Exception(f"Error solving the challenge. Timeout after {timeout} seconds.")
+        msg = f"Error solving the challenge. Timeout after {timeout} seconds."
+        detected = None
+        try:
+            detected = getattr(driver, "_flaresolverr_detected_service", None)
+        except Exception:
+            pass
+        if detected is not None:
+            svc = SERVICE_MANAGER.get_service(detected)
+            if svc is not None:
+                try:
+                    debug_info = svc.get_debug_info(driver)
+                except Exception:
+                    debug_info = None
+                if debug_info is not None:
+                    raise ChallengeError(msg, details=debug_info)
+        raise Exception(msg)
     except Exception as e:
         raise Exception("Error solving the challenge. " + str(e).replace("\n", "\\n"))
     finally:
@@ -1317,6 +1340,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
         _raise_if_access_denied(driver, page_title)
         detected_service = SERVICE_MANAGER.detect(driver, enabled_services)
         if detected_service is not None:
+            driver._flaresolverr_detected_service = detected_service
             # Try external captcha solver first if configured
             solver_used = False
             effective_solver = req.captchaSolver if req.captchaSolver is not None else get_config_captcha_solver()
