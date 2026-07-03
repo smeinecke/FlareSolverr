@@ -847,10 +847,10 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         try:
             detected = getattr(driver, "_flaresolverr_detected_service", None)
         except Exception:
-            pass
+            logging.debug("Could not read detected service from driver after timeout")
         if detected is not None:
             svc = SERVICE_MANAGER.get_service(detected)
-            if svc is not None:
+            if svc is not None and driver is not None:
                 try:
                     debug_info = svc.get_debug_info(driver)
                 except Exception:
@@ -1340,7 +1340,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
         _raise_if_access_denied(driver, page_title)
         detected_service = SERVICE_MANAGER.detect(driver, enabled_services)
         if detected_service is not None:
-            driver._flaresolverr_detected_service = detected_service
+            setattr(driver, "_flaresolverr_detected_service", detected_service)
             # Try external captcha solver first if configured
             solver_used = False
             effective_solver = req.captchaSolver if req.captchaSolver is not None else get_config_captcha_solver()

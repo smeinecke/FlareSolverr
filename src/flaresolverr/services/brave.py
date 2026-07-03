@@ -68,7 +68,7 @@ class BraveService(ChallengeService):
             if not has_captcha:
                 break
 
-            driver._flaresolverr_brave_debug = self._collect_debug_state(driver, attempt)
+            setattr(driver, "_flaresolverr_brave_debug", self._collect_debug_state(driver, attempt))
             button = self._find_clickable_verify_button(driver)
             if button is not None:
                 try:
