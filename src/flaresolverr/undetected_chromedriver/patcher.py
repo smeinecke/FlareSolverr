@@ -192,7 +192,7 @@ class Patcher(object):
                 with open(version_path, "r") as f:
                     current_version = f.read()
 
-            if current_version != chromedriver_version:
+            if current_version != chromedriver_version or not os.path.isfile(self.executable_path) or not os.access(self.executable_path, os.X_OK):
                 logging.info("Copying chromedriver executable...")
                 shutil.copy(chromedriver_path, self.executable_path)
                 os.chmod(self.executable_path, 0o755)
