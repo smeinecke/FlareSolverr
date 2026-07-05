@@ -392,6 +392,7 @@ def _build_stealth_extension_dir() -> tuple[str, str]:
 def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
     """Build and configure ChromeOptions based on settings."""
     options = ChromeOptions()
+    options.set_capability("unhandledPromptBehavior", "accept")
     options.add_argument("--no-sandbox")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-search-engine-choice-screen")
@@ -828,6 +829,7 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
                 raise
 
             opts = ChromeOptions()
+            opts.set_capability("unhandledPromptBehavior", "accept")
             opts.add_experimental_option("debuggerAddress", f"127.0.0.1:{debug_port}")
             if logging_prefs:
                 opts.set_capability("goog:loggingPrefs", logging_prefs)
