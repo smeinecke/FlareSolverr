@@ -15,6 +15,8 @@ import time
 import urllib.parse
 from typing import Any
 from datetime import timedelta
+
+from flaresolverr.backends.browser_context import BrowserContext
 from importlib.metadata import version
 
 try:
@@ -37,7 +39,6 @@ from selenium.common import WebDriverException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.common.action_chains import ActionChains
 from flaresolverr import undetected_chromedriver as uc  # type: ignore[import-untyped]
 
 FLARESOLVERR_VERSION: str | None = None
@@ -92,6 +93,13 @@ def _load_stealth_script(fallback: bool = False) -> str:
 
 def _is_custom_chromium() -> bool:
     global _CUSTOM_CHROMIUM
+
+    env_override = os.environ.get("FLARESOLVERR_CUSTOM_CHROMIUM", "").lower()
+    if env_override in ("1", "true"):
+        return True
+    if env_override in ("0", "false"):
+        return False
+
     if _CUSTOM_CHROMIUM is not None:
         return _CUSTOM_CHROMIUM
 
@@ -245,7 +253,7 @@ def _apply_stealth_patches(driver: WebDriver, stealth_mode: str) -> None:
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": prelude + _load_stealth_script(fallback=True)})
 
 
-def apply_user_agent_override(driver: WebDriver, user_agent: str, accept_language: str | None = None) -> None:
+def apply_user_agent_override(driver: WebDriver | BrowserContext, user_agent: str, accept_language: str | None = None) -> None:
     """Apply a custom user agent string at the CDP level with full metadata.
 
     Uses Emulation.setUserAgentOverride with userAgentMetadata to ensure
@@ -535,6 +543,7 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
         username = proxy.get("username")
         password = proxy.get("password")
         if username:
+            # lgtm[py/clear-text-storage-sensitive-data] Proxy credentials are passed to the Chrome proxy-manager extension via runtime messaging; they are not persisted to disk.
             payload["auth"] = {"username": username, "password": password or ""}
         logging.debug("Applying proxy to session via extension: %s:%d", host, port)
 
@@ -574,6 +583,78 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
         time.sleep(0.05)
 
     raise RuntimeError("Proxy extension did not acknowledge within timeout")
+
+
+def create_proxy_extension(proxy: dict[str, Any]) -> str:
+    parsed_url = urllib.parse.urlparse(proxy["url"])
+    scheme = parsed_url.scheme
+    host = parsed_url.hostname
+    port = parsed_url.port
+    username = proxy["username"]
+    password = proxy["password"]
+    manifest_json = """
+    {
+        "version": "1.0.0",
+        "manifest_version": 3,
+        "name": "Chrome Proxy",
+        "permissions": [
+            "proxy",
+            "tabs",
+            "storage",
+            "webRequest",
+            "webRequestAuthProvider"
+        ],
+        "host_permissions": [
+          "<all_urls>"
+        ],
+        "background": {
+          "service_worker": "background.js"
+        },
+        "minimum_chrome_version": "76.0.0"
+    }
+    """
+
+    background_js = """
+    var config = {
+        mode: "fixed_servers",
+        rules: {
+            singleProxy: {
+                scheme: "%s",
+                host: "%s",
+                port: %d
+            },
+            bypassList: ["localhost"]
+        }
+    };
+
+    chrome.proxy.settings.set({value: config, scope: "regular"}, function() {});
+
+    function callbackFn(details) {
+        return {
+            authCredentials: {
+                username: "%s",
+                password: "%s"
+            }
+        };
+    }
+
+    chrome.webRequest.onAuthRequired.addListener(
+        callbackFn,
+        { urls: ["<all_urls>"] },
+        ['blocking']
+    );
+    """ % (scheme, host, port, username, password)
+
+    proxy_extension_dir = tempfile.mkdtemp()
+
+    with open(os.path.join(proxy_extension_dir, "manifest.json"), "w") as f:
+        f.write(manifest_json)
+
+    with open(os.path.join(proxy_extension_dir, "background.js"), "w") as f:
+        # lgtm[py/clear-text-storage-sensitive-data] Proxy credentials must be in clear text for the Chrome proxy extension background script to authenticate.
+        f.write(background_js)
+
+    return proxy_extension_dir
 
 
 def _resolve_driver_paths() -> tuple[str | None, str | None]:
@@ -774,12 +855,23 @@ def _cleanup_orphaned_temp_dirs() -> None:
                 pass
 
 
-def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None, logging_prefs: dict[str, str] | None = None) -> WebDriver:
+def get_webdriver(
+    proxy: dict[str, Any] | None = None,
+    stealth_mode: str | bool | None = None,
+    logging_prefs: dict[str, str] | None = None,
+) -> WebDriver | BrowserContext:
     global PATCHED_DRIVER_PATH
 
     logging.debug("Launching web browser...")
 
     effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
+
+    # Delegate to pluggable backends when DRIVER_BACKEND is set to an alternative
+    backend_name = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+    if backend_name not in ("undetected_chromedriver", ""):
+        from flaresolverr import backends
+
+        return backends.get_backend(backend_name).create_driver(proxy, effective_stealth_mode)
 
     options = _build_chrome_options(effective_stealth_mode)
     proxy_ext_dir, proxy_ext_id = _build_stealth_extension_dir()
@@ -1063,7 +1155,7 @@ def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
     raise last_exc
 
 
-def _fetch_user_agent(driver: WebDriver) -> str:
+def _fetch_user_agent(driver: WebDriver | BrowserContext) -> str:
     """Execute JS to get navigator.userAgent and validate it."""
     user_agent_value = driver.execute_script("return navigator.userAgent")
     if not isinstance(user_agent_value, str):
@@ -1161,7 +1253,7 @@ def _generate_bezier_curve(start: tuple[float, float], end: tuple[float, float],
     return curve_points
 
 
-def _human_like_click(driver: WebDriver, element) -> None:
+def _human_like_click(driver: BrowserContext, element) -> None:
     """Perform a human-like mouse movement and click with bezier curves and randomness."""
     location = element.location
     size = element.size
@@ -1192,10 +1284,15 @@ def _human_like_click(driver: WebDriver, element) -> None:
 
     points = _generate_bezier_curve((start_x, start_y), (target_x, target_y), control_points=random.randint(1, 2))  # nosec B311
 
-    actions = ActionChains(driver)
+    actions = driver.action_chain()
     first_x, first_y = points[0]
     anchor_dx = round(first_x - element_center_x)
     anchor_dy = round(first_y - element_center_y)
+    # Clamp offsets so the initial position stays within viewport bounds
+    max_dx = min(element_center_x, viewport_width - element_center_x)
+    max_dy = min(element_center_y, viewport_height - element_center_y)
+    anchor_dx = max(-int(max_dx), min(int(max_dx), anchor_dx))
+    anchor_dy = max(-int(max_dy), min(int(max_dy), anchor_dy))
     actions.move_to_element_with_offset(element, anchor_dx, anchor_dy)
     actions.pause(_random_delay(0.02, 0.06))
 

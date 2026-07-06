@@ -13,15 +13,11 @@ from typing import Any, cast
 from urllib.parse import quote, unquote, urlparse
 
 from func_timeout import FunctionTimedOut, func_timeout
-from selenium.common import UnexpectedAlertPresentException
-from selenium.webdriver.chrome.webdriver import WebDriver
-from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.expected_conditions import presence_of_element_located, visibility_of_element_located
-from selenium.webdriver.support.wait import WebDriverWait
 
 from flaresolverr import sessions
 from flaresolverr import utils
+from flaresolverr.backends.browser_context import BrowserContext, get_browser_context
 from flaresolverr.captcha_solvers import SOLVER_MANAGER, get_available_solvers, get_config_captcha_solver
 from flaresolverr.dtos import (
     STATUS_ERROR,
@@ -536,7 +532,9 @@ def _cmd_sessions_network(req: V1RequestBase) -> V1ResponseBase:
             logs = driver.get_log("performance")
         except Exception as e:
             error_msg = str(e)
-            if "log type" in error_msg.lower() and "not found" in error_msg.lower():
+            if ("log type" in error_msg.lower() and "not found" in error_msg.lower()) or (
+                "not supported" in error_msg.lower() and "performance" in error_msg.lower()
+            ):
                 logging.warning(f"Performance logs not available for this backend: {e}")
                 logs = []
             else:
@@ -578,7 +576,7 @@ def _cmd_sessions_click(req: V1RequestBase) -> V1ResponseBase:
 
     session = _get_session_locked(session_id)
     try:
-        driver = session.driver
+        driver = get_browser_context(session.driver)
         logging.debug(f"sessions.click (session_id={session_id}, selector={selector})")
 
         try:
@@ -614,7 +612,7 @@ def _cmd_sessions_action(req: V1RequestBase) -> V1ResponseBase:
 
     session = _get_session_locked(session_id)
     try:
-        driver = session.driver
+        driver = get_browser_context(session.driver)
         logging.debug(f"sessions.action (session_id={session_id}, actions={len(actions)})")
 
         try:
@@ -639,7 +637,7 @@ def _cmd_sessions_action(req: V1RequestBase) -> V1ResponseBase:
         session.lock.release()
 
 
-def _clear_session_context(driver: WebDriver) -> None:
+def _clear_session_context(driver: BrowserContext) -> None:
     """Clear cookies, storage, cache, IndexedDB and service workers, then navigate to about:blank."""
     logging.debug("Clearing session context...")
 
@@ -706,7 +704,7 @@ def _cmd_sessions_clear(req: V1RequestBase) -> V1ResponseBase:
 
     session = _get_session_locked(session_id)
     try:
-        driver = session.driver
+        driver = get_browser_context(session.driver)
         logging.debug(f"sessions.clear (session_id={session_id})")
 
         try:
@@ -818,14 +816,14 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             else:
                 logging.debug(f"existing session is used to perform the request (session_id={session_id}, lifetime={str(session.lifetime())}, ttl={str(ttl)})")
 
-            driver = session.driver
+            driver = get_browser_context(session.driver)
             # Acquire lock to prevent concurrent access to the same session
             logging.debug(f"acquiring session lock (session_id={session_id})")
             session.lock.acquire()
             lock_acquired = True
             logging.debug(f"session lock acquired (session_id={session_id})")
         else:
-            driver = utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode)
+            driver = get_browser_context(utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode))
             if req.userAgent is not None:
                 utils.apply_user_agent_override(driver, req.userAgent, req.acceptLanguage or utils.get_config_accept_language())
             logging.debug("New instance of webdriver has been created to perform the request")
@@ -887,7 +885,7 @@ def _resolve_request_stealth_mode(req: V1RequestBase) -> str | None:
     return None
 
 
-def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
+def _get_turnstile_token(driver: BrowserContext, tabs: int) -> str | None:
     token_input = driver.find_element(By.CSS_SELECTOR, "input[name='cf-turnstile-response']")
     current_value = token_input.get_attribute("value")
     for attempt in range(30):
@@ -921,7 +919,7 @@ def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
     return None
 
 
-def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver) -> str | None:
+def _resolve_turnstile_captcha(req: V1RequestBase, driver: BrowserContext) -> str | None:
     turnstile_token = None
     if req.tabs_till_verify is not None:
         if req.url is None:
@@ -943,7 +941,7 @@ def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver) -> str | N
     return turnstile_token
 
 
-def _configure_blocked_media(req: V1RequestBase, driver: WebDriver) -> None:
+def _configure_blocked_media(req: V1RequestBase, driver: BrowserContext) -> None:
     disable_media = utils.get_config_disable_media()
     if req.disableMedia is not None:
         disable_media = req.disableMedia
@@ -958,7 +956,7 @@ def _configure_blocked_media(req: V1RequestBase, driver: WebDriver) -> None:
         logging.debug("Network.setBlockedURLs failed or unsupported on this webdriver")
 
 
-def _set_custom_headers(req: V1RequestBase, driver: WebDriver) -> None:
+def _set_custom_headers(req: V1RequestBase, driver: BrowserContext) -> None:
     if req.headers is None or len(req.headers) == 0:
         return
     try:
@@ -980,7 +978,7 @@ def _set_custom_headers(req: V1RequestBase, driver: WebDriver) -> None:
         logging.warning(f"Failed to set custom headers: {e}")
 
 
-def _navigate_request(req: V1RequestBase, driver: WebDriver, method: str, target_url: str) -> str | None:
+def _navigate_request(req: V1RequestBase, driver: BrowserContext, method: str, target_url: str) -> str | None:
     logging.debug(f"Navigating to... {req.url}")
     if method == "POST":
         _post_request(req, driver)
@@ -991,7 +989,7 @@ def _navigate_request(req: V1RequestBase, driver: WebDriver, method: str, target
     return _resolve_turnstile_captcha(req, driver)
 
 
-def _set_request_cookies(req: V1RequestBase, driver: WebDriver, target_url: str) -> None:
+def _set_request_cookies(req: V1RequestBase, driver: BrowserContext, target_url: str) -> None:
     if req.cookies is None or len(req.cookies) == 0:
         return
     logging.debug("Setting cookies...")
@@ -1010,7 +1008,7 @@ def _set_request_cookies(req: V1RequestBase, driver: WebDriver, target_url: str)
         driver.add_cookie(cookie)
 
 
-def _raise_if_access_denied(driver: WebDriver, page_title: str) -> None:
+def _raise_if_access_denied(driver: BrowserContext, page_title: str) -> None:
     for title in ACCESS_DENIED_TITLES:
         if page_title.startswith(title):
             raise Exception("Cloudflare has blocked this request. Probably your IP is banned for this site, check in your web browser.")
@@ -1020,7 +1018,7 @@ def _raise_if_access_denied(driver: WebDriver, page_title: str) -> None:
             raise Exception("Cloudflare has blocked this request. Probably your IP is banned for this site, check in your web browser.")
 
 
-def _raise_if_navigation_error(driver: WebDriver) -> None:
+def _raise_if_navigation_error(driver: BrowserContext) -> None:
     """Raise a Selenium-like network error for Chromium net error pages.
 
     Chrome 147 can render `chrome-error://chromewebdata/` pages instead of
@@ -1046,15 +1044,15 @@ def _raise_if_navigation_error(driver: WebDriver) -> None:
     raise Exception("Message: unknown error: net::ERR_FAILED")
 
 
-def _find_and_scroll_element(driver, selector, timeout, delay_min, delay_max):
+def _find_and_scroll_element(driver: BrowserContext, selector: str, timeout: float, delay_min: float, delay_max: float) -> Any:
     """Wait for element by XPath, scroll it into view, and pause."""
-    el = WebDriverWait(driver, timeout).until(presence_of_element_located((By.XPATH, selector)))
+    el = driver.wait_for_presence(By.XPATH, selector, timeout)
     driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
     time.sleep(_random_delay(delay_min, delay_max))
     return el
 
 
-def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
+def _execute_actions(driver: BrowserContext, actions: list) -> list[Any | None]:
     """Execute a list of browser actions after page load (fill forms, click, wait, eval).
 
     Returns a list of results, one per action. Non-eval actions return None.
@@ -1067,6 +1065,8 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
         action_type = action.get("type")
         selector = action.get("selector")
         if action_type == "fill":
+            if selector is None:
+                raise Exception("Action 'fill' requires a 'selector' field.")
             el = _find_and_scroll_element(driver, selector, default_action_timeout, 0.3, 0.6)
             # Click with a random non-zero offset from center so that
             # hasClickedEmailFieldExactCenter / hasClickedFieldSmallMargin
@@ -1077,7 +1077,7 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
             # Ensure the offset is at least 2px in at least one direction.
             dx = random.uniform(2, max_dx) * random.choice([-1, 1])  # nosec B311
             dy = random.uniform(-max_dy, max_dy)  # nosec B311
-            ActionChains(driver).move_to_element_with_offset(el, int(dx), int(dy)).pause(_random_delay(0.05, 0.1)).click().perform()
+            driver.action_chain().move_to_element_with_offset(el, int(dx), int(dy)).pause(_random_delay(0.05, 0.1)).click().perform()
             time.sleep(_random_delay(0.1, 0.2))
             el.clear()
             # Type character-by-character with realistic inter-key delays
@@ -1086,13 +1086,15 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
                 time.sleep(random.uniform(0.06, 0.18))  # nosec B311
             logging.debug(f"Action fill: selector={selector}")
         elif action_type == "click":
+            if selector is None:
+                raise Exception("Action 'click' requires a 'selector' field.")
             logging.debug(f"Action click: waiting for selector={selector}")
             el = _find_and_scroll_element(driver, selector, default_action_timeout, 0.2, 0.4)
             logging.debug("Action click: element found, scrolling")
             if action.get("humanLike"):
                 _human_like_click(driver, el)
             else:
-                logging.debug("Action click: calling ActionChains.perform()")
+                logging.debug("Action click: performing action chain click")
                 try:
                     # Use a small non-zero offset to avoid exact-center click detection
                     _s = el.size
@@ -1100,12 +1102,12 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
                     _max_dy = max(4, _s.get("height", 16) // 4)
                     _dx = random.uniform(2, _max_dx) * random.choice([-1, 1])  # nosec B311
                     _dy = random.uniform(-_max_dy, _max_dy)  # nosec B311
-                    ActionChains(driver).move_to_element_with_offset(el, int(_dx), int(_dy)).pause(_random_delay(0.05, 0.15)).click().perform()
-                except UnexpectedAlertPresentException:
+                    driver.action_chain().move_to_element_with_offset(el, int(_dx), int(_dy)).pause(_random_delay(0.05, 0.15)).click().perform()
+                except Exception:
                     try:
-                        alert_text = driver.switch_to.alert.text
+                        alert_text = driver.get_alert_text()
                         logging.debug(f"Action click: dismissing alert: {alert_text!r}")
-                        driver.switch_to.alert.dismiss()
+                        driver.dismiss_alert()
                     except Exception as alert_err:  # noqa: BLE001
                         logging.debug(f"Action click: alert already gone: {alert_err}")
             logging.debug(f"Action click: done selector={selector}")
@@ -1115,7 +1117,7 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
             timeout_ms = action.get("timeout")
             wait_timeout = timeout_ms / 1000.0 if timeout_ms is not None else default_action_timeout
             logging.debug(f"Action wait_for: selector={selector}, timeout={wait_timeout}s")
-            WebDriverWait(driver, wait_timeout).until(visibility_of_element_located((By.XPATH, selector)))
+            driver.wait_for_visibility(By.XPATH, selector, wait_timeout)
             # Brief grace period: the element is visible but sibling JS signals may
             # still be writing their final values into the DOM.
             time.sleep(0.5)
@@ -1151,7 +1153,7 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
     return eval_results
 
 
-def _get_download_content(driver: WebDriver, url: str) -> tuple[str, bool, dict[str, str] | None]:
+def _get_download_content(driver: BrowserContext, url: str) -> tuple[str, bool, dict[str, str] | None]:
     """Get raw page content for download mode.
 
     Tries CDP Page.getResourceContent first, then falls back to a JS fetch.
@@ -1207,7 +1209,7 @@ def _get_download_content(driver: WebDriver, url: str) -> tuple[str, bool, dict[
     return page_source or "", False, None
 
 
-def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_token: str | None) -> ChallengeResolutionResultT:
+def _build_challenge_result(req: V1RequestBase, driver: BrowserContext, turnstile_token: str | None) -> ChallengeResolutionResultT:
     challenge_res = ChallengeResolutionResultT({})
     logging.debug("_build_challenge_result: reading current_url")
     challenge_res.url = utils.retry_driver_read(lambda: driver.current_url)
@@ -1250,7 +1252,7 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
     return challenge_res
 
 
-def _remove_js_injection(driver: WebDriver, identifiers: list[str]) -> None:
+def _remove_js_injection(driver: BrowserContext, identifiers: list[str]) -> None:
     """Remove previously added Page.addScriptToEvaluateOnNewDocument scripts."""
     for script_id in identifiers:
         try:
@@ -1259,7 +1261,7 @@ def _remove_js_injection(driver: WebDriver, identifiers: list[str]) -> None:
             logging.debug(f"Failed to remove injected script {script_id}: {e}")
 
 
-def _apply_js_injection(req: V1RequestBase, driver: WebDriver, point: str) -> list[str]:
+def _apply_js_injection(req: V1RequestBase, driver: BrowserContext, point: str) -> list[str]:
     """Apply declarative JS injections for the given lifecycle point.
 
     Collects all scripts from req.scriptInject whose point matches the
@@ -1311,7 +1313,7 @@ def _apply_js_injection(req: V1RequestBase, driver: WebDriver, point: str) -> li
     return identifiers
 
 
-def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_services: list[str]) -> ChallengeResolutionT:
+def _evil_logic(req: V1RequestBase, driver: BrowserContext, method: str, enabled_services: list[str]) -> ChallengeResolutionT:
     if req.url is None:
         raise Exception("Request parameter 'url' is mandatory in request commands.")
     target_url = req.url
@@ -1376,7 +1378,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
             _remove_js_injection(driver, injected_ids)
 
 
-def _detect_captcha_type(driver: WebDriver) -> str | None:
+def _detect_captcha_type(driver: BrowserContext) -> str | None:
     """Detect the type of captcha present on the page.
 
     Returns:
@@ -1404,7 +1406,7 @@ def _detect_captcha_type(driver: WebDriver) -> str | None:
     return None
 
 
-def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
+def _post_request_raw(req: V1RequestBase, driver: BrowserContext) -> None:
     if req.url is None:
         raise Exception("Request parameter 'url' is mandatory in request commands.")
     if req.postDataRaw is None:
@@ -1480,7 +1482,7 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
         raise Exception(f"Raw POST request failed: {error}")
 
 
-def _post_request(req: V1RequestBase, driver: WebDriver) -> None:
+def _post_request(req: V1RequestBase, driver: BrowserContext) -> None:
     if req.url is None:
         raise Exception("Request parameter 'url' is mandatory in request commands.")
     if req.postDataRaw is not None:

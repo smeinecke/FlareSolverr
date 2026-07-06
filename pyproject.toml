@@ -55,6 +55,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=6.0.0",
+    "pytest-timeout>=2.3.0",
     "radon>=6.0.1",
     "ruff>=0.15.20",
     "tox>=4.56.1",

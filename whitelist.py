@@ -11,6 +11,7 @@ from flaresolverr.client.client import _SessionManager
 from flaresolverr.client.models import ChallengeSolution
 from flaresolverr.dtos import ChallengeResolutionResultT
 from flaresolverr.sessions import SessionsStorage
+from flaresolverr.utils import create_proxy_extension
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.remote.webdriver import WebDriver
 
@@ -51,6 +52,7 @@ Options.binary_location
 
 # Proxy extension attributes stored on WebDriver instances
 WebDriver._proxy_ext_id
+create_proxy_extension
 
 # Agent-check TCP server (handle is called by socketserver framework, daemon_threads by ThreadingMixIn)
 from flaresolverr.agent_check import AgentCheckHandler, ThreadedTCPServer  # noqa

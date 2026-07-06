@@ -2,6 +2,7 @@ import json
 import logging
 import multiprocessing
 import os
+import signal
 import sys
 from typing import Any, cast
 
@@ -205,6 +206,20 @@ if __name__ == "__main__":
     # start session cleanup thread
     flaresolverr_service.SESSIONS_STORAGE.start_cleanup(interval_seconds=30)
 
+    # register signal handlers to gracefully destroy all sessions on shutdown
+    def _shutdown_handler(signum, frame) -> None:  # noqa: ARG001
+        sig_name = signal.Signals(signum).name
+        logging.info(f"Received {sig_name}, shutting down and cleaning up sessions...")
+        flaresolverr_service.SESSIONS_STORAGE.stop_cleanup()
+        destroyed = flaresolverr_service.SESSIONS_STORAGE.destroy_all()
+        if destroyed:
+            logging.info(f"Destroyed {len(destroyed)} session(s) during shutdown.")
+        logging.info("Shutdown complete.")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _shutdown_handler)
+    signal.signal(signal.SIGINT, _shutdown_handler)
+
     # start HAProxy agent-check TCP server (optional)
     agent_check_port = utils.get_config_agent_check_port()
     if agent_check_port:
@@ -222,12 +237,17 @@ if __name__ == "__main__":
     # default server 'wsgiref' does not support concurrent requests
     # https://github.com/FlareSolverr/FlareSolverr/issues/680
     # https://github.com/Pylons/waitress/issues/31
-    class WaitressServerPoll(ServerAdapter):
-        def run(self, handler) -> None:
-            max_parallel = utils.get_config_max_parallel_requests()
-            kwargs: dict[str, Any] = {"asyncore_use_poll": True}
-            if max_parallel:
-                kwargs["threads"] = max_parallel
-            serve(handler, host=self.host, port=self.port, **kwargs)
+    if os.environ.get("FLARESOLVERR_SINGLE_THREADED", "").lower() in ("1", "true"):
+        # single-threaded wsgiref for testing Playwright backends
+        run(app, host=server_host, port=server_port, quiet=True)  # pyright: ignore[reportArgumentType]
+    else:
 
-    run(app, host=server_host, port=server_port, quiet=True, server=WaitressServerPoll)  # pyright: ignore[reportArgumentType]
+        class WaitressServerPoll(ServerAdapter):
+            def run(self, handler) -> None:
+                max_parallel = utils.get_config_max_parallel_requests()
+                kwargs: dict[str, Any] = {"asyncore_use_poll": True}
+                if max_parallel:
+                    kwargs["threads"] = max_parallel
+                serve(handler, host=self.host, port=self.port, **kwargs)
+
+        run(app, host=server_host, port=server_port, quiet=True, server=WaitressServerPoll)  # pyright: ignore[reportArgumentType]

@@ -1,0 +1,16 @@
+# Dockerfile for camoufox backend testing
+# Reuses the base image and installs camoufox extra dependencies
+
+FROM flaresolverr:base
+
+USER root
+
+RUN uv pip install --no-cache-dir 'camoufox[geoip]>=0.3'
+
+# Pre-download the Camoufox browser so it's available at runtime
+RUN python -m camoufox fetch
+
+# Fix ownership so flaresolverr user can access the downloaded browser
+RUN chown -R flaresolverr:flaresolverr /app/.cache/
+
+USER flaresolverr

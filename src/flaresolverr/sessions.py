@@ -6,12 +6,13 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, cast
 from uuid import uuid1
 
 from selenium.webdriver.chrome.webdriver import WebDriver
 
 from flaresolverr import utils
+from flaresolverr.backends.browser_context import BrowserContext
 
 
 class SessionLimitExceededError(Exception):
@@ -106,7 +107,7 @@ def _ensure_process_dead(pid: int | None, grace_seconds: float = 2.0) -> None:
 @dataclass
 class Session:
     session_id: str
-    driver: WebDriver
+    driver: WebDriver | BrowserContext
     created_at: datetime
     stealth_mode: str
     user_agent_override: str | None
@@ -122,7 +123,7 @@ class Session:
     def __init__(
         self,
         session_id: str,
-        driver: WebDriver,
+        driver: WebDriver | BrowserContext,
         created_at: datetime,
         stealth_mode: str,
         user_agent_override: str | None = None,
@@ -159,6 +160,19 @@ class Session:
         if self.max_runtime is not None and self.lifetime() > self.max_runtime:
             return True
         return self.idle_time() > self.idle_timeout
+
+
+def _apply_proxy_to_driver(driver: WebDriver | BrowserContext, proxy: dict[str, Any] | None) -> None:
+    """Apply proxy changes to a driver, handling both raw WebDriver and BrowserContext backends."""
+    # BrowserContext backends (Playwright, Camoufox, SeleniumBrowserContext)
+    if hasattr(driver, "apply_proxy"):
+        cast(BrowserContext, driver).apply_proxy(proxy)
+        return
+    # Raw WebDriver with Chrome extension (undetected_chromedriver)
+    if hasattr(driver, "_proxy_ext_id"):
+        utils.apply_proxy_to_session(cast(WebDriver, driver), proxy)
+        return
+    raise NotImplementedError("Dynamic proxy switching is not supported by this backend. Destroy and recreate the session to change the proxy.")
 
 
 class SessionsStorage:
@@ -216,11 +230,11 @@ class SessionsStorage:
         if proxy is not None:
             if utils._is_proxy_empty(proxy):
                 if session.proxy is not None:
-                    utils.apply_proxy_to_session(session.driver, proxy)
+                    _apply_proxy_to_driver(session.driver, proxy)
                     session.proxy = None
             elif utils._is_proxy_valid(proxy):
                 if session.proxy != proxy:
-                    utils.apply_proxy_to_session(session.driver, proxy)
+                    _apply_proxy_to_driver(session.driver, proxy)
                     session.proxy = proxy
             else:
                 raise RuntimeError(f"Invalid proxy config (schema required, e.g. http://): {proxy!r}")
@@ -416,6 +430,16 @@ class SessionsStorage:
         self._cleanup_thread = threading.Thread(target=_run, daemon=True, name="session-cleanup")
         self._cleanup_thread.start()
         logging.debug("Session cleanup thread started")
+
+    def destroy_all(self) -> list[str]:
+        """Destroy all sessions immediately. Returns list of destroyed session IDs."""
+        destroyed: list[str] = []
+        with self._lock:
+            snapshot = list(self.sessions.keys())
+        for session_id in snapshot:
+            if self.destroy(session_id):
+                destroyed.append(session_id)
+        return destroyed
 
     def stop_cleanup(self) -> None:
         """Signal the background cleanup thread to stop and wait for it."""

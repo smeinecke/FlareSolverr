@@ -1,0 +1,26 @@
+# Dockerfile for seleniumbase backend testing
+# Reuses the base image and restores standard Debian Chromium
+# (the base image may contain a custom stealth-patched Chromium)
+
+FROM flaresolverr:base
+
+USER root
+
+# Restore the standard Debian Chromium binary instead of the custom one.
+# The Debian binary is still present at /usr/lib/chromium/chromium;
+# /usr/bin/chromium was re-linked to the custom /usr/lib/chromium/chrome.
+RUN rm -f /usr/bin/chromium && \
+    ln -sf /usr/lib/chromium/chromium /usr/bin/chromium
+
+# The custom build overwrote the Debian chromedriver; reinstall it.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends --reinstall chromium-driver && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN uv pip install --no-cache-dir 'seleniumbase>=4.30'
+
+# Fix ownership so flaresolverr user can write to seleniumbase package
+# directory (needed for UC mode driver patching).
+RUN chown -R flaresolverr:flaresolverr /app/.venv/lib/python3.13/site-packages/seleniumbase/
+
+USER flaresolverr

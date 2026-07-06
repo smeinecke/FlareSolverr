@@ -15,7 +15,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 
-from selenium.webdriver.chrome.webdriver import WebDriver
+from flaresolverr.backends.browser_context import BrowserContext
 
 
 class CaptchaSolver(ABC):
@@ -29,11 +29,11 @@ class CaptchaSolver(ABC):
         pass
 
     @abstractmethod
-    def solve(self, driver: WebDriver, captcha_type: str) -> bool:
+    def solve(self, driver: BrowserContext, captcha_type: str) -> bool:
         """Attempt to solve the captcha.
 
         Args:
-            driver: The WebDriver instance
+            driver: The BrowserContext instance
             captcha_type: Type of captcha (e.g., 'hcaptcha', 'recaptcha', 'turnstile')
 
         Returns:
@@ -50,7 +50,7 @@ class DefaultSolver(CaptchaSolver):
     def is_available(self) -> bool:
         return True
 
-    def solve(self, driver: WebDriver, captcha_type: str) -> bool:
+    def solve(self, driver: BrowserContext, captcha_type: str) -> bool:
         # Default solver doesn't do anything special
         # The main flaresolverr_service.py handles this
         logging.debug(f"Using default solver for {captcha_type}")
@@ -99,11 +99,11 @@ class SolverManager:
         available.append("default")
         return available
 
-    def solve(self, driver: WebDriver, captcha_type: str, solver_name: str | None = None) -> bool:
+    def solve(self, driver: BrowserContext, captcha_type: str, solver_name: str | None = None) -> bool:
         """Attempt to solve a captcha using the specified or default solver.
 
         Args:
-            driver: The WebDriver instance
+            driver: The BrowserContext instance
             captcha_type: Type of captcha to solve
             solver_name: Specific solver to use, or None for configured default
 

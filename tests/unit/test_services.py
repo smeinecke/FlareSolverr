@@ -1,8 +1,8 @@
 import pytest
 from selenium.common import TimeoutException, WebDriverException
-from selenium.webdriver.chrome.webdriver import WebDriver
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from flaresolverr.backends.browser_context import BrowserContext
 from flaresolverr.services.base import ChallengeService
 from flaresolverr.services.manager import ServiceManager
 from flaresolverr.services.cloudflare import CloudflareService
@@ -54,10 +54,10 @@ class _BraveDriverMock:
 class _FakeService(ChallengeService):
     name = "fake"
 
-    def detect(self, driver: WebDriver) -> bool:
+    def detect(self, driver: BrowserContext) -> bool:
         return True
 
-    def resolve(self, driver: WebDriver) -> None:
+    def resolve(self, driver: BrowserContext) -> None:
         pass
 
 
@@ -153,32 +153,29 @@ class TestCloudflareService:
         assert svc.detect(driver) is False
 
     @patch("flaresolverr.services.cloudflare.time.sleep")
-    @patch("flaresolverr.services.cloudflare.WebDriverWait")
     @patch("flaresolverr.services.cloudflare._random_delay", return_value=0.01)
     def test_resolve_clicks_verify_and_waits(
-        self, mock_delay, mock_wait, mock_sleep, svc
+        self, mock_delay, mock_sleep, svc
     ):
         driver = MagicMock()
         driver.title = "Just a moment..."
         driver.page_source = ""
         driver.find_elements.return_value = []
 
-        # Make WebDriverWait.until_not raise TimeoutException once, then succeed
-
+        # Make wait_for_title_not return False once, then True
         call_count = [0]
 
-        def side_effect(*a, **k):
+        def side_effect(title, timeout):
             call_count[0] += 1
             if call_count[0] <= 2:
-                raise TimeoutException()
+                return False
             return True
 
-        mock_wait_instance = MagicMock()
-        mock_wait_instance.until_not.side_effect = side_effect
-        mock_wait.return_value = mock_wait_instance
+        driver.wait_for_title_not.side_effect = side_effect
+        driver.wait_for_absence.return_value = True
 
         svc.resolve(driver)
-        assert mock_wait_instance.until_not.call_count >= 2
+        assert driver.wait_for_title_not.call_count >= 2
 
 
 class TestDDoSGuardService:
@@ -197,8 +194,7 @@ class TestDDoSGuardService:
         driver = _make_driver()
         assert svc.detect(driver) is False
 
-    @patch("flaresolverr.services.ddos_guard.WebDriverWait")
-    def test_resolve_waits_for_redirect(self, mock_wait, svc):
+    def test_resolve_waits_for_redirect(self, svc):
         driver = MagicMock()
         driver.title = "Some Page"
         driver.current_url = "https://example.com"
@@ -207,18 +203,16 @@ class TestDDoSGuardService:
         # Simulate title disappearing after first attempt
         call_count = [0]
 
-        def until_not_side_effect(condition):
+        def side_effect(title, timeout):
             call_count[0] += 1
             if call_count[0] >= 2:
                 return True
             raise TimeoutException()
 
-        mock_wait_instance = MagicMock()
-        mock_wait_instance.until_not.side_effect = until_not_side_effect
-        mock_wait.return_value = mock_wait_instance
+        driver.wait_for_title_not.side_effect = side_effect
 
         svc.resolve(driver)
-        assert mock_wait_instance.until_not.call_count >= 1
+        assert driver.wait_for_title_not.call_count >= 1
 
 
 class TestBraveService:
@@ -258,8 +252,7 @@ class TestBraveService:
 
     @patch("flaresolverr.services.brave.BraveService._find_clickable_verify_button")
     @patch("flaresolverr.services.brave.time.sleep")
-    @patch("flaresolverr.services.brave.WebDriverWait")
-    def test_resolve_clicks_and_waits(self, mock_wait, mock_sleep, mock_find, svc):
+    def test_resolve_clicks_and_waits(self, mock_sleep, mock_find, svc):
         driver = _BraveDriverMock([
             "Brave Search decided to schedule a captcha",
             "Brave Search decided to schedule a captcha",
@@ -269,27 +262,12 @@ class TestBraveService:
         mock_button = MagicMock()
         mock_find.return_value = mock_button
 
-        # Redirect away from captcha after a few attempts
-        call_count = [0]
-
-        def until_side_effect(func):
-            call_count[0] += 1
-            if call_count[0] >= 3:
-                return True
-            return func(driver)
-
-        mock_wait_instance = MagicMock()
-        mock_wait_instance.until.side_effect = until_side_effect
-        mock_wait.return_value = mock_wait_instance
-
         svc.resolve(driver)
-        assert mock_wait_instance.until.call_count >= 1
         mock_button.click.assert_called()
 
     @patch("flaresolverr.services.brave.BraveService._find_clickable_verify_button")
     @patch("flaresolverr.services.brave.time.sleep")
-    @patch("flaresolverr.services.brave.WebDriverWait")
-    def test_resolve_clicks_visible_button(self, mock_wait, mock_sleep, mock_find, svc):
+    def test_resolve_clicks_visible_button(self, mock_sleep, mock_find, svc):
         driver = _BraveDriverMock([
             "Brave Search decided to schedule a captcha",
             "",
@@ -299,10 +277,6 @@ class TestBraveService:
         mock_button.is_displayed.return_value = True
         mock_button.get_attribute.return_value = None
         mock_find.return_value = mock_button
-
-        mock_wait_instance = MagicMock()
-        mock_wait_instance.until.return_value = True
-        mock_wait.return_value = mock_wait_instance
 
         svc.resolve(driver)
         mock_button.click.assert_called_once()

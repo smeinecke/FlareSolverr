@@ -1,9 +1,13 @@
 import unittest
 import re
+import os
+import time
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import pytest
 pytest.importorskip("webtest")
+import requests
 from webtest import TestApp
 
 from flaresolverr.dtos import V1ResponseBase, STATUS_OK
@@ -12,14 +16,28 @@ from flaresolverr import utils
 
 pytestmark = pytest.mark.integration
 
+
+def _response_json(res: Any) -> dict[str, Any]:
+    json_attr = res.json
+    body = json_attr() if callable(json_attr) else json_attr
+    return cast(dict[str, Any], body)
+
+
+def _skip_unless_custom_chromium(test_case: unittest.TestCase) -> None:
+    """Skip Cloudflare challenge tests on backends that cannot solve them."""
+    backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+    if backend != "custom_chromium":
+        test_case.skipTest(f"Cloudflare challenge tests skipped on backend '{backend}'")
+
+
 def asset_cloudflare_solution(self, res, site_url, site_text, site_url_pattern: str | None = None):
     if res.status_code == 500:
-        body = V1ResponseBase(res.json)
+        body = V1ResponseBase(_response_json(res))
         if body.message and "Timeout after" in body.message:
             self.skipTest(f"Target site challenge timed out: {body.message}")
     self.assertEqual(res.status_code, 200)
 
-    body = V1ResponseBase(res.json)
+    body = V1ResponseBase(_response_json(res))
     self.assertEqual(STATUS_OK, body.status)
     self.assertIn(body.message, {"Challenge solved!", "Challenge not detected!"})
     self.assertGreater(body.startTimestamp, 10000)
@@ -27,17 +45,21 @@ def asset_cloudflare_solution(self, res, site_url, site_text, site_url_pattern: 
     self.assertEqual(utils.get_flaresolverr_version(), body.version)
 
     solution = body.solution
+    self.assertIsNotNone(solution)
+    assert solution is not None
+    solution_url = cast(str, solution.url)
     if site_url_pattern is not None:
-        self.assertRegex(solution.url, re.compile(site_url_pattern))
+        self.assertRegex(solution_url, re.compile(site_url_pattern))
     else:
         requested_host = urlparse(site_url).netloc
-        final_host = urlparse(solution.url).netloc
+        final_host = urlparse(solution_url).netloc
         self.assertTrue(
             final_host == requested_host or final_host.endswith(f".{requested_host}"),
             f"Final host '{final_host}' does not match requested host '{requested_host}'",
         )
     self.assertEqual(solution.status, 200)
-    self.assertIs(len(solution.headers), 0)
+    headers = solution.headers or []
+    self.assertIs(len(headers), 0)
     if isinstance(site_text, tuple):
         self.assertTrue(any(candidate in solution.response for candidate in site_text))
     else:
@@ -47,14 +69,32 @@ def asset_cloudflare_solution(self, res, site_url, site_text, site_url_pattern: 
 
 class TestFlareSolverr(unittest.TestCase):
     app = None
+    base_url = None
 
     @classmethod
     def setUpClass(cls):
-        cls.app = TestApp(app)
-        # wait until the server is ready
-        cls.app.get("/")
+        cls.base_url = os.environ.get("FLARESOLVERR_URL")
+        if cls.base_url:
+            for i in range(30):
+                try:
+                    requests.get(f"{cls.base_url}/", timeout=5)
+                    break
+                except requests.exceptions.ConnectionError:
+                    if i == 29:
+                        raise
+                    time.sleep(1)
+        else:
+            cls.app = TestApp(app)
+            cls.app.get("/")
+
+    def _post_v1(self, payload: dict[str, Any]):
+        if self.base_url:
+            return requests.post(f"{self.base_url}/v1", json=payload, timeout=190)
+        assert self.app is not None
+        return cast(Any, self.app).post_json("/v1", payload, expect_errors=True)
 
     def test_v1_endpoint_request_get_cloudflare(self):
+        _skip_unless_custom_chromium(self)
         sites_get = [
             ("nowsecure", "https://nowsecure.nl", "<title", None),
             # ("0magnet", "https://0magnet.com/search?q=2022", "Torrent Search - ØMagnet", None),  # Site is unstable/broken (returns internal server error content).
@@ -78,10 +118,11 @@ class TestFlareSolverr(unittest.TestCase):
         ]
         for site_name, site_url, site_text, site_url_pattern in sites_get:
             with self.subTest(msg=site_name):
-                res = self.app.post_json("/v1", {"cmd": "request.get", "url": site_url, "maxTimeout": 120000}, expect_errors=True)
+                res = self._post_v1({"cmd": "request.get", "url": site_url, "maxTimeout": 120000})
                 asset_cloudflare_solution(self, res, site_url, site_text, site_url_pattern)
 
     def test_v1_endpoint_request_post_cloudflare(self):
+        _skip_unless_custom_chromium(self)
         sites_post = [
             (
                 "nnmclub",
@@ -93,5 +134,5 @@ class TestFlareSolverr(unittest.TestCase):
 
         for site_name, site_url, site_text, post_data in sites_post:
             with self.subTest(msg=site_name):
-                res = self.app.post_json("/v1", {"cmd": "request.post", "url": site_url, "postData": post_data, "maxTimeout": 120000}, expect_errors=True)
+                res = self._post_v1({"cmd": "request.post", "url": site_url, "postData": post_data, "maxTimeout": 120000})
                 asset_cloudflare_solution(self, res, site_url, site_text)
