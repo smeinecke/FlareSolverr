@@ -163,11 +163,17 @@ class Patcher(object):
             # The CDC aliases are already removed at source level (C++ Patch 10).
             if os.path.exists("/opt/chromium/.stealth-patched"):
                 return True
-            ispatched = self.is_binary_patched(self.executable_path)
-            if not ispatched:
-                return self.patch_exe()
+            if not os.path.isfile(self.executable_path):
+                # The cached patched binary is missing (e.g. deleted by a
+                # previous Patcher.__del__).  Fall through to the normal
+                # copy/download + patch logic to recover.
+                self._custom_exe_path = False
             else:
-                return True
+                ispatched = self.is_binary_patched(self.executable_path)
+                if not ispatched:
+                    return self.patch_exe()
+                else:
+                    return True
 
         if version_main:
             self.version_main = version_main
@@ -433,24 +439,8 @@ class Patcher(object):
         )
 
     def __del__(self):
-        if self._custom_exe_path:
-            # if the driver binary is specified by user
-            # we assume it is important enough to not delete it
-            return
-        else:
-            timeout = 3  # stop trying after this many seconds
-            t = time.monotonic()
-            now = lambda: time.monotonic()
-            while now() - t < timeout:
-                # we don't want to wait until the end of time
-                try:
-                    if self.user_multi_procs:
-                        break
-                    os.unlink(self.executable_path)
-                    logger.debug("successfully unlinked %s" % self.executable_path)
-                    break
-                except FileNotFoundError:
-                    break
-                except (OSError, RuntimeError, PermissionError):
-                    time.sleep(0.01)
-                    continue
+        # The patched binary is reused between sessions (via version.txt on
+        # FreeBSD and via PATCHED_DRIVER_PATH on all platforms).  Deleting it
+        # in __del__ causes a race condition where the next Patcher instance
+        # finds the file missing (issue #82).
+        return
