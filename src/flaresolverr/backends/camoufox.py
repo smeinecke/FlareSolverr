@@ -516,10 +516,26 @@ class CamoufoxBackend:
                 if proxy_config:
                     kwargs["proxy"] = proxy_config
 
-            camoufox = Camoufox(**kwargs)
-            browser = camoufox.__enter__()
-            page = browser.new_context(no_viewport=True).new_page()
-            return camoufox, browser, page
+            last_error: Exception | None = None
+            for attempt in range(3):
+                camoufox = Camoufox(**kwargs)
+                try:
+                    browser = camoufox.__enter__()
+                    page = browser.new_context(no_viewport=True).new_page()
+                    return camoufox, browser, page
+                except Exception as e:
+                    last_error = e
+                    try:
+                        camoufox.__exit__(None, None, None)
+                    except Exception:
+                        pass
+                    if "cannot open display" in str(e).lower() and attempt < 2:
+                        logging.debug("Camoufox display not ready, retrying in 0.5s (attempt %d/3)", attempt + 1)
+                        time.sleep(0.5)
+                    else:
+                        raise last_error
+            assert last_error is not None
+            raise last_error
 
         camoufox, browser, page = executor.submit(_create)
         return CamoufoxBrowserContext(executor, camoufox, browser, page, stealth_mode=stealth_mode)
