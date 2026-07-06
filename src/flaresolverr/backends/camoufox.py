@@ -470,7 +470,7 @@ class CamoufoxBrowserContext(BrowserContext):
                     if "password" in proxy:
                         proxy_config["password"] = proxy["password"]
 
-                context_kwargs: dict[str, Any] = {"viewport": {"width": 1920, "height": 1080}}
+                context_kwargs: dict[str, Any] = {"no_viewport": True}
                 if proxy_config:
                     context_kwargs["proxy"] = proxy_config
 
@@ -518,7 +518,7 @@ class CamoufoxBackend:
 
             camoufox = Camoufox(**kwargs)
             browser = camoufox.__enter__()
-            page = browser.new_page()
+            page = browser.new_context(no_viewport=True).new_page()
             return camoufox, browser, page
 
         camoufox, browser, page = executor.submit(_create)
