@@ -527,14 +527,15 @@ class CamoufoxBackend:
                     last_error = e
                     try:
                         camoufox.__exit__(None, None, None)
-                    except Exception:
+                    except Exception:  # nosec B110
                         pass
                     if "cannot open display" in str(e).lower() and attempt < 2:
                         logging.debug("Camoufox display not ready, retrying in 0.5s (attempt %d/3)", attempt + 1)
                         time.sleep(0.5)
                     else:
                         raise last_error
-            assert last_error is not None
+            if last_error is None:
+                raise RuntimeError("Camoufox launch failed")
             raise last_error
 
         camoufox, browser, page = executor.submit(_create)
