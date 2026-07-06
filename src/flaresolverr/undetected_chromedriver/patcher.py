@@ -439,30 +439,8 @@ class Patcher(object):
         )
 
     def __del__(self):
-        if self._custom_exe_path:
-            # if the driver binary is specified by user
-            # we assume it is important enough to not delete it
-            return
-        if self.platform_name == "freebsd":
-            # On FreeBSD the patched binary is copied from the system
-            # chromedriver (not downloaded fresh each time).  Keep it
-            # between sessions so concurrent/sequential Patcher instances
-            # don't race on a missing file (issue #82).
-            return
-        else:
-            timeout = 3  # stop trying after this many seconds
-            t = time.monotonic()
-            now = lambda: time.monotonic()
-            while now() - t < timeout:
-                # we don't want to wait until the end of time
-                try:
-                    if self.user_multi_procs:
-                        break
-                    os.unlink(self.executable_path)
-                    logger.debug("successfully unlinked %s" % self.executable_path)
-                    break
-                except FileNotFoundError:
-                    break
-                except (OSError, RuntimeError, PermissionError):
-                    time.sleep(0.01)
-                    continue
+        # The patched binary is reused between sessions (via version.txt on
+        # FreeBSD and via PATCHED_DRIVER_PATH on all platforms).  Deleting it
+        # in __del__ causes a race condition where the next Patcher instance
+        # finds the file missing (issue #82).
+        return
