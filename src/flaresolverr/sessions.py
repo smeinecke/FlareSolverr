@@ -39,6 +39,47 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
+def _kill_process_tree(pid: int, sig: int) -> None:
+    """Kill a process and all children in its process group.
+
+    Chrome is started with ``start_new_session=True`` (setsid), so its
+    PGID == PID.  Killing the entire group is critical on FreeBSD where
+    Chrome child processes (renderer, GPU, etc.) don't auto-die when the
+    parent is killed — FreeBSD lacks ``prctl(PR_SET_PDEATHSIG)`` — so
+    they would otherwise become orphaned and leak (issue #90).
+    """
+    if utils.PLATFORM_VERSION == "nt":
+        try:
+            subprocess.run(  # nosec
+                ["taskkill", "/F", "/PID", str(pid), "/T"],
+                check=False,
+                capture_output=True,
+            )
+        except Exception:  # nosec B110
+            pass
+        return
+
+    # On POSIX, try to kill the entire process group if the process is
+    # a group leader (started with setsid/start_new_session).
+    try:
+        pgid = os.getpgid(pid)
+        if pgid == pid:
+            os.killpg(pgid, sig)
+        else:
+            os.kill(pid, sig)
+        return
+    except (ProcessLookupError, OSError):
+        pass
+
+    # Process may already be dead; try killpg with pid as pgid (valid
+    # for session leaders even after the leader has exited, as the
+    # process group persists until all members exit).
+    try:
+        os.killpg(pid, sig)
+    except (ProcessLookupError, OSError):
+        pass
+
+
 def _ensure_process_dead(pid: int | None, grace_seconds: float = 2.0) -> None:
     """Wait for the process to exit gracefully, then force-kill it if necessary."""
     if pid is None:
@@ -50,19 +91,10 @@ def _ensure_process_dead(pid: int | None, grace_seconds: float = 2.0) -> None:
             break
         time.sleep(0.1)
 
-    # If still alive (not a zombie), escalate to force kill
+    # If still alive (not a zombie), escalate to force kill the entire
+    # process group (kills Chrome child processes on FreeBSD — issue #90).
     if _process_alive(pid):
-        try:
-            if utils.PLATFORM_VERSION == "nt":
-                subprocess.run(  # nosec
-                    ["taskkill", "/F", "/PID", str(pid)],
-                    check=False,
-                    capture_output=True,
-                )
-            else:
-                os.kill(pid, signal.SIGKILL)
-        except Exception:  # nosec B110
-            pass
+        _kill_process_tree(pid, signal.SIGKILL)
 
     # Reap the zombie if we are the parent
     try:
