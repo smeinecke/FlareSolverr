@@ -65,6 +65,32 @@ logger = logging.getLogger("uc")
 logger.setLevel(logging.getLogger().getEffectiveLevel())
 
 
+def _kill_process_group(pid: int, sig: int) -> None:
+    """Kill a process and all children in its process group.
+
+    Chrome is started with ``start_new_session=True`` (setsid), so its
+    PGID == PID.  Killing the entire group is critical on FreeBSD where
+    Chrome child processes don't auto-die when the parent is killed —
+    FreeBSD lacks ``prctl(PR_SET_PDEATHSIG)`` — so they would otherwise
+    become orphaned and leak (issue #90).
+    """
+    try:
+        pgid = os.getpgid(pid)
+        if pgid == pid:
+            os.killpg(pgid, sig)
+        else:
+            os.kill(pid, sig)
+        return
+    except (ProcessLookupError, OSError):
+        pass
+    # Process may already be dead; try killpg with pid as pgid (valid
+    # for session leaders even after the leader has exited).
+    try:
+        os.killpg(pid, sig)
+    except (ProcessLookupError, OSError):
+        pass
+
+
 class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
     """
 
@@ -772,7 +798,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         except AttributeError:
             pass
         try:
-            os.kill(self.browser_pid, 15)
+            _kill_process_group(self.browser_pid, 15)
             logger.debug("gracefully closed browser")
         except Exception as e:  # noqa
             pass
@@ -789,10 +815,11 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                         break
                     time.sleep(0.1)
                 else:
-                    # Still alive after 3s: escalate to SIGKILL
+                    # Still alive after 3s: escalate to SIGKILL the
+                    # entire process group (issue #90).
                     try:
-                        os.kill(self.browser_pid, 9)
-                        logger.debug("sent SIGKILL to browser")
+                        _kill_process_group(self.browser_pid, 9)
+                        logger.debug("sent SIGKILL to browser process group")
                     except (ProcessLookupError, OSError):
                         pass
                     # Brief wait after SIGKILL

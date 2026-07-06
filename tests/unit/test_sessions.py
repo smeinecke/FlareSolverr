@@ -292,16 +292,78 @@ def test_process_alive_detects_missing_process() -> None:
 def test_ensure_process_dead_waits_then_force_kills(monkeypatch) -> None:
     killed = {"sigkill": False}
 
-    def fake_kill(pid, sig):
+    def fake_kill_process_tree(pid, sig):
         if sig == signal.SIGKILL:
             killed["sigkill"] = True
 
     monkeypatch.setattr(sessions, "_process_alive", lambda pid: not killed["sigkill"])
-    monkeypatch.setattr(os, "kill", fake_kill)
+    monkeypatch.setattr(sessions, "_kill_process_tree", fake_kill_process_tree)
     monkeypatch.setattr(time, "sleep", lambda s: None)
 
     sessions._ensure_process_dead(12345, grace_seconds=0.5)
     assert killed["sigkill"] is True
+
+
+def test_kill_process_tree_uses_killpg_for_session_leader(monkeypatch) -> None:
+    """When PGID == PID (session leader), kill the entire process group."""
+    killed = {"pgid": None, "sig": None}
+
+    def fake_getpgid(pid):
+        return pid  # session leader: PGID == PID
+
+    def fake_killpg(pgid, sig):
+        killed["pgid"] = pgid
+        killed["sig"] = sig
+
+    monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
+    monkeypatch.setattr(os, "getpgid", fake_getpgid)
+    monkeypatch.setattr(os, "killpg", fake_killpg)
+    monkeypatch.setattr(os, "kill", lambda pid, sig: pytest.fail("should use killpg, not kill"))
+
+    sessions._kill_process_tree(999, signal.SIGTERM)
+    assert killed["pgid"] == 999
+    assert killed["sig"] == signal.SIGTERM
+
+
+def test_kill_process_tree_uses_kill_for_non_leader(monkeypatch) -> None:
+    """When PGID != PID (not a session leader), kill only the single process."""
+    killed = {"pid": None, "sig": None}
+
+    def fake_getpgid(pid):
+        return 1  # not a session leader
+
+    def fake_kill(pid, sig):
+        killed["pid"] = pid
+        killed["sig"] = sig
+
+    monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
+    monkeypatch.setattr(os, "getpgid", fake_getpgid)
+    monkeypatch.setattr(os, "killpg", lambda pgid, sig: pytest.fail("should use kill, not killpg"))
+    monkeypatch.setattr(os, "kill", fake_kill)
+
+    sessions._kill_process_tree(999, signal.SIGKILL)
+    assert killed["pid"] == 999
+    assert killed["sig"] == signal.SIGKILL
+
+
+def test_kill_process_tree_falls_back_to_killpg_on_error(monkeypatch) -> None:
+    """If os.getpgid fails (process gone), fall back to killpg with pid as pgid."""
+    killed = {"pgid": None, "sig": None}
+
+    def fake_getpgid(pid):
+        raise ProcessLookupError("no such process")
+
+    def fake_killpg(pgid, sig):
+        killed["pgid"] = pgid
+        killed["sig"] = sig
+
+    monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
+    monkeypatch.setattr(os, "getpgid", fake_getpgid)
+    monkeypatch.setattr(os, "killpg", fake_killpg)
+
+    sessions._kill_process_tree(999, signal.SIGKILL)
+    assert killed["pgid"] == 999
+    assert killed["sig"] == signal.SIGKILL
 
 
 def test_destroy_verifies_browser_pid_dead(monkeypatch) -> None:
