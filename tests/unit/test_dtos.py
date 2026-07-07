@@ -16,19 +16,21 @@ def test_health_response_maps_status() -> None:
 
 
 def test_health_response_maps_extended_fields() -> None:
-    response = HealthResponse({
-        "status": STATUS_OK,
-        "sessionsCount": 3,
-        "activeParallelRequests": 1,
-        "maxParallelRequests": 5,
-        "maxSessionCount": 10,
-        "sessionMaxRuntime": 3600,
-        "sessionIdleTimeout": 900,
-        "version": "1.2.3",
-        "config": {"logLevel": "info", "headless": True},
-        "activeRequests": [{"cmd": "request.get", "url": "https://example.com"}],
-        "sessions": [{"sessionId": "abc", "requestCount": 2}],
-    })
+    response = HealthResponse(
+        {
+            "status": STATUS_OK,
+            "sessionsCount": 3,
+            "activeParallelRequests": 1,
+            "maxParallelRequests": 5,
+            "maxSessionCount": 10,
+            "sessionMaxRuntime": 3600,
+            "sessionIdleTimeout": 900,
+            "version": "1.2.3",
+            "config": {"logLevel": "info", "headless": True},
+            "activeRequests": [{"cmd": "request.get", "url": "https://example.com"}],
+            "sessions": [{"sessionId": "abc", "requestCount": 2}],
+        }
+    )
 
     assert response.status == STATUS_OK
     assert response.sessionsCount == 3
@@ -128,3 +130,37 @@ def test_challenge_resolution_wraps_nested_result() -> None:
     assert resolution.result is not None
     assert resolution.result.url == "https://example.com"
     assert resolution.result.userAgent == "Chrome/123"
+
+
+def test_v1_request_base_recordHar_defaults_to_none() -> None:
+    req = V1RequestBase({"cmd": "request.get", "url": "https://example.com"})
+
+    assert req.recordHar is None
+
+
+def test_v1_request_base_recordHar_accepts_true() -> None:
+    req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "recordHar": True})
+
+    assert req.recordHar is True
+
+
+def test_v1_request_base_recordHar_accepts_false() -> None:
+    req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "recordHar": False})
+
+    assert req.recordHar is False
+
+
+def test_v1_request_base_har_result_field_maps() -> None:
+    response = V1ResponseBase(
+        {
+            "status": STATUS_OK,
+            "solution": {
+                "url": "https://example.com",
+                "status": 200,
+                "har": {"log": {"version": "1.2", "entries": []}},
+            },
+        }
+    )
+
+    assert response.solution is not None
+    assert response.solution.har == {"log": {"version": "1.2", "entries": []}}

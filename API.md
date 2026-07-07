@@ -387,6 +387,7 @@ Example:
 | headers | Optional. Custom HTTP headers to send with the request. |
 | returnOnlyCookies | Optional, default false. Only returns the cookies. |
 | returnScreenshot | Optional, default false. Captures a screenshot as Base64 PNG. |
+| recordHar | Optional, default false. When `true`, records the network traffic during the request as a HAR 1.2 object and returns it in `solution.har`. |
 | proxy | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. When a `session` is provided and `proxy` is passed, the session's proxy is updated dynamically without restarting Chrome. Omitting `proxy` on a reused session keeps the previously set proxy sticky. Passing an explicit empty proxy (`{}` or `{"url": ""}`) clears the proxy on that session. |
 | waitInSeconds | Optional. Wait after solving the challenge before returning results. |
 | disableMedia | Optional, default false. Block images/CSS/fonts to speed up navigation. |
@@ -557,7 +558,14 @@ Example response from a `request.get`:
     "title": "Example Domain",
     "screenshot": "iVBORw0KGgoAAAANSUhEUgAA...",
     "evalResult": "Hello from JS",
-    "networkLogs": []
+    "networkLogs": [],
+    "har": {
+      "log": {
+        "version": "1.2",
+        "creator": {"name": "FlareSolverr", "version": "3.6.4"},
+        "entries": []
+      }
+    }
   },
   "status": "ok",
   "message": "",
@@ -572,3 +580,6 @@ Example response from a `request.get`:
 > - `screenshot` — present when `returnScreenshot=true` (requests) or from `sessions.screenshot`.
 > - `evalResult` — present when an `eval` action is used or from `sessions.eval` / `sessions.action`.
 > - `networkLogs` — present in the `sessions.network` response.
+> - `har` — present when `recordHar=true` on `request.get` or `request.post`.
+>
+> **HAR log queue caveat:** The browser maintains a single CDP performance log queue per session. `recordHar` and `sessions.network` both read from this queue, and each read drains the entries produced since the previous read. When both are used on the same session, they observe non-overlapping windows of the same underlying log, not independent copies.

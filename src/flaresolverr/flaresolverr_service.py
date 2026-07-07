@@ -532,28 +532,7 @@ def _cmd_sessions_network(req: V1RequestBase) -> V1ResponseBase:
         driver = session.driver
         logging.debug(f"sessions.network (session_id={session_id})")
 
-        try:
-            logs = driver.get_log("performance")
-        except Exception as e:
-            error_msg = str(e)
-            if "log type" in error_msg.lower() and "not found" in error_msg.lower():
-                logging.warning(f"Performance logs not available for this backend: {e}")
-                logs = []
-            else:
-                raise Exception(f"Error getting network logs: {e}")
-
-        parsed_logs = []
-        for entry in logs:
-            try:
-                msg = json.loads(entry["message"])["message"]
-                parsed_logs.append(
-                    {
-                        "method": msg.get("method"),
-                        "params": msg.get("params"),
-                    }
-                )
-            except Exception:  # nosec B110
-                pass
+        parsed_logs = utils.get_performance_log(driver)
 
         result = ChallengeResolutionResultT({})
         result.networkLogs = parsed_logs
@@ -825,7 +804,8 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             lock_acquired = True
             logging.debug(f"session lock acquired (session_id={session_id})")
         else:
-            driver = utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode)
+            logging_prefs = {"performance": "ALL"} if req.recordHar else None
+            driver = utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode, logging_prefs=logging_prefs)
             if req.userAgent is not None:
                 utils.apply_user_agent_override(driver, req.userAgent, req.acceptLanguage or utils.get_config_accept_language())
             logging.debug("New instance of webdriver has been created to perform the request")
@@ -1207,7 +1187,12 @@ def _get_download_content(driver: WebDriver, url: str) -> tuple[str, bool, dict[
     return page_source or "", False, None
 
 
-def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_token: str | None) -> ChallengeResolutionResultT:
+def _build_challenge_result(
+    req: V1RequestBase,
+    driver: WebDriver,
+    turnstile_token: str | None,
+    har_entries: list[dict[str, Any]] | None = None,
+) -> ChallengeResolutionResultT:
     challenge_res = ChallengeResolutionResultT({})
     logging.debug("_build_challenge_result: reading current_url")
     challenge_res.url = utils.retry_driver_read(lambda: driver.current_url)
@@ -1246,6 +1231,9 @@ def _build_challenge_result(req: V1RequestBase, driver: WebDriver, turnstile_tok
 
     if req.returnScreenshot:
         challenge_res.screenshot = driver.get_screenshot_as_base64()  # noqa
+
+    if req.recordHar and har_entries is not None:
+        challenge_res.har = utils.performance_logs_to_har(har_entries)
 
     return challenge_res
 
@@ -1320,6 +1308,13 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
     res.status = STATUS_OK
     res.message = ""
 
+    if req.recordHar:
+        # Drain any stale performance log entries so the captured HAR contains
+        # only this request's traffic. driver.get_log() is destructive, so this
+        # also prevents leftover entries from prior commands on the same session
+        # from appearing in the result.
+        utils.get_performance_log(driver)
+
     _configure_blocked_media(req, driver)
     _set_custom_headers(req, driver)
     injected_ids = _apply_js_injection(req, driver, "document_start")
@@ -1368,7 +1363,8 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
 
         _apply_js_injection(req, driver, "document_idle")
         logging.debug("_evil_logic: building challenge result")
-        res.result = _build_challenge_result(req, driver, turnstile_token)
+        har_entries = utils.get_performance_log(driver) if req.recordHar else None
+        res.result = _build_challenge_result(req, driver, turnstile_token, har_entries)
         logging.debug("_evil_logic: challenge result built successfully")
         return res
     finally:

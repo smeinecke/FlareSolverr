@@ -336,7 +336,7 @@ wheels = [
 
 [[package]]
 name = "flaresolverr"
-version = "3.6.6"
+version = "3.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "bottle" },

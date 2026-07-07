@@ -14,7 +14,7 @@ import threading
 import time
 import urllib.parse
 from typing import Any
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from importlib.metadata import version
 
 try:
@@ -772,6 +772,196 @@ def _cleanup_orphaned_temp_dirs() -> None:
                     logging.debug("Cleaned up orphaned temp dir: %s", path)
             except OSError:
                 pass
+
+
+def parse_performance_log_entries(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Parse raw Selenium performance log entries into CDP {method, params} messages.
+
+    Malformed entries are skipped silently, matching the behavior of sessions.network.
+    """
+    parsed = []
+    for entry in logs:
+        try:
+            msg = json.loads(entry["message"])["message"]
+            parsed.append(
+                {
+                    "method": msg.get("method"),
+                    "params": msg.get("params"),
+                }
+            )
+        except Exception:  # nosec B110
+            logging.debug(f"Skipping malformed performance log entry: {entry}")
+    return parsed
+
+
+def get_performance_log(driver: WebDriver) -> list[dict[str, Any]]:
+    """Safely retrieve and parse the browser's performance log.
+
+    Returns an empty list if the backend does not expose performance logs.
+    Note: driver.get_log() drains Selenium's internal CDP queue, so later calls
+    only see entries produced after this one.
+    """
+    try:
+        logs = driver.get_log("performance")
+    except Exception as e:
+        error_msg = str(e)
+        if "log type" in error_msg.lower() and "not found" in error_msg.lower():
+            logging.warning(f"Performance logs not available for this backend: {e}")
+            return []
+        raise Exception(f"Error getting network logs: {e}") from e
+    return parse_performance_log_entries(logs)
+
+
+def _cdp_headers_to_har(headers: dict[str, Any]) -> list[dict[str, str]]:
+    """Convert CDP header dict to HAR header list."""
+    har_headers = []
+    for name, value in headers.items():
+        har_headers.append({"name": str(name), "value": str(value)})
+    return har_headers
+
+
+def _is_internal_chrome_url(url: str) -> bool:
+    """Return True for URLs that belong to Chrome internals or extensions."""
+    return url.startswith("chrome://") or url.startswith("chrome-extension://")
+
+
+def performance_logs_to_har(parsed_entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Convert parsed CDP Network events into a minimal HAR 1.2 object."""
+    requests_by_id: dict[str, dict[str, Any]] = {}
+    responses_by_id: dict[str, dict[str, Any]] = {}
+    finished_by_id: dict[str, dict[str, Any]] = {}
+    failed_by_id: dict[str, dict[str, Any]] = {}
+
+    for entry in parsed_entries:
+        method = entry.get("method")
+        params = entry.get("params") or {}
+        request_id = params.get("requestId")
+        if not request_id:
+            continue
+        if method == "Network.requestWillBeSent":
+            request_url = params.get("request", {}).get("url", "")
+            if _is_internal_chrome_url(request_url):
+                continue
+            requests_by_id[request_id] = params
+        elif method == "Network.responseReceived":
+            responses_by_id[request_id] = params
+        elif method == "Network.loadingFinished":
+            finished_by_id[request_id] = params
+        elif method == "Network.loadingFailed":
+            failed_by_id[request_id] = params
+
+    har_entries = []
+    for request_id, request_params in requests_by_id.items():
+        request = request_params.get("request") or {}
+        response_params = responses_by_id.get(request_id)
+        finished_params = finished_by_id.get(request_id)
+        failed_params = failed_by_id.get(request_id)
+
+        started_timestamp = request_params.get("wallTime") or request_params.get("timestamp") or 0
+        started_datetime = datetime.fromtimestamp(started_timestamp, timezone.utc).isoformat().replace("+00:00", "Z")
+
+        request_ts = request_params.get("timestamp") or 0
+        end_ts = (
+            (finished_params.get("timestamp") if finished_params else None) or (response_params.get("timestamp") if response_params else None) or request_ts
+        )
+        total_time = max(0, (end_ts - request_ts) * 1000)
+
+        har_request = {
+            "method": request.get("method", "GET"),
+            "url": request.get("url", ""),
+            "httpVersion": "HTTP/1.1",
+            "cookies": [],
+            "headers": _cdp_headers_to_har(request.get("headers") or {}),
+            "queryString": [],
+            "headersSize": -1,
+            "bodySize": -1,
+        }
+        post_data = request.get("postData")
+        if post_data:
+            har_request["postData"] = {
+                "mimeType": "application/octet-stream",
+                "text": post_data,
+            }
+
+        if response_params:
+            response = response_params.get("response") or {}
+            har_response = {
+                "status": response.get("status", 0),
+                "statusText": response.get("statusText", ""),
+                "httpVersion": response.get("protocol", "HTTP/1.1"),
+                "cookies": [],
+                "headers": _cdp_headers_to_har(response.get("headers") or {}),
+                "redirectURL": response.get("redirectURL", ""),
+                "headersSize": -1,
+                "bodySize": -1,
+                "content": {
+                    "size": -1,
+                    "compression": 0,
+                    "mimeType": response.get("mimeType", "text/plain"),
+                },
+            }
+        elif failed_params:
+            har_response = {
+                "status": 0,
+                "statusText": failed_params.get("errorText", ""),
+                "httpVersion": "",
+                "cookies": [],
+                "headers": [],
+                "redirectURL": "",
+                "headersSize": -1,
+                "bodySize": -1,
+                "content": {
+                    "size": 0,
+                    "compression": 0,
+                    "mimeType": "x-unknown",
+                },
+            }
+        else:
+            har_response = {
+                "status": 0,
+                "statusText": "",
+                "httpVersion": "",
+                "cookies": [],
+                "headers": [],
+                "redirectURL": "",
+                "headersSize": -1,
+                "bodySize": -1,
+                "content": {
+                    "size": 0,
+                    "compression": 0,
+                    "mimeType": "x-unknown",
+                },
+            }
+
+        har_entry = {
+            "startedDateTime": started_datetime,
+            "time": total_time,
+            "request": har_request,
+            "response": har_response,
+            "cache": {},
+            "timings": {
+                "blocked": -1,
+                "dns": -1,
+                "connect": -1,
+                "ssl": -1,
+                "send": 0,
+                "wait": total_time,
+                "receive": 0,
+            },
+            "connection": request_id,
+        }
+        har_entries.append(har_entry)
+
+    return {
+        "log": {
+            "version": "1.2",
+            "creator": {
+                "name": "FlareSolverr",
+                "version": get_flaresolverr_version() or "unknown",
+            },
+            "entries": har_entries,
+        },
+    }
 
 
 def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None, logging_prefs: dict[str, str] | None = None) -> WebDriver:

@@ -18,6 +18,8 @@ class ChallengeResolutionResultT:
     evalResult: Any | None = None
     networkLogs: list[dict[str, Any]] | None = None
     title: str | None = None
+    # HAR recording (request.get/request.post with recordHar=true)
+    har: dict[str, Any] | None = None
 
     def __init__(self, _dict: dict[str, Any]):
         self.__dict__.update(_dict)
@@ -60,6 +62,8 @@ class V1RequestBase(object):
     download: bool | None = None
     returnRawHtml: bool | None = None  # deprecated v2.0.0, not used
     waitInSeconds: int | None = None
+    # Optional HAR recording flag for request.get/request.post
+    recordHar: bool | None = None
     # Session interaction commands
     script: str | None = None  # JS script to execute (sessions.eval)
     selector: str | None = None  # Element selector for click/wait actions
@@ -116,6 +120,7 @@ class V1RequestBase(object):
             "download",
             "returnRawHtml",
             "waitInSeconds",
+            "recordHar",
             "script",
             "selector",
             "disableMedia",

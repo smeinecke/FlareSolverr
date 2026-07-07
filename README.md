@@ -71,6 +71,15 @@ irm -UseBasicParsing 'http://localhost:8191/v1' -Headers @{"Content-Type"="appli
 
 For the complete API reference - all commands, parameters, browser actions, JavaScript injection, and response format - see [API.md](./API.md).
 
+## Debugging
+
+For troubleshooting challenging requests, `request.get` and `request.post` support optional debugging outputs:
+
+- `returnScreenshot: true` — captures the final page as a Base64 PNG (`solution.screenshot`).
+- `recordHar: true` — records the browser's network traffic during the request as a HAR 1.2 object (`solution.har`).
+
+Both options are disabled by default and only add data to the response when requested.
+
 ## Monitoring
 
 The `GET /health` endpoint returns the service status along with runtime metrics (session counts, active parallel requests, configured limits, and current config). Add `?details=true` to also see in-flight requests and open session metadata. This is useful for load-balancer health checks and operational monitoring.

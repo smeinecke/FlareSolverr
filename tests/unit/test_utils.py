@@ -105,9 +105,7 @@ def test_apply_proxy_to_session_sends_auth_when_present(monkeypatch) -> None:
     driver = _make_ack_driver("abc123")
     monkeypatch.setattr(utils, "_check_proxy_reachable", lambda url: None)
 
-    utils.apply_proxy_to_session(
-        driver, {"url": "http://proxy:8080", "username": "user", "password": "pass"}
-    )
+    utils.apply_proxy_to_session(driver, {"url": "http://proxy:8080", "username": "user", "password": "pass"})
 
     injected = [c[0][0] for c in driver.execute_script.call_args_list if "chrome.runtime.sendMessage" in c[0][0]]
     assert len(injected) == 1
@@ -281,9 +279,7 @@ def test_get_webdriver_cleans_proxy_ext_dir_on_failure(monkeypatch) -> None:
     tmpdir = tempfile.mkdtemp()
     ext_dir = os.path.join(tmpdir, "fspe-failtest")
     os.makedirs(ext_dir)
-    monkeypatch.setattr(
-        utils, "_build_stealth_extension_dir", lambda: (ext_dir, "extid")
-    )
+    monkeypatch.setattr(utils, "_build_stealth_extension_dir", lambda: (ext_dir, "extid"))
     monkeypatch.setattr(utils, "get_chrome_exe_path", lambda: "/fake/chrome")
     monkeypatch.setattr(utils, "_is_custom_chromium", lambda: True)
     monkeypatch.setattr(utils, "_configure_headless", lambda: False)
@@ -299,3 +295,196 @@ def test_get_webdriver_cleans_proxy_ext_dir_on_failure(monkeypatch) -> None:
     with pytest.raises(OSError, match="No space left on device"):
         utils.get_webdriver()
     assert not os.path.exists(ext_dir)
+
+
+def _make_performance_log_entry(method: str, params: dict) -> dict:
+    return {"message": json.dumps({"message": {"method": method, "params": params}})}
+
+
+def test_parse_performance_log_entries_extracts_method_and_params() -> None:
+    logs = [
+        _make_performance_log_entry("Network.requestWillBeSent", {"requestId": "1"}),
+        _make_performance_log_entry("Network.responseReceived", {"requestId": "1"}),
+    ]
+
+    parsed = utils.parse_performance_log_entries(logs)
+
+    assert len(parsed) == 2
+    assert parsed[0]["method"] == "Network.requestWillBeSent"
+    assert parsed[0]["params"]["requestId"] == "1"
+    assert parsed[1]["method"] == "Network.responseReceived"
+
+
+def test_parse_performance_log_entries_skips_malformed_entries() -> None:
+    logs = [
+        _make_performance_log_entry("Network.requestWillBeSent", {"requestId": "1"}),
+        {"message": "not valid json"},
+        {"message": json.dumps({"foo": "bar"})},
+        {"foo": "bar"},
+    ]
+
+    parsed = utils.parse_performance_log_entries(logs)
+
+    assert len(parsed) == 1
+    assert parsed[0]["params"]["requestId"] == "1"
+
+
+def test_get_performance_log_returns_empty_list_when_log_type_not_found() -> None:
+    driver = MagicMock()
+    driver.get_log.side_effect = Exception("log type 'performance' not found")
+
+    assert utils.get_performance_log(driver) == []
+
+
+def test_get_performance_log_re_raises_other_errors() -> None:
+    driver = MagicMock()
+    driver.get_log.side_effect = Exception("some other error")
+
+    with pytest.raises(Exception, match="Error getting network logs"):
+        utils.get_performance_log(driver)
+
+
+def test_performance_logs_to_har_converts_request_response_and_finished() -> None:
+    parsed = [
+        {
+            "method": "Network.requestWillBeSent",
+            "params": {
+                "requestId": "req1",
+                "timestamp": 1000.0,
+                "wallTime": 1700000000.0,
+                "request": {
+                    "method": "GET",
+                    "url": "https://example.com/",
+                    "headers": {"Accept": "text/html"},
+                },
+            },
+        },
+        {
+            "method": "Network.responseReceived",
+            "params": {
+                "requestId": "req1",
+                "timestamp": 1001.0,
+                "response": {
+                    "status": 200,
+                    "statusText": "OK",
+                    "protocol": "h2",
+                    "headers": {"Content-Type": "text/html"},
+                    "mimeType": "text/html",
+                },
+            },
+        },
+        {
+            "method": "Network.loadingFinished",
+            "params": {
+                "requestId": "req1",
+                "timestamp": 1002.0,
+            },
+        },
+    ]
+
+    har = utils.performance_logs_to_har(parsed)
+
+    assert har["log"]["version"] == "1.2"
+    assert har["log"]["creator"]["name"] == "FlareSolverr"
+    assert len(har["log"]["entries"]) == 1
+    entry = har["log"]["entries"][0]
+    assert entry["request"]["method"] == "GET"
+    assert entry["request"]["url"] == "https://example.com/"
+    assert entry["response"]["status"] == 200
+    assert entry["response"]["content"]["mimeType"] == "text/html"
+    assert entry["time"] == 2000.0
+
+
+def test_performance_logs_to_har_includes_failed_requests_with_status_zero() -> None:
+    parsed = [
+        {
+            "method": "Network.requestWillBeSent",
+            "params": {
+                "requestId": "req2",
+                "timestamp": 2000.0,
+                "wallTime": 1700000001.0,
+                "request": {"method": "GET", "url": "https://blocked.example.com/", "headers": {}},
+            },
+        },
+        {
+            "method": "Network.loadingFailed",
+            "params": {
+                "requestId": "req2",
+                "timestamp": 2001.0,
+                "errorText": "net::ERR_BLOCKED_BY_CLIENT",
+            },
+        },
+    ]
+
+    har = utils.performance_logs_to_har(parsed)
+
+    assert len(har["log"]["entries"]) == 1
+    entry = har["log"]["entries"][0]
+    assert entry["response"]["status"] == 0
+    assert entry["response"]["statusText"] == "net::ERR_BLOCKED_BY_CLIENT"
+
+
+def test_performance_logs_to_har_includes_requests_without_response() -> None:
+    parsed = [
+        {
+            "method": "Network.requestWillBeSent",
+            "params": {
+                "requestId": "req3",
+                "timestamp": 3000.0,
+                "wallTime": 1700000002.0,
+                "request": {"method": "GET", "url": "https://pending.example.com/", "headers": {}},
+            },
+        },
+    ]
+
+    har = utils.performance_logs_to_har(parsed)
+
+    assert len(har["log"]["entries"]) == 1
+    entry = har["log"]["entries"][0]
+    assert entry["request"]["url"] == "https://pending.example.com/"
+    assert entry["response"]["status"] == 0
+
+
+def test_performance_logs_to_har_filters_internal_chrome_urls() -> None:
+    parsed = [
+        {
+            "method": "Network.requestWillBeSent",
+            "params": {
+                "requestId": "ntp1",
+                "timestamp": 1000.0,
+                "wallTime": 1700000000.0,
+                "request": {"method": "GET", "url": "chrome://new-tab-page/background.js", "headers": {}},
+            },
+        },
+        {
+            "method": "Network.requestWillBeSent",
+            "params": {
+                "requestId": "ext1",
+                "timestamp": 1001.0,
+                "wallTime": 1700000001.0,
+                "request": {"method": "GET", "url": "chrome-extension://fake-id/script.js", "headers": {}},
+            },
+        },
+        {
+            "method": "Network.requestWillBeSent",
+            "params": {
+                "requestId": "real1",
+                "timestamp": 1002.0,
+                "wallTime": 1700000002.0,
+                "request": {"method": "GET", "url": "https://example.com/", "headers": {}},
+            },
+        },
+        {
+            "method": "Network.responseReceived",
+            "params": {
+                "requestId": "real1",
+                "timestamp": 1003.0,
+                "response": {"status": 200, "statusText": "OK", "headers": {}, "mimeType": "text/html"},
+            },
+        },
+    ]
+
+    har = utils.performance_logs_to_har(parsed)
+
+    assert len(har["log"]["entries"]) == 1
+    assert har["log"]["entries"][0]["request"]["url"] == "https://example.com/"

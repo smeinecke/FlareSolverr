@@ -12,8 +12,6 @@ from flaresolverr.dtos import V1RequestBase
 import logging
 from flaresolverr.client.client import _RequestManager, FlareSolverrClient
 from flaresolverr.client.actions import ActionQueue
-from flaresolverr import flaresolverr_service as svc
-from flaresolverr.dtos import V1RequestBase
 
 
 # ── _apply_js_injection ─────────────────────────────────────────────────────
@@ -24,7 +22,6 @@ class TestApplyJsInjection:
         monkeypatch.setattr(svc.utils, "get_config_js_injection_enabled", lambda: False)
         driver = MagicMock()
         req = V1RequestBase({"cmd": "request.get", "url": "https://x.com", "scriptInject": [{"script": "1+1"}]})
-
 
         with caplog.at_level(logging.WARNING):
             result = svc._apply_js_injection(req, driver, "document_start")
@@ -46,27 +43,29 @@ class TestApplyJsInjection:
     def test_document_start_uses_cdp(self, monkeypatch):
         monkeypatch.setattr(svc.utils, "get_config_js_injection_enabled", lambda: True)
         driver = MagicMock()
-        req = V1RequestBase({
-            "cmd": "request.get",
-            "url": "https://x.com",
-            "scriptInject": [{"script": "window.foo = 1;", "point": "document_start"}],
-        })
+        req = V1RequestBase(
+            {
+                "cmd": "request.get",
+                "url": "https://x.com",
+                "scriptInject": [{"script": "window.foo = 1;", "point": "document_start"}],
+            }
+        )
 
         result = svc._apply_js_injection(req, driver, "document_start")
         assert result == []
-        driver.execute_cdp_cmd.assert_called_once_with(
-            "Page.addScriptToEvaluateOnNewDocument", {"source": "window.foo = 1;"}
-        )
+        driver.execute_cdp_cmd.assert_called_once_with("Page.addScriptToEvaluateOnNewDocument", {"source": "window.foo = 1;"})
         driver.execute_script.assert_not_called()
 
     def test_document_end_uses_execute_script(self, monkeypatch):
         monkeypatch.setattr(svc.utils, "get_config_js_injection_enabled", lambda: True)
         driver = MagicMock()
-        req = V1RequestBase({
-            "cmd": "request.get",
-            "url": "https://x.com",
-            "scriptInject": [{"script": "window.foo = 2;", "point": "document_end"}],
-        })
+        req = V1RequestBase(
+            {
+                "cmd": "request.get",
+                "url": "https://x.com",
+                "scriptInject": [{"script": "window.foo = 2;", "point": "document_end"}],
+            }
+        )
 
         result = svc._apply_js_injection(req, driver, "document_end")
         assert result == []
@@ -76,11 +75,13 @@ class TestApplyJsInjection:
     def test_document_idle_uses_execute_script(self, monkeypatch):
         monkeypatch.setattr(svc.utils, "get_config_js_injection_enabled", lambda: True)
         driver = MagicMock()
-        req = V1RequestBase({
-            "cmd": "request.get",
-            "url": "https://x.com",
-            "scriptInject": [{"script": "window.foo = 3;"}],  # default point is document_idle
-        })
+        req = V1RequestBase(
+            {
+                "cmd": "request.get",
+                "url": "https://x.com",
+                "scriptInject": [{"script": "window.foo = 3;"}],  # default point is document_idle
+            }
+        )
 
         result = svc._apply_js_injection(req, driver, "document_idle")
         assert result == []
@@ -89,11 +90,13 @@ class TestApplyJsInjection:
     def test_wrong_point_is_noop(self, monkeypatch):
         monkeypatch.setattr(svc.utils, "get_config_js_injection_enabled", lambda: True)
         driver = MagicMock()
-        req = V1RequestBase({
-            "cmd": "request.get",
-            "url": "https://x.com",
-            "scriptInject": [{"script": "window.foo = 1;", "point": "document_idle"}],
-        })
+        req = V1RequestBase(
+            {
+                "cmd": "request.get",
+                "url": "https://x.com",
+                "scriptInject": [{"script": "window.foo = 1;", "point": "document_idle"}],
+            }
+        )
 
         result = svc._apply_js_injection(req, driver, "document_start")
         assert result == []
@@ -104,12 +107,13 @@ class TestApplyJsInjection:
         monkeypatch.setattr(svc.utils, "get_config_js_injection_enabled", lambda: True)
         driver = MagicMock()
         driver.execute_cdp_cmd.side_effect = RuntimeError("cdp err")
-        req = V1RequestBase({
-            "cmd": "request.get",
-            "url": "https://x.com",
-            "scriptInject": [{"script": "1", "point": "document_start"}],
-        })
-
+        req = V1RequestBase(
+            {
+                "cmd": "request.get",
+                "url": "https://x.com",
+                "scriptInject": [{"script": "1", "point": "document_start"}],
+            }
+        )
 
         with caplog.at_level(logging.WARNING):
             result = svc._apply_js_injection(req, driver, "document_start")
@@ -121,14 +125,16 @@ class TestApplyJsInjection:
         """Multiple scripts for the same point are injected in order."""
         monkeypatch.setattr(svc.utils, "get_config_js_injection_enabled", lambda: True)
         driver = MagicMock()
-        req = V1RequestBase({
-            "cmd": "request.get",
-            "url": "https://x.com",
-            "scriptInject": [
-                {"script": "window.a = 1;", "point": "document_idle"},
-                {"script": "window.b = 2;", "point": "document_idle"},
-            ],
-        })
+        req = V1RequestBase(
+            {
+                "cmd": "request.get",
+                "url": "https://x.com",
+                "scriptInject": [
+                    {"script": "window.a = 1;", "point": "document_idle"},
+                    {"script": "window.b = 2;", "point": "document_idle"},
+                ],
+            }
+        )
 
         result = svc._apply_js_injection(req, driver, "document_idle")
         assert result == []
@@ -142,14 +148,16 @@ class TestApplyJsInjection:
         """Only scripts matching the current point are injected."""
         monkeypatch.setattr(svc.utils, "get_config_js_injection_enabled", lambda: True)
         driver = MagicMock()
-        req = V1RequestBase({
-            "cmd": "request.get",
-            "url": "https://x.com",
-            "scriptInject": [
-                {"script": "window.start = 1;", "point": "document_start"},
-                {"script": "window.idle = 2;", "point": "document_idle"},
-            ],
-        })
+        req = V1RequestBase(
+            {
+                "cmd": "request.get",
+                "url": "https://x.com",
+                "scriptInject": [
+                    {"script": "window.start = 1;", "point": "document_start"},
+                    {"script": "window.idle = 2;", "point": "document_idle"},
+                ],
+            }
+        )
 
         result_start = svc._apply_js_injection(req, driver, "document_start")
         assert result_start == []
@@ -230,11 +238,13 @@ class TestBuildChallengeResultEvalIntegration:
         driver.get_cookies.return_value = []
         monkeypatch.setattr(svc.utils, "get_user_agent", lambda _: "UA")
 
-        req = V1RequestBase({
-            "cmd": "request.get",
-            "url": "https://x.com",
-            "actions": [{"type": "eval", "script": "return 42", "returnResult": False}],
-        })
+        req = V1RequestBase(
+            {
+                "cmd": "request.get",
+                "url": "https://x.com",
+                "actions": [{"type": "eval", "script": "return 42", "returnResult": False}],
+            }
+        )
         result = svc._build_challenge_result(req, driver, None)
         # evalResult should be absent because the only eval returned None
         assert not hasattr(result, "evalResult") or result.evalResult is None
@@ -247,11 +257,13 @@ class TestBuildChallengeResultEvalIntegration:
         driver.execute_script.return_value = 42
         monkeypatch.setattr(svc.utils, "get_user_agent", lambda _: "UA")
 
-        req = V1RequestBase({
-            "cmd": "request.get",
-            "url": "https://x.com",
-            "actions": [{"type": "eval", "script": "return 42", "returnResult": True}],
-        })
+        req = V1RequestBase(
+            {
+                "cmd": "request.get",
+                "url": "https://x.com",
+                "actions": [{"type": "eval", "script": "return 42", "returnResult": True}],
+            }
+        )
         result = svc._build_challenge_result(req, driver, None)
         assert result.evalResult == 42
 
@@ -263,7 +275,6 @@ class TestEvilLogicInjectionPoints:
     def test_document_start_called_before_navigate(self, monkeypatch):
 
         injected_points = []
-        orig_apply = svc._apply_js_injection
 
         def _capture(req, driver, point):
             injected_points.append(point)
@@ -278,7 +289,7 @@ class TestEvilLogicInjectionPoints:
         monkeypatch.setattr(svc, "_raise_if_navigation_error", lambda _d: None)
         monkeypatch.setattr(svc, "_raise_if_access_denied", lambda _d, _t: None)
         monkeypatch.setattr(svc.SERVICE_MANAGER, "detect", lambda _d, _s: None)
-        monkeypatch.setattr(svc, "_build_challenge_result", lambda _req, _d, _t: MagicMock())
+        monkeypatch.setattr(svc, "_build_challenge_result", lambda _req, _d, _t, _h=None: MagicMock())
 
         req = V1RequestBase({"cmd": "request.get", "url": "https://x.com"})
         svc._evil_logic(req, MagicMock(), "GET", ["cloudflare"])
@@ -308,7 +319,7 @@ class TestEvilLogicInjectionPoints:
         monkeypatch.setattr(svc, "_raise_if_navigation_error", lambda _d: None)
         monkeypatch.setattr(svc, "_raise_if_access_denied", lambda _d, _t: None)
         monkeypatch.setattr(svc.SERVICE_MANAGER, "detect", lambda _d, _s: None)
-        monkeypatch.setattr(svc, "_build_challenge_result", lambda _req, _d, _t: MagicMock())
+        monkeypatch.setattr(svc, "_build_challenge_result", lambda _req, _d, _t, _h=None: MagicMock())
 
         req = V1RequestBase({"cmd": "request.get", "url": "https://x.com"})
         svc._evil_logic(req, driver, "GET", ["cloudflare"])
