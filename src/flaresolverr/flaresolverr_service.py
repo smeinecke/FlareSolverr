@@ -768,9 +768,8 @@ def _cmd_sessions_cdp(req: V1RequestBase) -> V1ResponseBase:
         session.lock.release()
 
 
-def _get_session_driver(req: V1RequestBase, req_stealth_mode: str | None) -> tuple[Any, bool]:
+def _get_session_driver(session_id: str, req: V1RequestBase, req_stealth_mode: str | None) -> tuple[Any, bool]:
     """Retrieve or create a session and return it along with the lock state."""
-    session_id = req.session
     ttl = timedelta(minutes=req.session_ttl_minutes) if req.session_ttl_minutes is not None else None
     max_runtime = timedelta(seconds=req.sessionMaxRuntime) if req.sessionMaxRuntime is not None else None
     idle_timeout = timedelta(seconds=req.sessionIdleTimeout) if req.sessionIdleTimeout is not None else None
@@ -816,7 +815,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
     req_stealth_mode = _resolve_request_stealth_mode(req)
     try:
         if req.session:
-            session, lock_acquired = _get_session_driver(req, req_stealth_mode)
+            session, lock_acquired = _get_session_driver(req.session, req, req_stealth_mode)
             driver = session.driver
         else:
             driver = _create_one_off_driver(req, req_stealth_mode)

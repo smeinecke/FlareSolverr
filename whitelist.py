@@ -32,6 +32,7 @@ ActionQueue.clear_context
 
 # Model fields populated dynamically from API responses
 ChallengeResolutionResultT.isBinary
+ChallengeResolutionResultT.har
 ChallengeSolution.evalResult
 ChallengeSolution.networkLogs
 ChallengeSolution.screenshot
