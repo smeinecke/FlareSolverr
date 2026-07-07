@@ -7,7 +7,12 @@ from flaresolverr import utils
 
 
 def _compute_state() -> str:
-    """Return the HAProxy agent-check state based on session saturation.
+    """Return the HAProxy agent-check state based on remaining session capacity.
+
+    Returns ``up {weight}%`` where *weight* reflects the fraction of free
+    Chrome session slots (``(max_sessions - session_count) / max_sessions``).
+    At or above ``SESSION_MAX_COUNT`` returns ``drain`` so HAProxy keeps the
+    server up for existing sessions but stops routing new ones to it.
 
     CRITICAL: This function must NEVER raise an exception.
     If anything fails, return 'drain' as a safe default.
@@ -23,10 +28,11 @@ def _compute_state() -> str:
             return "drain"
 
         if max_sessions is None:
-            return "ready"
+            return "up 100%"
         if session_count >= max_sessions:
             return "drain"
-        return "ready"
+        weight = max(1, int((max_sessions - session_count) / max_sessions * 100))
+        return f"up {weight}%"
 
     except Exception:
         logging.exception("Agent-check _compute_state crashed — returning drain")
