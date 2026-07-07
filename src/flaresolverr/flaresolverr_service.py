@@ -768,6 +768,45 @@ def _cmd_sessions_cdp(req: V1RequestBase) -> V1ResponseBase:
         session.lock.release()
 
 
+def _get_session_driver(req: V1RequestBase, req_stealth_mode: str | None) -> tuple[Any, bool]:
+    """Retrieve or create a session and return it along with the lock state."""
+    session_id = req.session
+    ttl = timedelta(minutes=req.session_ttl_minutes) if req.session_ttl_minutes is not None else None
+    max_runtime = timedelta(seconds=req.sessionMaxRuntime) if req.sessionMaxRuntime is not None else None
+    idle_timeout = timedelta(seconds=req.sessionIdleTimeout) if req.sessionIdleTimeout is not None else None
+    session, fresh = SESSIONS_STORAGE.get(
+        session_id,
+        ttl,
+        proxy=req.proxy,
+        stealth_mode=req_stealth_mode,
+        user_agent=req.userAgent,
+        accept_language=req.acceptLanguage,
+        max_runtime=max_runtime,
+        idle_timeout=idle_timeout,
+    )
+
+    if fresh:
+        logging.debug(f"new session created to perform the request (session_id={session_id})")
+    else:
+        logging.debug(f"existing session is used to perform the request (session_id={session_id}, lifetime={str(session.lifetime())}, ttl={str(ttl)})")
+
+    # Acquire lock to prevent concurrent access to the same session
+    logging.debug(f"acquiring session lock (session_id={session_id})")
+    session.lock.acquire()
+    logging.debug(f"session lock acquired (session_id={session_id})")
+    return session, True
+
+
+def _create_one_off_driver(req: V1RequestBase, req_stealth_mode: str | None) -> WebDriver:
+    """Create a fresh webdriver instance for a single request."""
+    logging_prefs = {"performance": "ALL"} if req.recordHar else None
+    driver = utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode, logging_prefs=logging_prefs)
+    if req.userAgent is not None:
+        utils.apply_user_agent_override(driver, req.userAgent, req.acceptLanguage or utils.get_config_accept_language())
+    logging.debug("New instance of webdriver has been created to perform the request")
+    return driver
+
+
 def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
     max_timeout = req.maxTimeout if req.maxTimeout is not None else 60000
     timeout = int(max_timeout) / 1000
@@ -777,38 +816,10 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
     req_stealth_mode = _resolve_request_stealth_mode(req)
     try:
         if req.session:
-            session_id = req.session
-            ttl = timedelta(minutes=req.session_ttl_minutes) if req.session_ttl_minutes is not None else None
-            max_runtime = timedelta(seconds=req.sessionMaxRuntime) if req.sessionMaxRuntime is not None else None
-            idle_timeout = timedelta(seconds=req.sessionIdleTimeout) if req.sessionIdleTimeout is not None else None
-            session, fresh = SESSIONS_STORAGE.get(
-                session_id,
-                ttl,
-                proxy=req.proxy,
-                stealth_mode=req_stealth_mode,
-                user_agent=req.userAgent,
-                accept_language=req.acceptLanguage,
-                max_runtime=max_runtime,
-                idle_timeout=idle_timeout,
-            )
-
-            if fresh:
-                logging.debug(f"new session created to perform the request (session_id={session_id})")
-            else:
-                logging.debug(f"existing session is used to perform the request (session_id={session_id}, lifetime={str(session.lifetime())}, ttl={str(ttl)})")
-
+            session, lock_acquired = _get_session_driver(req, req_stealth_mode)
             driver = session.driver
-            # Acquire lock to prevent concurrent access to the same session
-            logging.debug(f"acquiring session lock (session_id={session_id})")
-            session.lock.acquire()
-            lock_acquired = True
-            logging.debug(f"session lock acquired (session_id={session_id})")
         else:
-            logging_prefs = {"performance": "ALL"} if req.recordHar else None
-            driver = utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode, logging_prefs=logging_prefs)
-            if req.userAgent is not None:
-                utils.apply_user_agent_override(driver, req.userAgent, req.acceptLanguage or utils.get_config_accept_language())
-            logging.debug("New instance of webdriver has been created to perform the request")
+            driver = _create_one_off_driver(req, req_stealth_mode)
         enabled_services = req.enabledServices
         if enabled_services is None and session is not None:
             enabled_services = session.enabled_services
