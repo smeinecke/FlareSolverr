@@ -82,7 +82,7 @@ complexity:
 	radon cc . -a -nc
 
 xenon:
-	xenon -b D -m B -a B .
+	xenon -b D -m B -a B src
 
 bandit:
 	bandit -c pyproject.toml -r src -x src/flaresolverr/undetected_chromedriver,src/flaresolverr/build_package.py,src/flaresolverr/utils.py,src/flaresolverr/flaresolverr.py

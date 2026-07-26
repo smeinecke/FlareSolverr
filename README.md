@@ -48,11 +48,7 @@ import requests
 
 url = "http://localhost:8191/v1"
 headers = {"Content-Type": "application/json"}
-data = {
-    "cmd": "request.get",
-    "url": "http://www.google.com/",
-    "maxTimeout": 60000
-}
+data = {"cmd": "request.get", "url": "http://www.google.com/", "maxTimeout": 60000}
 response = requests.post(url, headers=headers, json=data)
 print(response.text)
 ```
@@ -174,13 +170,7 @@ response = client.request.get("https://example.com")
 print(response.solution.response)
 
 # With browser actions (form filling, clicking, etc.)
-actions = (
-    ActionQueue()
-    .fill("//input[@id='email']", "user@example.com")
-    .fill("//input[@id='password']", "secret")
-    .click("//button[@type='submit']")
-    .build()
-)
+actions = ActionQueue().fill("//input[@id='email']", "user@example.com").fill("//input[@id='password']", "secret").click("//button[@type='submit']").build()
 response = client.request.get("https://example.com/login", actions=actions)
 ```
 

@@ -84,17 +84,17 @@ client.sessions.destroy(session_id)
 ```python
 response = client.request.get(
     url="https://example.com",
-    session="my_session",           # Optional: reuse session
-    max_timeout=60000,              # Max wait time in ms (default: 60000)
-    return_only_cookies=False,      # Only return cookies
-    return_screenshot=False,        # Include base64 screenshot
-    disable_media=False,            # Block images/CSS/fonts
-    stealth_mode="standard",        # Optional stealth mode: off|standard|csp-safe
-    user_agent="Mozilla/5.0 ...",   # Optional per-request user-agent override
-    accept_language="fr-FR,fr",     # Optional per-request Accept-Language override
-    wait_in_seconds=2,              # Wait after page load
+    session="my_session",  # Optional: reuse session
+    max_timeout=60000,  # Max wait time in ms (default: 60000)
+    return_only_cookies=False,  # Only return cookies
+    return_screenshot=False,  # Include base64 screenshot
+    disable_media=False,  # Block images/CSS/fonts
+    stealth_mode="standard",  # Optional stealth mode: off|standard|csp-safe
+    user_agent="Mozilla/5.0 ...",  # Optional per-request user-agent override
+    accept_language="fr-FR,fr",  # Optional per-request Accept-Language override
+    wait_in_seconds=2,  # Wait after page load
     enabled_services=["cloudflare", "ddos_guard", "brave"],  # Optional: override which challenge services are active
-    script_inject=[                 # Optional: declarative JS injection (requires JS_INJECTION_ENABLED)
+    script_inject=[  # Optional: declarative JS injection (requires JS_INJECTION_ENABLED)
         {"script": "window.before = 1;", "point": "document_start"},
         {"script": "window.after = 2;", "point": "document_idle"},
     ],
@@ -103,9 +103,9 @@ response = client.request.get(
     headers=[Header(name="User-Agent", value="Custom/1.0")],
 )
 
-print(response.solution.status)      # HTTP status code
-print(response.solution.response)    # HTML content
-print(response.solution.cookies)    # List of Cookie objects
+print(response.solution.status)  # HTTP status code
+print(response.solution.response)  # HTML content
+print(response.solution.cookies)  # List of Cookie objects
 print(response.solution.userAgent)  # Browser user agent
 ```
 
@@ -130,13 +130,13 @@ from flaresolverr.client import ActionQueue
 
 actions = (
     ActionQueue()
-    .wait(2)                                           # Wait 2 seconds
+    .wait(2)  # Wait 2 seconds
     .fill("//input[@id='email']", "user@example.com")  # Type in field
     .fill("//input[@id='password']", "secret123")
-    .click("//button[@type='submit']")                # Click button
-    .wait_for("//div[@id='dashboard']")                # Wait for element
-    .eval("return document.title")                    # Execute JS and capture result
-    .eval("window.foo = 1;", return_result=False)     # Execute JS without capturing
+    .click("//button[@type='submit']")  # Click button
+    .wait_for("//div[@id='dashboard']")  # Wait for element
+    .eval("return document.title")  # Execute JS and capture result
+    .eval("window.foo = 1;", return_result=False)  # Execute JS without capturing
     .build()
 )
 
@@ -167,8 +167,8 @@ from flaresolverr.client import (
 # Proxy configuration
 proxy = ProxyConfig(
     url="http://proxy.example.com:8080",
-    username="user",      # Optional
-    password="pass",      # Optional
+    username="user",  # Optional
+    password="pass",  # Optional
 )
 
 # Cookie from response

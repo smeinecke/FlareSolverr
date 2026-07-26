@@ -130,6 +130,7 @@ The solver interface is designed for extension. To add a custom solver:
 from captcha_solvers import CaptchaSolver, SOLVER_MANAGER
 from selenium.webdriver.chrome.webdriver import WebDriver
 
+
 class MySolver(CaptchaSolver):
     name = "my-solver"
 
@@ -140,6 +141,7 @@ class MySolver(CaptchaSolver):
         # drive the already-open Selenium session to solve the captcha
         # return True on success, False otherwise
         return False
+
 
 SOLVER_MANAGER.register_solver(MySolver())
 ```
