@@ -613,11 +613,15 @@ class PatchApplier:
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 8: Navigator languages to return non-empty array
-        # Headless Chrome returns [] which is detectable. Return ['en-US', 'en'] instead.
+        # Patch 8: Navigator languages to use the value of --stealth-navigator-languages
+        # Headless Chrome returns a single locale or [] which is detectable.
+        # The switch value (comma-separated list) becomes the underlying language state
+        # consumed by both navigator.language and navigator.languages, so Window,
+        # DedicatedWorker and SharedWorker see the same list without realm-specific JS.
+        # Falls back to ['en-US', 'en'] when the switch is present with no value.
         # File: third_party/blink/renderer/core/frame/navigator_language.cc
         # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 8: navigator.languages returns ['en-US', 'en'] instead of []")
+        print("Patch 8: navigator.languages reads --stealth-navigator-languages value")
 
         self.add_include(
             "third_party/blink/renderer/core/frame/navigator_language.cc",
@@ -625,6 +629,22 @@ class PatchApplier:
             after_patterns=[
                 '#include "third_party/blink/renderer/core/frame/navigator_language.h"',
                 '#include "third_party/blink/renderer/core/frame/local_frame.h"',
+            ],
+        )
+
+        self.add_include(
+            "third_party/blink/renderer/core/frame/navigator_language.cc",
+            '#include "base/strings/string_split.h"',
+            after_patterns=[
+                '#include "base/command_line.h"',
+            ],
+        )
+
+        self.add_include(
+            "third_party/blink/renderer/core/frame/navigator_language.cc",
+            '#include "base/strings/string_util.h"',
+            after_patterns=[
+                '#include "base/strings/string_split.h"',
             ],
         )
 
@@ -637,15 +657,26 @@ class PatchApplier:
                 '      "stealth-navigator-languages");\n'
                 "  if (stealth_languages) {\n"
                 "    languages_.clear();\n"
-                '    languages_.push_back("en-US");\n'
-                '    languages_.push_back("en");\n'
+                "    std::string value = base::CommandLine::ForCurrentProcess()\n"
+                '                            ->GetSwitchValueASCII("stealth-navigator-languages");\n'
+                "    if (!value.empty()) {\n"
+                "      for (const auto& token : base::SplitString(\n"
+                '               value, ",", base::TRIM_WHITESPACE,\n'
+                "               base::SPLIT_WANT_NONEMPTY)) {\n"
+                "        languages_.push_back(String::FromUTF8(token));\n"
+                "      }\n"
+                "    }\n"
+                "    if (languages_.empty()) {\n"
+                '      languages_.push_back("en-US");\n'
+                '      languages_.push_back("en");\n'
+                "    }\n"
                 "    return languages_;\n"
                 "  }\n"
                 "  EnsureUpdatedLanguage();\n"
                 "  return languages_;\n"
                 "}"
             ),
-            "navigator.languages returns ['en-US', 'en'] with --stealth-navigator-languages",
+            "navigator.languages uses --stealth-navigator-languages switch value",
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
@@ -681,7 +712,57 @@ class PatchApplier:
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 10: Remove chromedriver CDC variable injection
+        # Patch 10: Set ICU default locale from --lang in every renderer process
+        # On Linux/Windows the renderer otherwise keeps the OS ICU default, so
+        # Intl.* defaults diverge from the patched navigator.language in
+        # headless or non-matching host locales.  ChromeOS already had this; we
+        # generalize it to all platforms where the browser passes --lang.
+        # File: content/renderer/renderer_main.cc
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 10: set ICU default locale from --lang for all renderers")
+
+        self.patch(
+            "content/renderer/renderer_main.cc",
+            (
+                "#if BUILDFLAG(IS_CHROMEOS)\n"
+                "  // As the Zygote process starts up earlier than the browser process, it gets\n"
+                "  // its own locale (at login time for Chrome OS). So we have to set the ICU\n"
+                "  // default locale for the renderer process here.\n"
+                "  // ICU locale will be used for fallback font selection, etc.\n"
+                "  if (command_line.HasSwitch(switches::kLang)) {\n"
+                "    const std::string locale =\n"
+                "        command_line.GetSwitchValueASCII(switches::kLang);\n"
+                "    base::i18n::SetICUDefaultLocale(locale);\n"
+                "  }\n"
+                "\n"
+                "  // When we start the renderer on ChromeOS if the system has core scheduling\n"
+                "  // available we want to turn it on.\n"
+                "  chromeos::system::EnableCoreSchedulingIfAvailable();\n"
+                "#endif  // BUILDFLAG(IS_CHROMEOS)"
+            ),
+            (
+                "  // Set the ICU default locale from --lang in every renderer process.  This\n"
+                "  // keeps Intl.* defaults aligned with navigator.language in headless or\n"
+                "  // embedded environments where the renderer would otherwise inherit the OS\n"
+                "  // locale (e.g. a German host running with --accept-lang=en-US,en).\n"
+                "  if (command_line.HasSwitch(switches::kLang)) {\n"
+                "    const std::string locale =\n"
+                "        command_line.GetSwitchValueASCII(switches::kLang);\n"
+                "    base::i18n::SetICUDefaultLocale(locale);\n"
+                "  }\n"
+                "\n"
+                "#if BUILDFLAG(IS_CHROMEOS)\n"
+                "  // When we start the renderer on ChromeOS if the system has core scheduling\n"
+                "  // available we want to turn it on.\n"
+                "  chromeos::system::EnableCoreSchedulingIfAvailable();\n"
+                "#endif  // BUILDFLAG(IS_CHROMEOS)"
+            ),
+            "set ICU default locale from --lang in every renderer process",
+        )
+
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 11: Remove chromedriver CDC variable injection
+        # (Formerly Patch 10; renumbered after adding locale patch.)
         # ChromeDriver injects window.cdc_adoQpoasnfa76pfcZLmcfl_* aliases into
         # every page via Page.addScriptToEvaluateOnNewDocument / Runtime.evaluate.
         # These variables are a well-known automation fingerprint.

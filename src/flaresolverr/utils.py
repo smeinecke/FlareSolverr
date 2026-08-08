@@ -494,14 +494,21 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
         # Native accept-language for HTTP headers; navigator.languages is still
         # handled by --stealth-navigator-languages at the binary level.
         options.add_argument(f"--accept-lang={get_config_accept_language()}")
+        # The --lang switch sets the ICU default locale in renderer processes
+        # (Patch 10 in apply.py), keeping Intl.* defaults aligned with
+        # navigator.language across all execution contexts.
+        options.add_argument(f"--lang={get_config_accept_language().split(',')[0]}")
 
     if effective_stealth_mode != STEALTH_MODE_OFF and custom:
-        # C++ flags; no JavaScript replacement needed. Removed
-        # --enable-trusted-synthetic-events - synthetic events must not be
-        # reported as trusted globally.
+        # C++ flags; no JavaScript replacement needed.
+        # --enable-trusted-synthetic-events was removed: synthetic events must
+        # not be reported as trusted globally.
         options.add_argument("--webgl-unmasked-vendor=Intel Inc.")
         options.add_argument("--webgl-unmasked-renderer=Intel(R) Iris(TM) Graphics 6100")
-        options.add_argument("--stealth-navigator-languages")
+        # The value of this switch is the underlying navigator.languages state
+        # consumed by all execution contexts. The C++ patch in apply.py parses
+        # the comma-separated list so Window/Worker/SharedWorker stay coherent.
+        options.add_argument(f"--stealth-navigator-languages={get_config_accept_language()}")
         options.add_argument("--stealth-viewport-size")
         logger.debug("Applied custom Chromium stealth flags.")
 

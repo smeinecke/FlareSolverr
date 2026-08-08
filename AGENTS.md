@@ -61,3 +61,21 @@ With the current stealth configuration, `https://deviceandbrowserinfo.com/are_yo
 ```
 
 The `bot-web-challenge` integration tests (`test_bot_challenge.py`) pass with only an `info`-level `runtime-api:integrity` finding for a page-local `console.log` wrapper.
+
+Additional integration tests:
+
+```bash
+# Event.isTrusted regression and cross-realm browser consistency
+PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/integration/test_event_istrusted.py tests/integration/test_browser_consistency.py -m integration -s
+```
+
+The consistency diagnostic lives in `src/flaresolverr/diagnostics.py` and is
+invoked by `diagnostics.collect_browser_consistency(driver, page_url=...)`.
+It should be run against an http/https origin (not `data:`) so that
+Worker/SharedWorker construction and `navigator.userAgentData` are available.
+
+## Stealth Design
+
+See `STEALTH_DESIGN.md` for the full ownership inventory of every stealth
+mechanism (native Chromium vs. launch/CDP configuration vs. JavaScript
+compatibility workaround).
