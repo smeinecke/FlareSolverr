@@ -634,9 +634,25 @@ class PatchApplier:
 
         self.add_include(
             "third_party/blink/renderer/core/frame/navigator_language.cc",
+            "#include <string_view>",
+            after_patterns=[
+                '#include "third_party/blink/renderer/core/frame/navigator_language.h"',
+            ],
+        )
+
+        self.add_include(
+            "third_party/blink/renderer/core/frame/navigator_language.cc",
+            '#include "base/containers/span.h"',
+            after_patterns=[
+                '#include <string_view>',
+            ],
+        )
+
+        self.add_include(
+            "third_party/blink/renderer/core/frame/navigator_language.cc",
             '#include "base/strings/string_split.h"',
             after_patterns=[
-                '#include "base/command_line.h"',
+                '#include "base/containers/span.h"',
             ],
         )
 
@@ -663,7 +679,9 @@ class PatchApplier:
                 "      for (const auto& token : base::SplitString(\n"
                 '               value, ",", base::TRIM_WHITESPACE,\n'
                 "               base::SPLIT_WANT_NONEMPTY)) {\n"
-                "        languages_.push_back(String::FromUTF8(token));\n"
+                "        languages_.push_back(\n"
+                "            String::FromUtf8(base::as_byte_span(\n"
+                "                std::string_view(token))));\n"
                 "      }\n"
                 "    }\n"
                 "    if (languages_.empty()) {\n"
