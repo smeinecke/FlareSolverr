@@ -306,16 +306,16 @@ class TestPerRequestCaptchaSolverValidation:
         """captchaSolver='default' passes validation and reaches _resolve_challenge."""
 
         req = V1RequestBase({"cmd": "request.get", "url": "https://example.com", "captchaSolver": "default"})
-        monkeypatch.setattr("flaresolverr.flaresolverr_service._resolve_challenge", lambda req, method: (_ for _ in ()).throw(StopIteration("reached")))
-        with pytest.raises((StopIteration, Exception), match="reached"):
+        monkeypatch.setattr("flaresolverr.flaresolverr_service._resolve_challenge", lambda req, method: (_ for _ in ()).throw(Exception("reached")))
+        with pytest.raises(Exception, match="reached"):
             _cmd_request_get(req)
 
     def test_none_captcha_solver_passes_validation(self, monkeypatch):
         """captchaSolver=None (absent) passes validation and reaches _resolve_challenge."""
 
         req = V1RequestBase({"cmd": "request.get", "url": "https://example.com"})
-        monkeypatch.setattr("flaresolverr.flaresolverr_service._resolve_challenge", lambda req, method: (_ for _ in ()).throw(StopIteration("reached")))
-        with pytest.raises((StopIteration, Exception), match="reached"):
+        monkeypatch.setattr("flaresolverr.flaresolverr_service._resolve_challenge", lambda req, method: (_ for _ in ()).throw(Exception("reached")))
+        with pytest.raises(Exception, match="reached"):
             _cmd_request_get(req)
 
 

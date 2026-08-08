@@ -250,64 +250,72 @@ def apply_user_agent_override(driver: WebDriver, user_agent: str, accept_languag
 
     Uses Emulation.setUserAgentOverride with userAgentMetadata to ensure
     navigator.userAgentData is consistent with navigator.userAgent.
+
+    For custom Chromium builds we intentionally do *not* set userAgentMetadata:
+    the --user-agent command-line switch already gives all contexts (main,
+    workers, shared workers) a coherent UA, and overriding metadata via CDP
+    would create a mismatch because SharedWorkers do not receive the CDP
+    override.  We only override the userAgent and acceptLanguage fields.
     """
-    # Parse UA to extract platform and Chrome version
-    # e.g., "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
-    platform_match = re.search(r"\(([^)]+)\)", user_agent)
-    platform_str = platform_match.group(1) if platform_match else "Windows NT 10.0; Win64; x64"
+    accept_lang = accept_language if accept_language is not None else get_config_accept_language()
+    params: dict[str, Any] = {
+        "userAgent": user_agent,
+        "acceptLanguage": accept_lang,
+    }
 
-    # Determine platform and architecture from UA
-    if "Linux" in platform_str:
-        platform = "Linux"
-        platform_version = ""
-        architecture = "x64" if "x86_64" in platform_str or "x64" in platform_str else "x86"
-    elif "Mac" in platform_str or "Darwin" in platform_str:
-        platform = "macOS"
-        platform_version = "14.0.0"  # Generic macOS version
-        architecture = "arm" if "arm" in user_agent.lower() else "x64"
-    elif "Win" in platform_str:
-        platform = "Windows"
-        platform_version = "10.0.0"
-        architecture = "x64" if "Win64" in platform_str or "x64" in platform_str else "x86"
-    else:
-        platform = "Windows"
-        platform_version = "10.0.0"
-        architecture = "x64"
+    if not _is_custom_chromium():
+        # Parse UA to extract platform and Chrome version
+        # e.g., "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+        platform_match = re.search(r"\(([^)]+)\)", user_agent)
+        platform_str = platform_match.group(1) if platform_match else "Windows NT 10.0; Win64; x64"
 
-    # Extract Chrome version
-    chrome_match = re.search(r"Chrome/(\d+)\.", user_agent)
-    chrome_major = chrome_match.group(1) if chrome_match else "130"
-    chrome_full = get_chrome_full_version()
-    if not chrome_full:
-        chrome_full = f"{chrome_major}.0.0.0"
+        # Determine platform and architecture from UA
+        if "Linux" in platform_str:
+            platform = "Linux"
+            platform_version = ""
+            architecture = "x64" if "x86_64" in platform_str or "x64" in platform_str else "x86"
+        elif "Mac" in platform_str or "Darwin" in platform_str:
+            platform = "macOS"
+            platform_version = "14.0.0"  # Generic macOS version
+            architecture = "arm" if "arm" in user_agent.lower() else "x64"
+        elif "Win" in platform_str:
+            platform = "Windows"
+            platform_version = "10.0.0"
+            architecture = "x64" if "Win64" in platform_str or "x64" in platform_str else "x86"
+        else:
+            platform = "Windows"
+            platform_version = "10.0.0"
+            architecture = "x64"
 
-    # Build brands array (Chrome's GREASEd brand format)
-    brands = [
-        {"brand": "Chromium", "version": chrome_major},
-        {"brand": "Google Chrome", "version": chrome_major},
-        {"brand": "Not.A/Brand", "version": "24"},
-    ]
+        # Extract Chrome version
+        chrome_match = re.search(r"Chrome/(\d+)\.", user_agent)
+        chrome_major = chrome_match.group(1) if chrome_match else "130"
+        chrome_full = get_chrome_full_version()
+        if not chrome_full:
+            chrome_full = f"{chrome_major}.0.0.0"
 
-    driver.execute_cdp_cmd(
-        "Emulation.setUserAgentOverride",
-        {
-            "userAgent": user_agent,
-            "acceptLanguage": accept_language if accept_language is not None else get_config_accept_language(),
-            "userAgentMetadata": {
-                "platform": platform,
-                "platformVersion": platform_version,
-                "architecture": architecture,
-                "model": "",
-                "mobile": False,
-                "brands": brands,
-                "fullVersionList": [
-                    {"brand": "Chromium", "version": chrome_full},
-                    {"brand": "Google Chrome", "version": chrome_full},
-                    {"brand": "Not.A/Brand", "version": "24.0.0.0"},
-                ],
-            },
-        },
-    )
+        # Build brands array (Chrome's GREASEd brand format)
+        brands = [
+            {"brand": "Chromium", "version": chrome_major},
+            {"brand": "Google Chrome", "version": chrome_major},
+            {"brand": "Not.A/Brand", "version": "24"},
+        ]
+
+        params["userAgentMetadata"] = {
+            "platform": platform,
+            "platformVersion": platform_version,
+            "architecture": architecture,
+            "model": "",
+            "mobile": False,
+            "brands": brands,
+            "fullVersionList": [
+                {"brand": "Chromium", "version": chrome_full},
+                {"brand": "Google Chrome", "version": chrome_full},
+                {"brand": "Not.A/Brand", "version": "24.0.0.0"},
+            ],
+        }
+
+    driver.execute_cdp_cmd("Emulation.setUserAgentOverride", params)
 
 
 def sanitize_user_agent(user_agent: str) -> str:
@@ -389,6 +397,24 @@ def _build_stealth_extension_dir() -> tuple[str, str]:
     return temp_dir, ext_id
 
 
+def _limit_cpu_affinity() -> None:
+    """Restrict the Chrome process to a plausible consumer CPU count.
+
+    navigator.hardwareConcurrency reflects the number of online CPUs visible
+    to the renderer process. By setting the child process affinity to the
+    first 16 logical CPUs we keep the reported value <= 16 on servers with
+    many cores (32, 64, ...) without patching the browser binary. This is a
+    process-level, native configuration that propagates to Web Workers and
+    SharedWorkers because they inherit the renderer's affinity mask.
+    """
+    try:
+        total = os.cpu_count()
+        if total and total > 16:
+            os.sched_setaffinity(0, set(range(16)))
+    except (OSError, AttributeError):
+        pass
+
+
 def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
     """Build and configure ChromeOptions based on settings."""
     options = ChromeOptions()
@@ -401,6 +427,7 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
     options.add_argument("--no-zygote")
     options.add_argument("--disk-cache-size=1")
     options.add_argument("--media-cache-size=1")
+    custom = _is_custom_chromium()
 
     if not get_config_chrome_disable_optimizations():
         options.add_argument("--renderer-process-limit=1")
@@ -444,12 +471,31 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
     options.add_argument("--ignore-ssl-errors")
     options.add_argument("--disable-features=LocalNetworkAccessChecks")
 
-    if not minimal_fingerprint:
+    # Disable the AutomationControlled blink feature so navigator.webdriver is
+    # absent (undefined) rather than true. This must be active for both stock
+    # and custom Chromium builds.
+    if custom or not minimal_fingerprint:
         options.add_argument("--disable-blink-features=AutomationControlled")
 
-    if effective_stealth_mode != STEALTH_MODE_OFF and _is_custom_chromium():
-        options.add_argument("--enable-trusted-synthetic-events")
-        # --preload-script causes renderer crash; use CDP injection instead.
+    if custom:
+        # Custom Chromium C++ patches already handle navigator.webdriver,
+        # navigator.languages and visualViewport. We use the --user-agent
+        # command-line switch to set a normalized UA for *all* browsing
+        # contexts (main, workers, shared workers) so UA/UA-CH stay coherent.
+        full_version = get_chrome_full_version()
+        if not full_version:
+            full_version = f"{get_chrome_major_version()}.0.0.0"
+        machine = platform.machine()
+        user_agent = f"Mozilla/5.0 (X11; Linux {machine}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{full_version} Safari/537.36"
+        options.add_argument(f"--user-agent={user_agent}")
+        # Native accept-language for HTTP headers; navigator.languages is still
+        # handled by --stealth-navigator-languages at the binary level.
+        options.add_argument(f"--accept-lang={get_config_accept_language()}")
+
+    if effective_stealth_mode != STEALTH_MODE_OFF and custom:
+        # C++ flags; no JavaScript replacement needed. Removed
+        # --enable-trusted-synthetic-events - synthetic events must not be
+        # reported as trusted globally.
         options.add_argument("--webgl-unmasked-vendor=Intel Inc.")
         options.add_argument("--webgl-unmasked-renderer=Intel(R) Iris(TM) Graphics 6100")
         options.add_argument("--stealth-navigator-languages")
@@ -610,6 +656,13 @@ def _configure_headless(options: "uc.ChromeOptions | None" = None) -> bool:
 
 def _maybe_normalize_user_agent(driver: WebDriver, effective_stealth_mode: str) -> None:
     """Normalize user agent by removing HeadlessChrome token and applying consistent UA metadata."""
+    # Custom Chromium sets a normalized UA via the --user-agent command-line
+    # switch so it propagates into all worker contexts. CDP setUserAgentOverride
+    # only reaches the main (and some dedicated worker) contexts, which produced
+    # cross-realm mismatches. No runtime override is needed for custom builds.
+    if _is_custom_chromium():
+        return
+
     try:
         default_ua = driver.execute_script("return navigator.userAgent")
         if not isinstance(default_ua, str):
@@ -970,21 +1023,22 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
     logging.debug("Launching web browser...")
 
     effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
+    user_data_dir: str | None = None
+    proxy_ext_dir: str | None = None
 
-    options = _build_chrome_options(effective_stealth_mode)
-    proxy_ext_dir, proxy_ext_id = _build_stealth_extension_dir()
-    options.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
-    options.add_argument("--load-extension=%s" % os.path.abspath(proxy_ext_dir))
-    windows_headless = _configure_headless()
-    driver_exe_path, version_main = _resolve_driver_paths()
-    browser_executable_path = get_chrome_exe_path()
-    custom_chromium = _is_custom_chromium()
-
-    if browser_executable_path:
-        options.binary_location = browser_executable_path
-
-    user_data_dir = None
     try:
+        proxy_ext_dir, proxy_ext_id = _build_stealth_extension_dir()
+        options = _build_chrome_options(effective_stealth_mode)
+        options.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
+        options.add_argument("--load-extension=%s" % os.path.abspath(proxy_ext_dir))
+        windows_headless = _configure_headless()
+        driver_exe_path, version_main = _resolve_driver_paths()
+        browser_executable_path = get_chrome_exe_path()
+        custom_chromium = _is_custom_chromium()
+
+        if browser_executable_path:
+            options.binary_location = browser_executable_path
+
         if custom_chromium:
             if not browser_executable_path:
                 raise RuntimeError("Custom chromium enabled but no browser executable path found")
@@ -1007,7 +1061,8 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             )
             if get_config_headless():
                 cmd.append("--headless=new")
-            chrome_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=_build_chrome_env(), start_new_session=True)
+            preexec = _limit_cpu_affinity if (os.name == "posix" and os.cpu_count() and os.cpu_count() > 16) else None
+            chrome_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=_build_chrome_env(), start_new_session=True, preexec_fn=preexec)
             logging.debug("Started custom Chromium manually (PID %d, debug port %d)", chrome_proc.pid, debug_port)
 
             # Wait for Chrome to open the debug port
@@ -1092,7 +1147,7 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             shutil.rmtree(proxy_ext_dir, ignore_errors=True)
         if user_data_dir and os.path.isdir(user_data_dir):
             shutil.rmtree(user_data_dir, ignore_errors=True)
-        raise e
+        raise
 
     _maybe_normalize_user_agent(driver, effective_stealth_mode)
     _maybe_apply_stealth(driver, effective_stealth_mode)

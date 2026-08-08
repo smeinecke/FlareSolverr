@@ -1,187 +1,92 @@
 /**
- * stealth.js - JS-only fingerprint evasion patches for custom Chromium builds.
+ * stealth.js - minimal JS-only patch layer for custom Chromium builds.
  *
- * Injected via --preload-script (C++ DidCreateDocumentElement hook).
- * Safe because DidCreateDocumentElement fires after V8 context creation is
- * complete. DO NOT inject from DidCreateScriptContext - that fires during V8
- * context creation while V8 holds internal spinlocks; Script::Compile there
- * causes 97% CPU spin.
+ * Custom Chromium handles the heavy lifting natively:
+ *   - navigator.webdriver (undefined via --disable-blink-features=AutomationControlled)
+ *   - navigator.languages / language (--stealth-navigator-languages)
+ *   - user agent and user-agent client hints (--user-agent command line)
+ *   - WebGL vendor/renderer (--webgl-unmasked-*)
+ *   - visualViewport coherence (--stealth-viewport-size)
  *
- * Active: injected via --preload-script in utils.py (custom Chromium only).
- * Fallback: stealth_fallback.js is injected via CDP for stock Chromium builds.
- *
- * C++ patches active on custom Chromium (binary level):
- *   - navigator.webdriver → undefined
- *   - WebGL vendor/renderer (--webgl-unmasked-vendor/renderer)
- *   - isTrusted synthetic events (--enable-trusted-synthetic-events)
- *   - navigator.languages (--stealth-navigator-languages)
- *
- * JS-only patches below cover remaining signals.
- * Each block is independently try-caught so one failure never breaks others.
+ * The only signals that still need a runtime shim are:
+ *   - window.outerWidth/outerHeight: in --headless=new the browser initially
+ *     reports 0 or matches innerWidth/innerHeight, which triggers the headless
+ *     chrome detector. We lock the getters as non-configurable.
+ *   - Error.prepareStackTrace: CDP detection probes set this to a custom
+ *     handler, then call console.log(Error) and check whether the handler was
+ *     invoked. Making the property non-configurable with a no-op setter blocks
+ *     the probe without changing the value (undefined) that a real browser has.
+ *   - performance.now: timing-based bot probes (e.g. deviceandbrowserinfo.com)
+ *     build a linear regression on throw/catch micro-benchmarks and treat an
+ *     overly consistent, high-resolution headless timer as a signal. We add a
+ *     small, bounded, monotonic noise floor that breaks the correlation while
+ *     leaving the API usable for normal page code.
  */
 (() => {
-  // ── ChromeDriver CDC variable cleanup ────────────────────────────────────────
-  // ChromeDriver injects window.cdc_adoQpoasnfa76pfcZLmcfl_* aliases via
-  // Page.addScriptToEvaluateOnNewDocument / Runtime.evaluate in SetUpDevTools.
-  // These are well-known automation fingerprints. Stealth.js always runs after
-  // ChromeDriver's own script (registered first), so deleting here is safe.
-  // The CDC aliases are only fallbacks in call_function.js; removing them does
-  // not affect ChromeDriver functionality (it falls back to native globals).
-  // NOTE: Patch 10 neutralises the injection at C++ level (custom Chromium).
-  // This JS block is defence-in-depth for stock Chromium / older builds.
-  // try {
-  //   const cdcProps = [
-  //     'cdc_adoQpoasnfa76pfcZLmcfl_Array',
-  //     'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
-  //     'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
-  //     'cdc_adoQpoasnfa76pfcZLmcfl_Window',
-  //     'cdc_adoQpoasnfa76pfcZLmcfl_JSON',
-  //     'cdc_adoQpoasnfa76pfcZLmcfl_Proxy',
-  //   ];
-  //   for (const p of cdcProps) {
-  //     if (p in window) {
-  //       try { delete window[p]; } catch (_) { window[p] = undefined; }
-  //     }
-  //   }
-  //   // Also clear the document-level artifact used by older ChromeDriver versions
-  //   if ('$cdc_asdjflasutopfhvcZLmcfl_' in document) {
-  //     try { delete document['$cdc_asdjflasutopfhvcZLmcfl_']; } catch (_) { document['$cdc_asdjflasutopfhvcZLmcfl_'] = undefined; }
-  //   }
-  // } catch (_) {}
-
-  // ── console guard ────────────────────────────────────────────────────────────
   try {
-    const _log  = console.log.bind(console);
-    const _safe = (...a) => _log(...a.map(x => x instanceof Error ? x.name + ': ' + x.message : x));
-    console.log = _safe;
-  } catch (_) {}
-
-  // ── media devices ─────────────────────────────────────────────────────────────
-  try {
-    if (navigator.mediaDevices?.enumerateDevices) {
-      const _enum = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
-      navigator.mediaDevices.enumerateDevices = () =>
-        _enum()
-          .then(d => (Array.isArray(d) && d.length > 0 ? d : [
-            { deviceId: 'default-mic', kind: 'audioinput', label: 'Default Microphone', groupId: 'default' },
-            { deviceId: 'default-spk', kind: 'audiooutput', label: 'Default Speaker', groupId: 'default' },
-          ]))
-          .catch(() => ([
-            { deviceId: 'default-mic', kind: 'audioinput', label: 'Default Microphone', groupId: 'default' },
-            { deviceId: 'default-spk', kind: 'audiooutput', label: 'Default Speaker', groupId: 'default' },
-          ]));
-    }
-  } catch (_) {}
-
-  // ── navigator.plugins / mimeTypes ────────────────────────────────────────────
-  try {
-    if (!navigator.plugins?.length) {
-      const p   = { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format', version: '1' };
-      const arr = { 0: p, length: 1, item: i => i === 0 ? p : null, namedItem: n => n === p.name ? p : null };
-      Object.defineProperty(Navigator.prototype, 'plugins', { get: () => arr, configurable: true });
-    }
-    if (!navigator.mimeTypes?.length) {
-      const m   = { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' };
-      const arr = { 0: m, length: 1, item: i => i === 0 ? m : null, namedItem: n => n === m.type ? m : null };
-      Object.defineProperty(Navigator.prototype, 'mimeTypes', { get: () => arr, configurable: true });
-    }
-  } catch (_) {}
-
-  // ── speechSynthesis.getVoices ─────────────────────────────────────────────────
-  try {
-    if (window.speechSynthesis?.getVoices) {
-      const _orig = window.speechSynthesis.getVoices.bind(window.speechSynthesis);
-      window.speechSynthesis.getVoices = () => {
-        const v = _orig();
-        return v?.length ? v : [{ default: true, lang: 'en-US', localService: true, name: 'Google US English', voiceURI: 'Google US English' }];
-      };
-    }
-  } catch (_) {}
-
-  // ── navigator.languages / language (instance patch, not prototype) ──────────────
-  // C++ Patch 8 (--stealth-navigator-languages) handles both main frame and blob iframes.
-  // This JS patch is defense-in-depth for any frame where CDP injection runs.
-  // Instance-level patching is undetectable - checks only inspect `Navigator.prototype`.
-  try {
-    const langs = Object.freeze(['en-US', 'en']);
-    Object.defineProperty(navigator, 'languages', { get: () => langs, configurable: true });
-    Object.defineProperty(navigator, 'language',  { get: () => 'en-US', configurable: true });
-  } catch (_) {}
-
-  // ── navigator.permissions.query (notifications) ───────────────────────────────
-  try {
-    if (navigator.permissions?.query) {
-      const _q = navigator.permissions.query.bind(navigator.permissions);
-      navigator.permissions.query = p =>
-        p?.name === 'notifications'
-          ? Promise.resolve({ state: Notification.permission, onchange: null })
-          : _q(p);
-    }
-  } catch (_) {}
-
-  // ── screen / outer dimensions ─────────────────────────────────────────────────
-  try {
-    const sw = screen.width, sh = screen.height, iw = innerWidth || 1280, ih = innerHeight || 800;
-    if (sw < iw || sh < ih) {
-      const ow = Math.max(iw, sw), oh = Math.max(ih, sh) + 85;
-      try { Object.defineProperty(window, 'outerWidth',  { get: () => ow,      configurable: true }); } catch (_) {}
-      try { Object.defineProperty(window, 'outerHeight', { get: () => oh,      configurable: true }); } catch (_) {}
+    const defineOuter = () => {
       try {
-        Object.defineProperty(screen, 'width',       { get: () => ow,      configurable: true });
-        Object.defineProperty(screen, 'height',      { get: () => oh + 40, configurable: true });
-        Object.defineProperty(screen, 'availWidth',  { get: () => ow,      configurable: true });
-        Object.defineProperty(screen, 'availHeight', { get: () => oh + 40, configurable: true });
-      } catch (_) {}
-    }
-  } catch (_) {}
-
-  // ── Web Worker consistency prelude ────────────────────────────────────────────
-  // C++ patches (webdriver, languages, WebGL) apply at the binary level but may
-  // not reach dedicated workers on all code paths. Prepend a minimal prelude so
-  // hasInconsistentWorkerValues stays clean.
-  try {
-    const _NW = window.Worker;
-    if (_NW) {
-      const WORKER_PRELUDE = `
-        (() => {
-          try {
-            const langs = Object.freeze(['en-US', 'en']);
-            Object.defineProperty(navigator, 'languages', { get: () => langs, configurable: true });
-            Object.defineProperty(navigator, 'language',  { get: () => 'en-US', configurable: true });
-          } catch (_) {}
-          try {
-            const ua = navigator.userAgent;
-            if (typeof ua === 'string' && ua.includes('HeadlessChrome')) {
-              const p = ua.replace(/HeadlessChrome\\//g, 'Chrome/');
-              Object.defineProperty(Navigator.prototype, 'userAgent', { get: () => p, configurable: true });
-            }
-            const av = navigator.appVersion;
-            if (typeof av === 'string' && av.includes('HeadlessChrome')) {
-              const q = av.replace(/HeadlessChrome\\//g, 'Chrome/');
-              Object.defineProperty(Navigator.prototype, 'appVersion', { get: () => q, configurable: true });
-            }
-          } catch (_) {}
-        })();
-      `;
-      const _WW = function(url, opts) {
-        try {
-          const urlStr = String(url);
-          let src;
-          if (urlStr.startsWith('blob:')) {
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', urlStr, false);
-            xhr.send();
-            src = WORKER_PRELUDE + '\\n' + xhr.responseText;
-          } else {
-            src = WORKER_PRELUDE + '\\nimportScripts(' + JSON.stringify(urlStr) + ');';
+        Object.defineProperty(
+          window,
+          "outerWidth",
+          {
+            get: () => Math.max(window.innerWidth || 0, 1920),
+            configurable: false,
           }
-          const blob = new Blob([src], { type: 'application/javascript' });
-          return new _NW(URL.createObjectURL(blob), opts);
-        } catch (_) { return new _NW(url, opts); }
-      };
-      _WW.prototype = _NW.prototype;
-      Object.defineProperty(window, 'Worker', { value: _WW, configurable: true, writable: true });
-    }
-  } catch (_) {}
+        );
+      } catch (_) {}
+      try {
+        Object.defineProperty(
+          window,
+          "outerHeight",
+          {
+            get: () => Math.max(window.innerHeight || 0, 1080) + 85,
+            configurable: false,
+          }
+        );
+      } catch (_) {}
+    };
 
+    // Define immediately and again after load in case the property wasn't
+    // installed on the global object at document_start.
+    defineOuter();
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", defineOuter);
+    }
+
+    // Block CDP stack-trace probes from installing a non-native
+    // Error.prepareStackTrace handler while keeping it undefined, matching
+    // the default state of a real browser.
+    try {
+      Object.defineProperty(Error, "prepareStackTrace", {
+        get: () => undefined,
+        set: function () {},
+        configurable: false,
+        enumerable: false,
+      });
+    } catch (_) {}
+
+    // Add bounded, monotonic jitter to performance.now to defeat timing probes
+    // that rely on a perfectly linear, high-resolution headless timer.
+    try {
+      const origNow = performance.now.bind(performance);
+      let lastOrig = 0;
+      let current = 0;
+      const nowFn = function () {
+        const t = origNow();
+        const delta = t - lastOrig;
+        lastOrig = t;
+        current += delta + Math.random() * 5.0;
+        return current;
+      };
+      nowFn.toString = function () {
+        return "function now() { [native code] }";
+      };
+      Object.defineProperty(Performance.prototype, "now", {
+        value: nowFn,
+        configurable: false,
+        writable: false,
+      });
+    } catch (_) {}
+  } catch (_) {}
 })();

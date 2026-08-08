@@ -255,12 +255,42 @@ class TestBotChallenge(unittest.TestCase):
         self.assertIn("timestamp", results)
         self.assertIn("userAgent", results)
 
-        # Verify summary structure
+        # Verify summary structure (current challenge schema)
         summary = results["summary"]
-        self.assertIn("totalTests", summary)
-        self.assertIn("passed", summary)
-        self.assertIn("failed", summary)
-        self.assertIn("botDetected", summary)
+        required_summary_fields = [
+            "totalTests", "passed", "finding", "inconclusive",
+            "infoFindings", "weakFindings", "mediumFindings", "strongFindings",
+            "hardFindings", "score", "verdict", "botDetected", "suspicious",
+            "coverage", "criticalChecksTotal", "criticalChecksCompleted",
+            "criticalChecksInconclusive", "uniqueEvidenceCount",
+            "independentCategoryCount", "verdictRule",
+        ]
+        for field in required_summary_fields:
+            self.assertIn(field, summary, f"Summary should contain '{field}'")
+
+        diagnostics = {
+            "summary": summary,
+            "scoredArtifacts": results.get("scoredArtifacts", []),
+            "criticalInconclusive": [
+                finding
+                for finding in results.get("findings", [])
+                if finding.get("critical") and finding.get("status") == "inconclusive"
+            ],
+        }
+
+        # Persist full diagnostic JSON for post-run analysis.
+        diag_path = os.environ.get("FLARESOLVERR_CHALLENGE_DIAG", "/tmp/flaresolverr_challenge_diag.json")
+        try:
+            with open(diag_path, "w") as f:
+                json.dump(diagnostics, f, indent=2, default=str)
+        except OSError:
+            pass
+
+        if summary.get("verdict") != "human" or summary.get("botDetected"):
+            self.fail(
+                f"Challenge classified as automation. Diagnostics:\n"
+                f"{json.dumps(diagnostics, indent=2, default=str)}"
+            )
 
 
 if __name__ == "__main__":

@@ -196,47 +196,10 @@ class PatchApplier:
         self.errors += 1
 
     def run_patches(self) -> None:
-        # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 1: isTrusted=true for CDP synthetic events
-        # In Chrome 112+ isTrusted() is an inline function in event.h, not event.cc.
-        # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 1: --enable-trusted-synthetic-events")
-
-        self.add_include(
-            "third_party/blink/renderer/core/dom/events/event.h",
-            '#include "base/command_line.h"',
-            after_patterns=[
-                '#include "base/check_op.h"',
-                '#include "base/check.h"',
-                '#include "base/time/time.h"',
-            ],
-        )
-
-        self.patch(
-            "third_party/blink/renderer/core/dom/events/event.h",
-            "bool isTrusted() const { return is_trusted_; }",
-            (
-                "bool isTrusted() const {\n"
-                "    // Static cached flag to avoid CommandLine lookup on every call\n"
-                "    // (thread-safe in C++11+: static init is guaranteed once)\n"
-                "    static const bool force_trusted = []() {\n"
-                "      return base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
-                '          "enable-trusted-synthetic-events");\n'
-                "    }();\n"
-                "    if (force_trusted)\n"
-                "      return true;\n"
-                "    return is_trusted_;\n"
-                "  }"
-            ),
-            "force isTrusted=true when flag is set (cached, thread-safe)",
-            fallbacks=[
-                # Some builds define it as a two-liner
-                "bool isTrusted() const {\n  return is_trusted_;\n}",
-                # Older field name
-                "bool isTrusted() const { return trusted_; }",
-                "bool isTrusted() const {\n  return trusted_;\n}",
-            ],
-        )
+        # NOTE: Patch 1 (global --enable-trusted-synthetic-events) has been removed.
+        # Forcing isTrusted=true for all script-dispatched events is detectable and
+        # unnecessary: ChromeDriver CDP input events are already trusted by the
+        # browser. Arbitrary synthetic events must report isTrusted=false.
 
         # ──────────────────────────────────────────────────────────────────────────────
         # Patch 2: navigator.webdriver → undefined via [RuntimeEnabled=AutomationControlled]
@@ -403,7 +366,7 @@ class PatchApplier:
             "  const base::CommandLine& browser_cmd =\n"
             "      *base::CommandLine::ForCurrentProcess();\n"
             '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
-            '                          "preload-script", "enable-trusted-synthetic-events"}) {\n'
+            '                          "preload-script"}) {\n'
             "    if (browser_cmd.HasSwitch(sw))\n"
             "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
             "  }",
@@ -699,7 +662,7 @@ class PatchApplier:
             "  const base::CommandLine& browser_cmd =\n"
             "      *base::CommandLine::ForCurrentProcess();\n"
             '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
-            '                          "preload-script", "enable-trusted-synthetic-events"}) {\n'
+            '                          "preload-script"}) {\n'
             "    if (browser_cmd.HasSwitch(sw))\n"
             "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
             "  }",
@@ -709,8 +672,8 @@ class PatchApplier:
             "  const base::CommandLine& browser_cmd =\n"
             "      *base::CommandLine::ForCurrentProcess();\n"
             '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
-            '                          "preload-script", "enable-trusted-synthetic-events",\n'
-            '                          "stealth-navigator-languages", "stealth-viewport-size"}) {\n'
+            '                          "preload-script", "stealth-navigator-languages",\n'
+            '                          "stealth-viewport-size"}) {\n'
             "    if (browser_cmd.HasSwitch(sw))\n"
             "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
             "  }",
