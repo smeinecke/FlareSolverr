@@ -32,12 +32,12 @@ class Cookie:
     value: str
     domain: str = ""
     path: str = "/"
-    expires: float | None = None  # noqa
+    expires: float | None = None
     size: int | None = None
-    httpOnly: bool = False  # noqa
-    secure: bool = False  # noqa
+    httpOnly: bool = False
+    secure: bool = False
     session: bool = False
-    sameSite: str | None = None  # noqa
+    sameSite: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Cookie:
@@ -76,9 +76,9 @@ class Action:
     selector: str | None = None
     value: str | None = None
     seconds: float | None = None
-    humanLike: bool = False  # noqa
+    humanLike: bool = False
     script: str | None = None
-    returnResult: bool = True  # noqa
+    returnResult: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to API-compatible dictionary."""
@@ -108,7 +108,7 @@ class ChallengeSolution:
     response: str | None = None
     cookies: list[Cookie] = field(default_factory=list)
     userAgent: str | None = None
-    screenshot: str | None = None  # noqa
+    screenshot: str | None = None
     turnstile_token: str | None = None
     # Session interaction fields
     title: str | None = None
@@ -147,7 +147,7 @@ class V1Response:
     sessions: list[str] | None = None
     startTimestamp: int | None = None
     endTimestamp: int | None = None
-    version: str | None = None  # noqa
+    version: str | None = None
     details: dict[str, Any] | None = None
 
     @classmethod
@@ -177,13 +177,13 @@ class HealthResponse:
     """Response from the health endpoint."""
 
     status: str
-    sessionsCount: int | None = None  # noqa
-    activeParallelRequests: int | None = None  # noqa
-    maxParallelRequests: int | None = None  # noqa
-    maxSessionCount: int | None = None  # noqa
-    sessionMaxRuntime: int | None = None  # noqa
-    sessionIdleTimeout: int | None = None  # noqa
-    version: str | None = None  # noqa
+    sessionsCount: int | None = None
+    activeParallelRequests: int | None = None
+    maxParallelRequests: int | None = None
+    maxSessionCount: int | None = None
+    sessionMaxRuntime: int | None = None
+    sessionIdleTimeout: int | None = None
+    version: str | None = None
     config: dict[str, Any] | None = None
     activeRequests: list[dict[str, Any]] | None = None
     sessions: list[dict[str, Any]] | None = None
@@ -210,8 +210,8 @@ class HealthResponse:
 class IndexResponse:
     """Response from the index endpoint."""
 
-    msg: str  # noqa
-    version: str  # noqa
+    msg: str
+    version: str
     userAgent: str
 
     @classmethod

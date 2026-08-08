@@ -1,6 +1,8 @@
 """Cloudflare challenge service."""
 
 import logging
+
+logger = logging.getLogger(__name__)
 import time
 
 from selenium.common import TimeoutException
@@ -42,21 +44,21 @@ class CloudflareService(ChallengeService):
     def detect(self, driver: WebDriver) -> bool:
         try:
             page_title = (driver.title or "").strip()
-        except Exception:
-            logging.debug("Cloudflare detect: failed to read title during navigation")
+        except Exception:  # noqa: BLE001
+            logger.debug("Cloudflare detect: failed to read title during navigation")
             return False
         for title in CLOUDFLARE_TITLES:
             if title.lower() == page_title.lower():
-                logging.info("Challenge detected. Title found: " + page_title)
+                logger.info("Challenge detected. Title found: " + page_title)
                 return True
         for selector in CLOUDFLARE_SELECTORS:
             try:
                 found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
-            except Exception:
-                logging.debug("Cloudflare detect: failed to query selector during navigation")
+            except Exception:  # noqa: BLE001
+                logger.debug("Cloudflare detect: failed to query selector during navigation")
                 return False
             if len(found_elements) > 0:
-                logging.info("Challenge detected. Selector found: " + selector)
+                logger.info("Challenge detected. Selector found: " + selector)
                 return True
         return False
 
@@ -72,21 +74,21 @@ class CloudflareService(ChallengeService):
             attempt += 1
             try:
                 for title in CLOUDFLARE_TITLES:
-                    logging.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
+                    logger.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
                     WebDriverWait(driver, SHORT_TIMEOUT).until_not(title_is(title))
                 for selector in CLOUDFLARE_SELECTORS:
-                    logging.debug("Waiting for selector (attempt " + str(attempt) + "): " + selector)
+                    logger.debug("Waiting for selector (attempt " + str(attempt) + "): " + selector)
                     WebDriverWait(driver, SHORT_TIMEOUT).until_not(presence_of_element_located((By.CSS_SELECTOR, selector)))
                 break
             except TimeoutException:
-                logging.debug("Timeout waiting for selector")
+                logger.debug("Timeout waiting for selector")
                 page_source = ""
                 try:
                     page_source = driver.page_source
-                except Exception:
-                    logging.debug("Could not read page source during navigation")
+                except Exception:  # noqa: BLE001
+                    logger.debug("Could not read page source during navigation")
                 if HARD_BLOCK_TEXT in page_source:
-                    raise Exception("Cloudflare hard block: Incompatible browser extension or network configuration")
+                    raise RuntimeError("Cloudflare hard block: Incompatible browser extension or network configuration")
                 now = time.time()
                 if self._should_attempt_verify_click(driver):
                     if now - last_verify_click_ts >= click_cooldown_seconds:
@@ -94,9 +96,9 @@ class CloudflareService(ChallengeService):
                         last_verify_click_ts = now
                     else:
                         remaining = click_cooldown_seconds - (now - last_verify_click_ts)
-                        logging.debug("Skipping verify click due to cooldown (%.1fs remaining)", remaining)
+                        logger.debug("Skipping verify click due to cooldown (%.1fs remaining)", remaining)
                 else:
-                    logging.debug("Skipping verify click: challenge appears to be in automatic verification mode")
+                    logger.debug("Skipping verify click: challenge appears to be in automatic verification mode")
                 html_element = self._get_html_element(driver)
                 if html_element is None:
                     continue
@@ -110,7 +112,7 @@ class CloudflareService(ChallengeService):
 
             src = driver.page_source
             if "Verifying you are human. This may take a few seconds." in src:
-                logging.debug("_should_attempt_verify_click: False (Verifying text present)")
+                logger.debug("_should_attempt_verify_click: False (Verifying text present)")
                 return False
 
             if "Verification successful. Waiting for" in src:
@@ -118,7 +120,7 @@ class CloudflareService(ChallengeService):
                     "var el = document.getElementById('ijUz0');if (!el) return false;return getComputedStyle(el).display === 'none';"
                 )
                 if not is_hidden:
-                    logging.debug("_should_attempt_verify_click: False (Verification successful visible)")
+                    logger.debug("_should_attempt_verify_click: False (Verification successful visible)")
                     return False
 
             markers = driver.find_elements(
@@ -130,41 +132,41 @@ class CloudflareService(ChallengeService):
 
             iframes = driver.find_elements(By.TAG_NAME, "iframe")
             iframe_srcs = [f.get_attribute("src") or "(no src)" for f in iframes[:5]]
-            logging.debug(
+            logger.debug(
                 "_should_attempt_verify_click: False (no markers). iframes=%s, page_snippet=%r",
                 iframe_srcs,
                 src[src.find("<body") : src.find("<body") + 800] if "<body" in src else src[:800],
             )
             return False
-        except Exception as e:
-            logging.debug("_should_attempt_verify_click: exception %s", e)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("_should_attempt_verify_click: exception %s", e)
             return False
 
     def _click_verify(self, driver: WebDriver, num_tabs: int = 1) -> None:
         try:
-            logging.debug("Try to find the Cloudflare verify checkbox...")
+            logger.debug("Try to find the Cloudflare verify checkbox...")
             actions = ActionChains(driver)
             actions.pause(_random_delay(4.0, 6.0))
             for _ in range(num_tabs):
                 actions.send_keys(Keys.TAB).pause(_random_delay(0.08, 0.15))
             actions.pause(_random_delay(0.8, 1.2))
             actions.send_keys(Keys.SPACE).perform()
-            logging.debug(f"Cloudflare verify checkbox clicked after {num_tabs} tabs!")
-        except Exception:
-            logging.debug("Cloudflare verify checkbox not found on the page.")
+            logger.debug(f"Cloudflare verify checkbox clicked after {num_tabs} tabs!")
+        except Exception:  # noqa: BLE001
+            logger.debug("Cloudflare verify checkbox not found on the page.")
         finally:
             driver.switch_to.default_content()
 
         try:
-            logging.debug("Try to find the Cloudflare 'Verify you are human' button...")
+            logger.debug("Try to find the Cloudflare 'Verify you are human' button...")
             button = driver.find_element(
                 by=By.XPATH,
                 value="//input[@type='button' and @value='Verify you are human']",
             )
             if button:
                 _human_like_click(driver, button)
-                logging.debug("The Cloudflare 'Verify you are human' button found and clicked!")
-        except Exception:
-            logging.debug("The Cloudflare 'Verify you are human' button not found on the page.")
+                logger.debug("The Cloudflare 'Verify you are human' button found and clicked!")
+        except Exception:  # noqa: BLE001
+            logger.debug("The Cloudflare 'Verify you are human' button not found on the page.")
 
         time.sleep(_random_delay(1.5, 2.5))

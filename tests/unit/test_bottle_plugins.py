@@ -14,7 +14,7 @@ def test_error_plugin_returns_callback_response(monkeypatch) -> None:
 def test_error_plugin_handles_exceptions(monkeypatch) -> None:
     state = {"logged": None}
     monkeypatch.setattr(error_plugin, "response", SimpleNamespace(status=200))
-    monkeypatch.setattr(error_plugin.logging, "error", lambda msg: state.__setitem__("logged", msg))
+    monkeypatch.setattr(error_plugin.logger, "error", lambda msg: state.__setitem__("logged", msg))
 
     def raise_error():
         raise RuntimeError("boom")
@@ -31,7 +31,7 @@ def test_logger_plugin_logs_non_health_requests(monkeypatch) -> None:
     logs = []
     monkeypatch.setattr(logger_plugin, "request", SimpleNamespace(url="http://localhost/v1", remote_addr="127.0.0.1", method="POST", get_header=lambda _name: None))
     monkeypatch.setattr(logger_plugin, "response", SimpleNamespace(status="200 OK"))
-    monkeypatch.setattr(logger_plugin.logging, "info", lambda msg: logs.append(msg))
+    monkeypatch.setattr(logger_plugin.logger, "info", lambda msg: logs.append(msg))
 
     wrapped = logger_plugin.logger_plugin(lambda: {"ok": True})
     result = wrapped()
@@ -45,7 +45,7 @@ def test_logger_plugin_skips_health_logs(monkeypatch) -> None:
     logs = []
     monkeypatch.setattr(logger_plugin, "request", SimpleNamespace(url="http://localhost/health", remote_addr="127.0.0.1", method="GET", get_header=lambda _name: None))
     monkeypatch.setattr(logger_plugin, "response", SimpleNamespace(status="200 OK"))
-    monkeypatch.setattr(logger_plugin.logging, "info", lambda msg: logs.append(msg))
+    monkeypatch.setattr(logger_plugin.logger, "info", lambda msg: logs.append(msg))
 
     wrapped = logger_plugin.logger_plugin(lambda: {"ok": True})
     wrapped()
@@ -57,7 +57,7 @@ def test_logger_plugin_uses_x_forwarded_for_when_trust_proxy(monkeypatch) -> Non
     logs = []
     monkeypatch.setattr(logger_plugin, "request", SimpleNamespace(url="http://localhost/v1", remote_addr="10.0.0.1", method="POST", get_header=lambda name: "203.0.113.42" if name == "X-Forwarded-For" else None))
     monkeypatch.setattr(logger_plugin, "response", SimpleNamespace(status="200 OK"))
-    monkeypatch.setattr(logger_plugin.logging, "info", lambda msg: logs.append(msg))
+    monkeypatch.setattr(logger_plugin.logger, "info", lambda msg: logs.append(msg))
     monkeypatch.setenv("TRUST_PROXY", "true")
 
     wrapped = logger_plugin.logger_plugin(lambda: {"ok": True})
@@ -72,7 +72,7 @@ def test_logger_plugin_ignores_x_forwarded_for_without_trust_proxy(monkeypatch) 
     logs = []
     monkeypatch.setattr(logger_plugin, "request", SimpleNamespace(url="http://localhost/v1", remote_addr="10.0.0.1", method="POST", get_header=lambda name: "203.0.113.42" if name == "X-Forwarded-For" else None))
     monkeypatch.setattr(logger_plugin, "response", SimpleNamespace(status="200 OK"))
-    monkeypatch.setattr(logger_plugin.logging, "info", lambda msg: logs.append(msg))
+    monkeypatch.setattr(logger_plugin.logger, "info", lambda msg: logs.append(msg))
     monkeypatch.setenv("TRUST_PROXY", "false")
 
     wrapped = logger_plugin.logger_plugin(lambda: {"ok": True})
@@ -87,7 +87,7 @@ def test_logger_plugin_uses_first_ip_from_x_forwarded_for_chain(monkeypatch) -> 
     logs = []
     monkeypatch.setattr(logger_plugin, "request", SimpleNamespace(url="http://localhost/v1", remote_addr="10.0.0.1", method="POST", get_header=lambda name: "203.0.113.42, 10.0.0.2, 10.0.0.3" if name == "X-Forwarded-For" else None))
     monkeypatch.setattr(logger_plugin, "response", SimpleNamespace(status="200 OK"))
-    monkeypatch.setattr(logger_plugin.logging, "info", lambda msg: logs.append(msg))
+    monkeypatch.setattr(logger_plugin.logger, "info", lambda msg: logs.append(msg))
     monkeypatch.setenv("TRUST_PROXY", "true")
 
     wrapped = logger_plugin.logger_plugin(lambda: {"ok": True})
@@ -225,7 +225,7 @@ def test_prometheus_plugin_skips_non_timed_responses(monkeypatch) -> None:
 def test_prometheus_plugin_logs_warning_when_export_fails(monkeypatch) -> None:
     warnings = []
     monkeypatch.setattr(prometheus_plugin, "PROMETHEUS_ENABLED", True)
-    monkeypatch.setattr(prometheus_plugin.logging, "warning", lambda msg: warnings.append(msg))
+    monkeypatch.setattr(prometheus_plugin.logger, "warning", lambda msg: warnings.append(msg))
 
     wrapped = prometheus_plugin.prometheus_plugin(lambda: "not-a-dict")
     wrapped()

@@ -95,3 +95,6 @@ addopts = "-m 'not integration'"
 markers = [
     "integration: tests that require browser/network/external dependencies",
 ]
+
+[tool.vulture]
+min_confidence = 70

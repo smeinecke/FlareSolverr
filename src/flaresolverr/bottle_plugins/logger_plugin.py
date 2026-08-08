@@ -1,6 +1,9 @@
-from bottle import request, response
 import logging
+
+logger = logging.getLogger(__name__)
 import os
+
+from bottle import request, response
 
 
 def _get_remote_addr() -> str:
@@ -23,7 +26,7 @@ def logger_plugin(callback):
     def wrapper(*args, **kwargs):
         actual_response = callback(*args, **kwargs)
         if not request.url.endswith("/health"):
-            logging.info("%s %s %s %s" % (_get_remote_addr(), request.method, request.url, response.status))
+            logger.info(f"{_get_remote_addr()} {request.method} {request.url} {response.status}")
         return actual_response
 
     return wrapper

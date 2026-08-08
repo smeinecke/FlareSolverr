@@ -11,7 +11,7 @@ class ChallengeResolutionResultT:
     response: str | None = None
     cookies: list[dict[str, Any]] | None = None
     userAgent: str | None = None
-    screenshot: str | None = None  # noqa
+    screenshot: str | None = None
     turnstile_token: str | None = None
     isBinary: bool | None = None
     # Session interaction results
@@ -36,7 +36,7 @@ class ChallengeResolutionT:
             self.result = ChallengeResolutionResultT(self.result)
 
 
-class V1RequestBase(object):
+class V1RequestBase:
     # V1RequestBase
     cmd: str | None = None
     cookies: list[dict[str, Any]] | None = None
@@ -93,7 +93,7 @@ class V1RequestBase(object):
     # JS_INJECTION_ENABLED environment variable.
     # Each entry is {"script": "...", "point": "document_start|document_end|document_idle"}.
     # When point is omitted, it defaults to document_idle.
-    scriptInject: list[dict[str, Any]] | None = None  # noqa
+    scriptInject: list[dict[str, Any]] | None = None
 
     def __init__(self, _dict: dict[str, Any]):
         # Explicit allowlist to prevent arbitrary attribute injection from JSON input
@@ -144,7 +144,7 @@ class ChallengeError(Exception):
         self.details = details
 
 
-class V1ResponseBase(object):
+class V1ResponseBase:
     # V1ResponseBase
     status: str | None = None
     message: str | None = None
@@ -152,7 +152,7 @@ class V1ResponseBase(object):
     sessions: list[str] | None = None
     startTimestamp: int | None = None
     endTimestamp: int | None = None
-    version: str | None = None  # noqa
+    version: str | None = None
 
     # V1ResponseSolution
     solution: ChallengeResolutionResultT | None = None
@@ -170,24 +170,24 @@ class V1ResponseBase(object):
             self.solution = ChallengeResolutionResultT(self.solution)
 
 
-class IndexResponse(object):
-    msg: str | None = None  # noqa
-    version: str | None = None  # noqa
+class IndexResponse:
+    msg: str | None = None
+    version: str | None = None
     userAgent: str | None = None
 
     def __init__(self, _dict: dict[str, Any]):
         self.__dict__.update(_dict)
 
 
-class HealthResponse(object):
+class HealthResponse:
     status: str | None = None
-    sessionsCount: int | None = None  # noqa
-    activeParallelRequests: int | None = None  # noqa
-    maxParallelRequests: int | None = None  # noqa
-    maxSessionCount: int | None = None  # noqa
-    sessionMaxRuntime: int | None = None  # noqa
-    sessionIdleTimeout: int | None = None  # noqa
-    version: str | None = None  # noqa
+    sessionsCount: int | None = None
+    activeParallelRequests: int | None = None
+    maxParallelRequests: int | None = None
+    maxSessionCount: int | None = None
+    sessionMaxRuntime: int | None = None
+    sessionIdleTimeout: int | None = None
+    version: str | None = None
     config: dict[str, Any] | None = None
     activeRequests: list[dict[str, Any]] | None = None  # only when details=true
     sessions: list[dict[str, Any]] | None = None  # only when details=true

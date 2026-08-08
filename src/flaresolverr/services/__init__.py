@@ -7,12 +7,12 @@ from flaresolverr.services.ddos_guard import DDoSGuardService
 from flaresolverr.services.manager import ServiceManager
 
 __all__ = [
-    "ChallengeService",
+    "SERVICE_MANAGER",
     "BraveService",
+    "ChallengeService",
     "CloudflareService",
     "DDoSGuardService",
     "ServiceManager",
-    "SERVICE_MANAGER",
 ]
 
 SERVICE_MANAGER = ServiceManager()

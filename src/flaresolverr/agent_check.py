@@ -1,9 +1,10 @@
 import logging
+
+logger = logging.getLogger(__name__)
 import socketserver
 import threading
 
-from flaresolverr import flaresolverr_service
-from flaresolverr import utils
+from flaresolverr import flaresolverr_service, utils
 
 
 def _compute_state() -> str:
@@ -22,9 +23,9 @@ def _compute_state() -> str:
         try:
             with flaresolverr_service.SESSIONS_STORAGE._lock:
                 session_count = len(flaresolverr_service.SESSIONS_STORAGE.sessions)
-        except Exception:
+        except Exception:  # noqa: BLE001
             # If we can't read sessions, assume overloaded to be safe
-            logging.warning("Agent-check: could not read session count, assuming drain")
+            logger.warning("Agent-check: could not read session count, assuming drain")
             return "drain"
 
         if max_sessions is None:
@@ -35,7 +36,7 @@ def _compute_state() -> str:
         return f"up {weight}%"
 
     except Exception:
-        logging.exception("Agent-check _compute_state crashed — returning drain")
+        logger.exception("Agent-check _compute_state crashed — returning drain")
         return "drain"
 
 
@@ -50,18 +51,18 @@ class AgentCheckHandler(socketserver.BaseRequestHandler):
         try:
             state = _compute_state()
         except Exception:
-            logging.exception("Agent-check _compute_state failed")
+            logger.exception("Agent-check _compute_state failed")
         try:
             self.request.sendall(f"{state}\n".encode())
         except (ConnectionResetError, BrokenPipeError):
-            logging.debug("Agent-check client closed connection before response could be sent")
+            logger.debug("Agent-check client closed connection before response could be sent")
         except Exception:
-            logging.exception("Agent-check sendall failed")
+            logger.exception("Agent-check sendall failed")
         finally:
             try:
                 self.request.close()
             except Exception:
-                logging.warning("Agent-check request.close failed", exc_info=True)
+                logger.warning("Agent-check request.close failed", exc_info=True)
 
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -74,4 +75,4 @@ def start_agent_check_server(host: str, port: int) -> None:
     server = ThreadedTCPServer((host, port), AgentCheckHandler)
     server_thread = threading.Thread(target=server.serve_forever, daemon=True, name="agent-check")
     server_thread.start()
-    logging.info(f"HAProxy agent-check TCP server listening on {host}:{port}")
+    logger.info(f"HAProxy agent-check TCP server listening on {host}:{port}")

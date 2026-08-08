@@ -1,21 +1,21 @@
 import json
 import logging
+
+logger = logging.getLogger(__name__)
 import multiprocessing
 import os
 import sys
 from typing import Any, cast
 
 import certifi
-from bottle import run, response, Bottle, request, ServerAdapter
+from bottle import Bottle, ServerAdapter, request, response, run
 from waitress import serve
 
+from flaresolverr import agent_check, flaresolverr_service, utils
+from flaresolverr.bottle_plugins import prometheus_plugin
 from flaresolverr.bottle_plugins.error_plugin import error_plugin
 from flaresolverr.bottle_plugins.logger_plugin import logger_plugin
-from flaresolverr.bottle_plugins import prometheus_plugin
 from flaresolverr.dtos import V1RequestBase
-from flaresolverr import agent_check
-from flaresolverr import flaresolverr_service
-from flaresolverr import utils
 
 env_proxy_url = os.environ.get("PROXY_URL", None)
 env_proxy_username = os.environ.get("PROXY_USERNAME", None)
@@ -27,16 +27,16 @@ class JSONErrorBottle(Bottle):
     Handle 404 errors
     """
 
-    def default_error_handler(self, res) -> str:  # noqa
-        response.content_type = "application/json"  # noqa
-        return json.dumps(dict(error=res.body, status_code=res.status_code))
+    def default_error_handler(self, res) -> str:
+        response.content_type = "application/json"
+        return json.dumps({"error": res.body, "status_code": res.status_code})
 
 
 app: Any = JSONErrorBottle()
 
 
-@app.route("/")  # pyright: ignore[reportCallIssue] # noqa
-def index() -> dict[str, Any]:  # noqa
+@app.route("/")  # pyright: ignore[reportCallIssue]
+def index() -> dict[str, Any]:
     """
     Show welcome message
     """
@@ -44,8 +44,8 @@ def index() -> dict[str, Any]:  # noqa
     return utils.object_to_dict(res)
 
 
-@app.route("/health")  # pyright: ignore[reportCallIssue] # noqa
-def health() -> dict[str, Any]:  # noqa
+@app.route("/health")  # pyright: ignore[reportCallIssue]
+def health() -> dict[str, Any]:
     """
     Healthcheck endpoint.
     This endpoint is special because it doesn't print traces
@@ -63,10 +63,10 @@ def _process_v1_request(data: dict[str, Any]) -> dict[str, Any]:
         if session_header:
             data["session"] = session_header
     if ("proxy" not in data or not data.get("proxy")) and env_proxy_url is not None and (env_proxy_username is None and env_proxy_password is None):
-        logging.info("Using proxy URL ENV")
+        logger.info("Using proxy URL ENV")
         data["proxy"] = {"url": env_proxy_url}
     if ("proxy" not in data or not data.get("proxy")) and env_proxy_url is not None and (env_proxy_username is not None or env_proxy_password is not None):
-        logging.info("Using proxy URL, username & password ENVs")
+        logger.info("Using proxy URL, username & password ENVs")
         data["proxy"] = {"url": env_proxy_url, "username": env_proxy_username, "password": env_proxy_password}
     req = V1RequestBase(data)
     res = flaresolverr_service.controller_v1_endpoint(req)
@@ -77,8 +77,8 @@ def _process_v1_request(data: dict[str, Any]) -> dict[str, Any]:
     return utils.object_to_dict(res)
 
 
-@app.post("/v1")  # pyright: ignore[reportCallIssue] # noqa
-def controller_v1() -> dict[str, Any]:  # noqa
+@app.post("/v1")  # pyright: ignore[reportCallIssue]
+def controller_v1() -> dict[str, Any]:
     """
     Controller v1 (cmd in JSON body).
     """
@@ -87,8 +87,8 @@ def controller_v1() -> dict[str, Any]:  # noqa
     return _process_v1_request(data)
 
 
-@app.post("/v1/sessions/create")  # pyright: ignore[reportCallIssue] # noqa
-def controller_v1_sessions_create() -> dict[str, Any]:  # noqa
+@app.post("/v1/sessions/create")  # pyright: ignore[reportCallIssue]
+def controller_v1_sessions_create() -> dict[str, Any]:
     """Create a session via REST path."""
     request_json = cast(Any, request.json)
     data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
@@ -96,8 +96,8 @@ def controller_v1_sessions_create() -> dict[str, Any]:  # noqa
     return _process_v1_request(data)
 
 
-@app.route("/v1/sessions/<session_id>", method="DELETE")  # pyright: ignore[reportCallIssue] # noqa
-def controller_v1_sessions_destroy(session_id: str) -> dict[str, Any]:  # noqa
+@app.route("/v1/sessions/<session_id>", method="DELETE")  # pyright: ignore[reportCallIssue]
+def controller_v1_sessions_destroy(session_id: str) -> dict[str, Any]:
     """Destroy a session via REST path (session from URL)."""
     request_json = cast(Any, request.json)
     data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
@@ -106,8 +106,8 @@ def controller_v1_sessions_destroy(session_id: str) -> dict[str, Any]:  # noqa
     return _process_v1_request(data)
 
 
-@app.post("/v1/request/get")  # pyright: ignore[reportCallIssue] # noqa
-def controller_v1_request_get() -> dict[str, Any]:  # noqa
+@app.post("/v1/request/get")  # pyright: ignore[reportCallIssue]
+def controller_v1_request_get() -> dict[str, Any]:
     """Send a GET request via REST path."""
     request_json = cast(Any, request.json)
     data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
@@ -115,8 +115,8 @@ def controller_v1_request_get() -> dict[str, Any]:  # noqa
     return _process_v1_request(data)
 
 
-@app.post("/v1/request/post")  # pyright: ignore[reportCallIssue] # noqa
-def controller_v1_request_post() -> dict[str, Any]:  # noqa
+@app.post("/v1/request/post")  # pyright: ignore[reportCallIssue]
+def controller_v1_request_post() -> dict[str, Any]:
     """Send a POST request via REST path."""
     request_json = cast(Any, request.json)
     data = cast(dict[str, Any], request_json if isinstance(request_json, dict) else {})
@@ -124,8 +124,8 @@ def controller_v1_request_post() -> dict[str, Any]:  # noqa
     return _process_v1_request(data)
 
 
-@app.post("/v1/<group>/<command>")  # pyright: ignore[reportCallIssue] # noqa
-def controller_v1_path(group: str, command: str) -> dict[str, Any]:  # noqa
+@app.post("/v1/<group>/<command>")  # pyright: ignore[reportCallIssue]
+def controller_v1_path(group: str, command: str) -> dict[str, Any]:
     """
     Controller v1 (cmd derived from URL path).
 
@@ -147,8 +147,6 @@ def controller_v1_path(group: str, command: str) -> dict[str, Any]:  # noqa
 
 if __name__ == "__main__":
     # check python version
-    if sys.version_info < (3, 9):
-        raise Exception("The Python version is less than 3.9, a version equal to or higher is required.")
 
     # fix for HEADLESS=false in Windows binary
     # https://stackoverflow.com/a/27694505
@@ -164,10 +162,10 @@ if __name__ == "__main__":
     # validate configuration
     log_level = os.environ.get("LOG_LEVEL", "info").upper()
     log_file = os.environ.get("LOG_FILE", None)
-    log_html = utils.get_config_log_html()  # noqa
-    headless = utils.get_config_headless()  # noqa
+    log_html = utils.get_config_log_html()
+    headless = utils.get_config_headless()
     server_host = os.environ.get("HOST", "0.0.0.0")
-    server_port = int(os.environ.get("PORT", 8191))
+    server_port = int(os.environ.get("PORT", "8191"))
 
     # configure logger
     logger_format = "%(asctime)s %(levelname)-8s %(message)s"
@@ -188,8 +186,8 @@ if __name__ == "__main__":
     logging.getLogger("selenium.webdriver.remote.remote_connection").setLevel(logging.WARNING)
     logging.getLogger("undetected_chromedriver").setLevel(logging.WARNING)
 
-    logging.info(f"FlareSolverr {utils.get_flaresolverr_version()}")
-    logging.debug("Debug log enabled")
+    logger.info(f"FlareSolverr {utils.get_flaresolverr_version()}")
+    logger.debug("Debug log enabled")
 
     # Get current OS for global variable
     utils.get_current_platform()

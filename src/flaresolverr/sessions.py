@@ -1,4 +1,6 @@
 import logging
+
+logger = logging.getLogger(__name__)
 import os
 import signal
 import subprocess  # nosec B404
@@ -6,7 +8,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Optional, Tuple
+from typing import Any
 from uuid import uuid1
 
 from selenium.webdriver.chrome.webdriver import WebDriver
@@ -16,8 +18,6 @@ from flaresolverr import utils
 
 class SessionLimitExceededError(Exception):
     """Raised when creating a new session would exceed SESSION_MAX_COUNT."""
-
-    pass
 
 
 def _process_alive(pid: int) -> bool:
@@ -55,8 +55,8 @@ def _kill_process_tree(pid: int, sig: int) -> None:
                 check=False,
                 capture_output=True,
             )
-        except Exception:  # nosec B110
-            pass
+        except Exception as e:  # nosec B110  # noqa: BLE001
+            logger.debug("Failed to kill process on Windows: %s", e)
         return
 
     # On POSIX, try to kill the entire process group if the process is
@@ -113,7 +113,7 @@ class Session:
     accept_language_override: str | None
     enabled_services: list[str]
     request_count: int
-    lock: threading.Lock  # noqa
+    lock: threading.Lock
     last_used_at: datetime
     max_runtime: timedelta | None
     idle_timeout: timedelta
@@ -140,20 +140,20 @@ class Session:
         self.accept_language_override = accept_language_override
         self.enabled_services = enabled_services if enabled_services is not None else ["cloudflare", "ddos_guard"]
         self.request_count = 0
-        self.lock = threading.Lock()  # noqa
+        self.lock = threading.Lock()
         self.last_used_at = created_at
         self.max_runtime = max_runtime
         self.idle_timeout = idle_timeout if idle_timeout is not None else utils.get_config_session_idle_timeout()
         self.proxy = proxy
 
     def lifetime(self) -> timedelta:
-        return datetime.now() - self.created_at
+        return datetime.now() - self.created_at  # noqa: DTZ005
 
     def idle_time(self) -> timedelta:
-        return datetime.now() - self.last_used_at
+        return datetime.now() - self.last_used_at  # noqa: DTZ005
 
     def touch(self) -> None:
-        self.last_used_at = datetime.now()
+        self.last_used_at = datetime.now()  # noqa: DTZ005
 
     def is_expired(self) -> bool:
         if self.max_runtime is not None and self.lifetime() > self.max_runtime:
@@ -173,11 +173,11 @@ class SessionsStorage:
     def _reuse_existing_session(
         self,
         session: Session,
-        proxy: Optional[dict[str, Any]] = None,
-        stealth_mode: Optional[str | bool] = None,
-        user_agent: Optional[str] = None,
-        accept_language: Optional[str] = None,
-        enabled_services: Optional[list[str]] = None,
+        proxy: dict[str, Any] | None = None,
+        stealth_mode: str | bool | None = None,
+        user_agent: str | None = None,
+        accept_language: str | None = None,
+        enabled_services: list[str] | None = None,
     ) -> Session:
         """Validate settings and apply dynamic updates on an existing session."""
         if stealth_mode is not None:
@@ -206,12 +206,11 @@ class SessionsStorage:
                     f"Session '{session.session_id}' already initialized with acceptLanguage={session.accept_language_override!r}. "
                     f"Requested acceptLanguage={accept_language!r}. Destroy/recreate the session to change this setting."
                 )
-        if enabled_services is not None:
-            if session.enabled_services != enabled_services:
-                raise ValueError(
-                    f"Session '{session.session_id}' already initialized with enabledServices={session.enabled_services!r}. "
-                    f"Requested enabledServices={enabled_services!r}. Destroy/recreate the session to change this setting."
-                )
+        if enabled_services is not None and session.enabled_services != enabled_services:
+            raise ValueError(
+                f"Session '{session.session_id}' already initialized with enabledServices={session.enabled_services!r}. "
+                f"Requested enabledServices={enabled_services!r}. Destroy/recreate the session to change this setting."
+            )
         # Dynamic proxy update on reused sessions
         if proxy is not None:
             if utils._is_proxy_empty(proxy):
@@ -228,16 +227,16 @@ class SessionsStorage:
 
     def create(
         self,
-        session_id: Optional[str] = None,
-        proxy: Optional[dict[str, Any]] = None,
-        force_new: Optional[bool] = False,
-        stealth_mode: Optional[str | bool] = None,
-        user_agent: Optional[str] = None,
-        accept_language: Optional[str] = None,
-        enabled_services: Optional[list[str]] = None,
-        max_runtime: Optional[timedelta] = None,
-        idle_timeout: Optional[timedelta] = None,
-    ) -> Tuple[Session, bool]:
+        session_id: str | None = None,
+        proxy: dict[str, Any] | None = None,
+        force_new: bool | None = False,
+        stealth_mode: str | bool | None = None,
+        user_agent: str | None = None,
+        accept_language: str | None = None,
+        enabled_services: list[str] | None = None,
+        max_runtime: timedelta | None = None,
+        idle_timeout: timedelta | None = None,
+    ) -> tuple[Session, bool]:
         """create creates new instance of WebDriver if necessary,
         assign defined (or newly generated) session_id to the instance
         and returns the session object. If a new session has been created
@@ -279,7 +278,7 @@ class SessionsStorage:
             effective_accept_language = accept_language if accept_language is not None else utils.get_config_accept_language()
             if user_agent is not None:
                 utils.apply_user_agent_override(driver, user_agent, effective_accept_language)
-            created_at = datetime.now()
+            created_at = datetime.now()  # noqa: DTZ005
             effective_enabled_services = enabled_services if enabled_services is not None else ["cloudflare"]
             effective_max_runtime = max_runtime if max_runtime is not None else utils.get_config_session_max_runtime()
             effective_idle_timeout = idle_timeout if idle_timeout is not None else utils.get_config_session_idle_timeout()
@@ -340,15 +339,15 @@ class SessionsStorage:
     def get(
         self,
         session_id: str,
-        ttl: Optional[timedelta] = None,
-        stealth_mode: Optional[str | bool] = None,
-        user_agent: Optional[str] = None,
-        accept_language: Optional[str] = None,
-        enabled_services: Optional[list[str]] = None,
-        max_runtime: Optional[timedelta] = None,
-        idle_timeout: Optional[timedelta] = None,
-        proxy: Optional[dict[str, Any]] = None,
-    ) -> Tuple[Session, bool]:
+        ttl: timedelta | None = None,
+        stealth_mode: str | bool | None = None,
+        user_agent: str | None = None,
+        accept_language: str | None = None,
+        enabled_services: list[str] | None = None,
+        max_runtime: timedelta | None = None,
+        idle_timeout: timedelta | None = None,
+        proxy: dict[str, Any] | None = None,
+    ) -> tuple[Session, bool]:
         session, fresh = self.create(
             session_id,
             proxy=proxy,
@@ -361,7 +360,7 @@ class SessionsStorage:
         )
 
         if ttl is not None and not fresh and session.lifetime() > ttl:
-            logging.debug(f"session's lifetime has expired, so the session is recreated (session_id={session_id})")
+            logger.debug(f"session's lifetime has expired, so the session is recreated (session_id={session_id})")
             session, fresh = self.create(
                 session_id,
                 force_new=True,
@@ -392,10 +391,9 @@ class SessionsStorage:
         for session in snapshot:
             if session.lock.locked():
                 continue
-            if session.is_expired():
-                if self.destroy(session.session_id):
-                    logging.info(f"Session '{session.session_id}' destroyed by cleanup (expired)")
-                    destroyed.append(session.session_id)
+            if session.is_expired() and self.destroy(session.session_id):
+                logger.info(f"Session '{session.session_id}' destroyed by cleanup (expired)")
+                destroyed.append(session.session_id)
 
         return destroyed
 
@@ -411,11 +409,11 @@ class SessionsStorage:
                 try:
                     self.cleanup()
                 except Exception:
-                    logging.exception("Session cleanup failed")
+                    logger.exception("Session cleanup failed")
 
         self._cleanup_thread = threading.Thread(target=_run, daemon=True, name="session-cleanup")
         self._cleanup_thread.start()
-        logging.debug("Session cleanup thread started")
+        logger.debug("Session cleanup thread started")
 
     def stop_cleanup(self) -> None:
         """Signal the background cleanup thread to stop and wait for it."""

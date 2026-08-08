@@ -2,6 +2,8 @@
 
 import logging
 
+logger = logging.getLogger(__name__)
+
 from selenium.webdriver.chrome.webdriver import WebDriver
 
 from flaresolverr.services.base import ChallengeService
@@ -16,7 +18,6 @@ class ServiceManager:
 
     def _register_builtin_services(self) -> None:
         """Register built-in challenge services."""
-        pass
 
     def register(self, service: ChallengeService) -> None:
         """Register a challenge service."""
@@ -35,10 +36,10 @@ class ServiceManager:
         for name in enabled_services:
             svc = self._services.get(name)
             if svc is None:
-                logging.warning("Enabled service '%s' is not registered", name)
+                logger.warning("Enabled service '%s' is not registered", name)
                 continue
             if svc.detect(driver):
-                logging.info("Challenge detected for service: %s", name)
+                logger.info("Challenge detected for service: %s", name)
                 return name
         return None
 
@@ -50,5 +51,5 @@ class ServiceManager:
         """
         svc = self._services.get(service_name)
         if svc is None:
-            raise Exception(f"Challenge service '{service_name}' not found")
+            raise RuntimeError(f"Challenge service '{service_name}' not found")
         svc.resolve(driver)

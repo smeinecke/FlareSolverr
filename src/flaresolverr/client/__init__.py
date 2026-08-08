@@ -111,25 +111,25 @@ from .models import (
     Action,
     ChallengeSolution,
     Cookie,
-    HealthResponse,
     Header,
+    HealthResponse,
     IndexResponse,
     ProxyConfig,
     V1Response,
 )
 
 __all__ = [
+    # Models
+    "Action",
+    # Actions
+    "ActionQueue",
+    "ChallengeSolution",
+    "Cookie",
     # Client
     "FlareSolverrClient",
     "FlareSolverrError",
-    # Actions
-    "ActionQueue",
-    # Models
-    "Action",
-    "ChallengeSolution",
-    "Cookie",
-    "HealthResponse",
     "Header",
+    "HealthResponse",
     "IndexResponse",
     "ProxyConfig",
     "V1Response",

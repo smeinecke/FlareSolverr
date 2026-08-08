@@ -2,6 +2,8 @@ import glob
 import hashlib
 import json
 import logging
+
+logger = logging.getLogger(__name__)
 import os
 import platform
 import random
@@ -13,9 +15,9 @@ import tempfile
 import threading
 import time
 import urllib.parse
+from datetime import UTC, datetime, timedelta
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
-from datetime import datetime, timedelta, timezone
-from importlib.metadata import version
 
 try:
     import tomllib
@@ -34,10 +36,11 @@ except ModuleNotFoundError:
 
 from selenium import webdriver
 from selenium.common import WebDriverException
-from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.action_chains import ActionChains
+
 from flaresolverr import undetected_chromedriver as uc  # type: ignore[import-untyped]
 
 FLARESOLVERR_VERSION: str | None = None
@@ -332,8 +335,8 @@ def get_flaresolverr_version() -> str:
     try:
         FLARESOLVERR_VERSION = version("flaresolverr")
         return FLARESOLVERR_VERSION
-    except Exception:
-        pass
+    except (PackageNotFoundError, ValueError) as e:
+        logger.debug("Could not read installed version: %s", e)
 
     # Fall back to pyproject.toml for in-tree development runs.
     here = os.path.dirname(os.path.abspath(__file__))
@@ -500,7 +503,7 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
         options.add_argument("--webgl-unmasked-renderer=Intel(R) Iris(TM) Graphics 6100")
         options.add_argument("--stealth-navigator-languages")
         options.add_argument("--stealth-viewport-size")
-        logging.debug("Applied custom Chromium stealth flags.")
+        logger.debug("Applied custom Chromium stealth flags.")
 
     return options
 
@@ -555,7 +558,7 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
     # Determine whether this is a clear or set operation
     if _is_proxy_empty(proxy):
         payload = {"mode": "direct"}
-        logging.debug("Clearing proxy on session via extension")
+        logger.debug("Clearing proxy on session via extension")
     elif not _is_proxy_valid(proxy):
         raise RuntimeError(f"Invalid proxy config (schema required, e.g. http:// or socks5://): {proxy!r}")
     else:
@@ -582,14 +585,14 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
         password = proxy.get("password")
         if username:
             payload["auth"] = {"username": username, "password": password or ""}
-        logging.debug("Applying proxy to session via extension: %s:%d", host, port)
+        logger.debug("Applying proxy to session via extension: %s:%d", host, port)
 
     # Navigate to the extension's proxy.html page so we have a stable
     # extension context where chrome.runtime.sendMessage is available.
     ext_id = getattr(driver, "_proxy_ext_id", None)
     if not ext_id:
         raise RuntimeError("Extension ID not available on driver; cannot apply proxy")
-    driver.get("chrome-extension://%s/proxy.html" % ext_id)
+    driver.get(f"chrome-extension://{ext_id}/proxy.html")
 
     # Smoke check: verify we are on a live extension page by reading chrome.runtime.id
     actual_ext_id = driver.execute_script("return chrome.runtime.id")
@@ -599,14 +602,14 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
         )
 
     # Directly call chrome.runtime.sendMessage from the extension page
-    script = """
-        (function() {
+    script = f"""
+        (function() {{
             window.__FS_PROXY_RESULT = null;
-            chrome.runtime.sendMessage(%s, function(response) {
-                window.__FS_PROXY_RESULT = response || {success: false, error: "no response"};
-            });
-        })();
-    """ % json.dumps(payload)
+            chrome.runtime.sendMessage({json.dumps(payload)}, function(response) {{
+                window.__FS_PROXY_RESULT = response || {{success: false, error: "no response"}};
+            }});
+        }})();
+    """
     driver.execute_script(script)
 
     # Poll for acknowledgement (max 5 seconds)
@@ -624,8 +627,6 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
 
 def _resolve_driver_paths() -> tuple[str | None, str | None]:
     """Return (driver_exe_path, version_main) tuple."""
-    global PATCHED_DRIVER_PATH
-
     if os.path.exists("/app/chromedriver"):
         return "/app/chromedriver", None
 
@@ -682,9 +683,9 @@ def _maybe_normalize_user_agent(driver: WebDriver, effective_stealth_mode: str) 
         if ua_changed or effective_stealth_mode != STEALTH_MODE_OFF:
             apply_user_agent_override(driver, normalized_ua, get_config_accept_language())
             if ua_changed:
-                logging.info("Normalized default user-agent by removing HeadlessChrome token.")
-    except Exception as e:
-        logging.warning("Failed normalizing default user-agent: %s", e)
+                logger.info("Normalized default user-agent by removing HeadlessChrome token.")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed normalizing default user-agent: %s", e)
 
 
 def _apply_screen_size_override(driver: WebDriver) -> None:
@@ -705,9 +706,9 @@ def _apply_screen_size_override(driver: WebDriver) -> None:
                     "screenHeight": 1080,
                 },
             )
-            logging.info("Applied screen size override: 1920x1080 (was 800x600 headless default).")
-    except Exception as e:
-        logging.debug("Screen size override skipped: %s", e)
+            logger.info("Applied screen size override: 1920x1080 (was 800x600 headless default).")
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Screen size override skipped: %s", e)
 
 
 def _maybe_apply_stealth(driver: WebDriver, effective_stealth_mode: str) -> None:
@@ -729,12 +730,12 @@ def _maybe_apply_stealth(driver: WebDriver, effective_stealth_mode: str) -> None
             # patch Navigator.prototype.languages so getter-tampering detections
             # (languagesProtoGetterPatched) are avoided.
             driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": _load_stealth_script(fallback=False)})
-            logging.info("Applied custom Chromium stealth (C++ flags + CDP stealth.js, mode=%s).", effective_stealth_mode)
+            logger.info("Applied custom Chromium stealth (C++ flags + CDP stealth.js, mode=%s).", effective_stealth_mode)
         else:
             _apply_stealth_patches(driver, effective_stealth_mode)
-            logging.info("Applied CDP stealth patches (fallback mode=%s).", effective_stealth_mode)
-    except Exception as e:
-        logging.warning("Failed applying stealth patches: %s", e)
+            logger.info("Applied CDP stealth patches (fallback mode=%s).", effective_stealth_mode)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed applying stealth patches: %s", e)
 
 
 def _save_patched_driver(driver: WebDriver, driver_exe_path: str | None) -> None:
@@ -780,7 +781,7 @@ def _wait_for_debug_port(port: int, timeout: int = 30) -> None:
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=1):
                 elapsed = time.time() - start
-                logging.debug("Chrome debug port %d ready after %.1fs", port, elapsed)
+                logger.debug("Chrome debug port %d ready after %.1fs", port, elapsed)
                 return
         except (ConnectionRefusedError, OSError):
             time.sleep(0.2)
@@ -822,7 +823,7 @@ def _cleanup_orphaned_temp_dirs() -> None:
                 mtime = os.stat(path).st_mtime
                 if mtime < cutoff:
                     shutil.rmtree(path, ignore_errors=True)
-                    logging.debug("Cleaned up orphaned temp dir: %s", path)
+                    logger.debug("Cleaned up orphaned temp dir: %s", path)
             except OSError:
                 pass
 
@@ -842,8 +843,8 @@ def parse_performance_log_entries(logs: list[dict[str, Any]]) -> list[dict[str, 
                     "params": msg.get("params"),
                 }
             )
-        except Exception:  # nosec B110
-            logging.debug(f"Skipping malformed performance log entry: {entry}")
+        except Exception:  # nosec B110  # noqa: BLE001
+            logger.debug(f"Skipping malformed performance log entry: {entry}")
     return parsed
 
 
@@ -859,9 +860,9 @@ def get_performance_log(driver: WebDriver) -> list[dict[str, Any]]:
     except Exception as e:
         error_msg = str(e)
         if "log type" in error_msg.lower() and "not found" in error_msg.lower():
-            logging.warning(f"Performance logs not available for this backend: {e}")
+            logger.warning(f"Performance logs not available for this backend: {e}")
             return []
-        raise Exception(f"Error getting network logs: {e}") from e
+        raise RuntimeError(f"Error getting network logs: {e}") from e
     return parse_performance_log_entries(logs)
 
 
@@ -875,7 +876,7 @@ def _cdp_headers_to_har(headers: dict[str, Any]) -> list[dict[str, str]]:
 
 def _is_internal_chrome_url(url: str) -> bool:
     """Return True for URLs that belong to Chrome internals or extensions."""
-    return url.startswith("chrome://") or url.startswith("chrome-extension://")
+    return url.startswith(("chrome://", "chrome-extension://"))
 
 
 def performance_logs_to_har(parsed_entries: list[dict[str, Any]]) -> dict[str, Any]:
@@ -911,7 +912,7 @@ def performance_logs_to_har(parsed_entries: list[dict[str, Any]]) -> dict[str, A
         failed_params = failed_by_id.get(request_id)
 
         started_timestamp = request_params.get("wallTime") or request_params.get("timestamp") or 0
-        started_datetime = datetime.fromtimestamp(started_timestamp, timezone.utc).isoformat().replace("+00:00", "Z")
+        started_datetime = datetime.fromtimestamp(started_timestamp, UTC).isoformat().replace("+00:00", "Z")
 
         request_ts = request_params.get("timestamp") or 0
         end_ts = (
@@ -1018,9 +1019,7 @@ def performance_logs_to_har(parsed_entries: list[dict[str, Any]]) -> dict[str, A
 
 
 def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None, logging_prefs: dict[str, str] | None = None) -> WebDriver:
-    global PATCHED_DRIVER_PATH
-
-    logging.debug("Launching web browser...")
+    logger.debug("Launching web browser...")
 
     effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
     user_data_dir: str | None = None
@@ -1030,7 +1029,7 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
         proxy_ext_dir, proxy_ext_id = _build_stealth_extension_dir()
         options = _build_chrome_options(effective_stealth_mode)
         options.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
-        options.add_argument("--load-extension=%s" % os.path.abspath(proxy_ext_dir))
+        options.add_argument(f"--load-extension={os.path.abspath(proxy_ext_dir)}")
         windows_headless = _configure_headless()
         driver_exe_path, version_main = _resolve_driver_paths()
         browser_executable_path = get_chrome_exe_path()
@@ -1061,16 +1060,24 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
             )
             if get_config_headless():
                 cmd.append("--headless=new")
-            preexec = _limit_cpu_affinity if (os.name == "posix" and os.cpu_count() and os.cpu_count() > 16) else None
-            chrome_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=_build_chrome_env(), start_new_session=True, preexec_fn=preexec)
-            logging.debug("Started custom Chromium manually (PID %d, debug port %d)", chrome_proc.pid, debug_port)
+            cpu_count = os.cpu_count()
+            preexec = _limit_cpu_affinity if (os.name == "posix" and cpu_count is not None and cpu_count > 16) else None
+            chrome_proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=_build_chrome_env(),
+                start_new_session=True,
+                preexec_fn=preexec,  # noqa: PLW1509
+            )
+            logger.debug("Started custom Chromium manually (PID %d, debug port %d)", chrome_proc.pid, debug_port)
 
             # Wait for Chrome to open the debug port
             try:
                 _wait_for_debug_port(debug_port)
             except RuntimeError:
                 alive = chrome_proc.poll() is None
-                logging.debug("Chrome process alive=%s, returncode=%s", alive, chrome_proc.poll())
+                logger.debug("Chrome process alive=%s, returncode=%s", alive, chrome_proc.poll())
                 raise
 
             opts = ChromeOptions()
@@ -1082,7 +1089,7 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
                 service = ChromeService(executable_path=driver_exe_path)
             else:
                 service = ChromeService()
-                logging.warning("Custom chromium chromedriver not found at expected path, using system chromedriver.")
+                logger.warning("Custom chromium chromedriver not found at expected path, using system chromedriver.")
             driver = webdriver.Chrome(options=opts, service=service)
 
             # Store subprocess so it can be terminated on quit
@@ -1139,7 +1146,7 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
 
             driver.quit = _uc_quit_with_cleanup  # type: ignore[method-assign]
     except Exception as e:
-        logging.error("Error starting Chrome: %s", e)
+        logger.error("Error starting Chrome: %s", e)
         # If Chrome failed to start, the proxy extension temp dir and the
         # user data dir were already created but will never be cleaned up by
         # driver.quit(). Remove them now.
@@ -1169,7 +1176,7 @@ def get_chrome_exe_path() -> str | None:
     chrome_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chrome", "chrome")
     if os.path.exists(chrome_path):
         if not os.access(chrome_path, os.X_OK):
-            raise Exception(f'Chrome binary "{chrome_path}" is not executable. Please, extract the archive with "tar xzf <file.tar.gz>".')
+            raise RuntimeError(f'Chrome binary "{chrome_path}" is not executable. Please, extract the archive with "tar xzf <file.tar.gz>".')
         CHROME_EXE_PATH = chrome_path
         return CHROME_EXE_PATH
     # windows pyinstaller bundle
@@ -1187,10 +1194,10 @@ def _get_chrome_complete_version() -> str:
     if os.name == "nt":
         try:
             return extract_version_nt_executable(get_chrome_exe_path())
-        except Exception:
+        except Exception:  # noqa: BLE001
             try:
                 return extract_version_nt_registry()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 return extract_version_nt_folder()
     else:
         chrome_path = get_chrome_exe_path()
@@ -1283,7 +1290,7 @@ def wait_for_page_stable(driver: WebDriver, timeout: float = 15.0, poll: float =
             if "no such execution context" not in msg and "aborted by navigation" not in msg:
                 raise
         _time.sleep(poll)
-    logging.debug("wait_for_page_stable: timed out after %.0fs, proceeding anyway", timeout)
+    logger.debug("wait_for_page_stable: timed out after %.0fs, proceeding anyway", timeout)
 
 
 def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
@@ -1293,12 +1300,12 @@ def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
         try:
             result = read_fn()
             if attempt > 1:
-                logging.debug("Driver read succeeded after %d retries", attempt - 1)
+                logger.debug("Driver read succeeded after %d retries", attempt - 1)
             return result
         except WebDriverException as exc:
             msg = str(exc).lower()
             if "no such execution context" in msg or "aborted by navigation" in msg:
-                logging.debug("Driver read failed transiently (%s), retry %d/%d", exc, attempt, retries)
+                logger.debug("Driver read failed transiently (%s), retry %d/%d", exc, attempt, retries)
                 last_exc = exc
                 time.sleep(delay)
                 continue
@@ -1312,7 +1319,7 @@ def _fetch_user_agent(driver: WebDriver) -> str:
     """Execute JS to get navigator.userAgent and validate it."""
     user_agent_value = driver.execute_script("return navigator.userAgent")
     if not isinstance(user_agent_value, str):
-        raise Exception("Error getting browser User-Agent. The returned value is not a string.")
+        raise TypeError("Error getting browser User-Agent. The returned value is not a string.")
     return user_agent_value
 
 
@@ -1321,8 +1328,8 @@ def get_user_agent(driver=None) -> str:
     if driver is not None:
         try:
             return re.sub("HEADLESS", "", _fetch_user_agent(driver), flags=re.IGNORECASE)
-        except Exception as e:
-            raise Exception("Error getting browser User-Agent. " + str(e))
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError("Error getting browser User-Agent. " + str(e))
 
     if USER_AGENT is not None:
         return USER_AGENT
@@ -1339,8 +1346,8 @@ def get_user_agent(driver=None) -> str:
             USER_AGENT = re.sub(r"Chrome/(\d+)\.0\.0\.0", f"Chrome/{full_version}", USER_AGENT)
         assert USER_AGENT is not None
         return USER_AGENT
-    except Exception as e:
-        raise Exception("Error getting browser User-Agent. " + str(e))
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError("Error getting browser User-Agent. " + str(e))
     finally:
         if driver is not None:
             if PLATFORM_VERSION == "nt":

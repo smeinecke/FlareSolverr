@@ -1,8 +1,10 @@
 import logging
+
+logger = logging.getLogger(__name__)
+import time
 from threading import Thread
 
 from prometheus_client import Counter, Histogram, start_http_server
-import time
 
 REQUEST_COUNTER = Counter(name="flaresolverr_request", documentation="Total requests with result", labelnames=["domain", "result"])
 REQUEST_DURATION = Histogram(name="flaresolverr_request_duration", documentation="Request duration in seconds", labelnames=["domain"], buckets=[0, 10, 25, 50])
@@ -15,9 +17,9 @@ def serve(port: int) -> None:
 
 
 def start_metrics_http_server(prometheus_port: int) -> None:
-    logging.info(f"Serving Prometheus exporter on http://0.0.0.0:{prometheus_port}/metrics")
+    logger.info(f"Serving Prometheus exporter on http://0.0.0.0:{prometheus_port}/metrics")
     Thread(
         target=serve,
-        kwargs=dict(port=prometheus_port),
+        kwargs={"port": prometheus_port},
         daemon=True,
     ).start()

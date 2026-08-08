@@ -29,7 +29,7 @@ class ActionQueue:
 
     _actions: list[Action] = field(default_factory=list, repr=False)
 
-    def wait(self, seconds: float) -> ActionQueue:  # noqa
+    def wait(self, seconds: float) -> ActionQueue:
         """Sleep for the given number of seconds.
 
         Useful to allow interaction trackers to warm up before the first input.
@@ -43,7 +43,7 @@ class ActionQueue:
         self._actions.append(Action(type="wait", seconds=seconds))
         return self
 
-    def fill(self, selector: str, value: str) -> ActionQueue:  # noqa
+    def fill(self, selector: str, value: str) -> ActionQueue:
         """Type a value into a form field.
 
         Scrolls to the element, clicks to focus, then types the value
@@ -60,7 +60,7 @@ class ActionQueue:
         self._actions.append(Action(type="fill", selector=selector, value=value))
         return self
 
-    def click(self, selector: str, human_like: bool = False) -> ActionQueue:  # noqa
+    def click(self, selector: str, human_like: bool = False) -> ActionQueue:
         """Click an element on the page.
 
         Scrolls the element into view and clicks. When human_like is True,
@@ -76,7 +76,7 @@ class ActionQueue:
         self._actions.append(Action(type="click", selector=selector, humanLike=human_like))
         return self
 
-    def wait_for(self, selector: str) -> ActionQueue:  # noqa
+    def wait_for(self, selector: str) -> ActionQueue:
         """Wait until an element becomes visible.
 
         Blocks until the matched element becomes visible on the page.
@@ -91,7 +91,7 @@ class ActionQueue:
         self._actions.append(Action(type="wait_for", selector=selector))
         return self
 
-    def eval(self, script: str, *, return_result: bool = True) -> ActionQueue:  # noqa
+    def eval(self, script: str, *, return_result: bool = True) -> ActionQueue:
         """Execute JavaScript in the page and capture the return value.
 
         The script's return value is included in the response under
@@ -109,7 +109,7 @@ class ActionQueue:
         self._actions.append(Action(type="eval", script=script, returnResult=return_result))
         return self
 
-    def build(self) -> list[dict]:  # noqa
+    def build(self) -> list[dict]:
         """Build and return the list of actions as API-compatible dictionaries.
 
         Returns:

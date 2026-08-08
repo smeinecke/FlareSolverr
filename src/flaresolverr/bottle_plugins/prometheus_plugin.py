@@ -1,14 +1,17 @@
 import logging
+
+logger = logging.getLogger(__name__)
 import os
 import urllib.parse
 from typing import Any, cast
 
 from bottle import request
+
 from flaresolverr.dtos import V1RequestBase, V1ResponseBase
-from flaresolverr.metrics import start_metrics_http_server, REQUEST_COUNTER, REQUEST_DURATION
+from flaresolverr.metrics import REQUEST_COUNTER, REQUEST_DURATION, start_metrics_http_server
 
 PROMETHEUS_ENABLED = os.environ.get("PROMETHEUS_ENABLED", "false").lower() == "true"
-PROMETHEUS_PORT = int(os.environ.get("PROMETHEUS_PORT", 8192))
+PROMETHEUS_PORT = int(os.environ.get("PROMETHEUS_PORT", "8192"))
 
 
 def setup():
@@ -28,8 +31,8 @@ def prometheus_plugin(callback):
         if PROMETHEUS_ENABLED:
             try:
                 export_metrics(actual_response)
-            except Exception as e:
-                logging.warning("Error exporting metrics: " + str(e))
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Error exporting metrics: " + str(e))
 
         return actual_response
 

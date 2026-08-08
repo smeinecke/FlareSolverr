@@ -2,6 +2,8 @@
 
 import logging
 
+logger = logging.getLogger(__name__)
+
 from selenium.common import TimeoutException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.support.expected_conditions import title_is
@@ -22,12 +24,12 @@ class DDoSGuardService(ChallengeService):
     def detect(self, driver: WebDriver) -> bool:
         try:
             page_title = (driver.title or "").strip()
-        except Exception:
-            logging.debug("DDoS-Guard detect: failed to read title during navigation")
+        except Exception:  # noqa: BLE001
+            logger.debug("DDoS-Guard detect: failed to read title during navigation")
             return False
         for title in DDOS_GUARD_TITLES:
             if title.lower() == page_title.lower():
-                logging.info("Challenge detected. Title found: " + page_title)
+                logger.info("Challenge detected. Title found: " + page_title)
                 return True
         return False
 
@@ -41,11 +43,11 @@ class DDoSGuardService(ChallengeService):
             attempt += 1
             try:
                 for title in DDOS_GUARD_TITLES:
-                    logging.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
+                    logger.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
                     WebDriverWait(driver, SHORT_TIMEOUT).until_not(title_is(title))
                 break
             except TimeoutException:
-                logging.debug("Timeout waiting for selector")
+                logger.debug("Timeout waiting for selector")
                 html_element = self._get_html_element(driver)
                 if html_element is None:
                     continue

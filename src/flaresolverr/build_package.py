@@ -3,11 +3,10 @@ import platform
 import shutil
 import subprocess
 import sys
-import zipfile
 import tarfile
+import zipfile
 
 import requests
-
 
 # Script moved from src/ to src/flaresolverr/; compute repo root once.
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,13 +16,13 @@ def clean_files():
     for folder in ("build", "dist", "dist_chrome"):
         try:
             shutil.rmtree(os.path.join(REPO_ROOT, folder))
-        except Exception:
+        except OSError:
             pass
 
 
 def download_chromium():
     # https://commondatastorage.googleapis.com/chromium-browser-snapshots/index.html?prefix=Linux_x64/
-    revision = "1522586" if os.name == "nt" else "1522586"
+    revision = "1522586"
     arch = "Win_x64" if os.name == "nt" else "Linux_x64"
     dl_file = "chrome-win" if os.name == "nt" else "chrome-linux"
     dl_path = os.path.join(REPO_ROOT, "dist_chrome")
@@ -40,8 +39,7 @@ def download_chromium():
     with requests.get(f"https://commondatastorage.googleapis.com/chromium-browser-snapshots/{arch}/{revision}/{dl_file}.zip", stream=True) as r:
         r.raise_for_status()
         with open(dl_path_zip, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+            f.writelines(r.iter_content(chunk_size=8192))
     print("File downloaded: " + dl_path_zip)
     with zipfile.ZipFile(dl_path_zip, "r") as zip_ref:
         zip_ref.extractall(dl_path)
@@ -77,12 +75,12 @@ def run_pyinstaller():
             os.path.join("src", "flaresolverr", "flaresolverr.py"),
         ],
         cwd=REPO_ROOT,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
+        check=False,
     )
     if result.returncode != 0:
         print(result.stderr.decode("utf-8"))
-        raise Exception("Error running pyInstaller")
+        raise RuntimeError("Error running pyInstaller")
 
 
 def compress_package():
@@ -101,10 +99,10 @@ def compress_package():
     else:
 
         def _reset_tarinfo(tarinfo):
-            tarinfo.uid = 0  # noqa
-            tarinfo.gid = 0  # noqa
-            tarinfo.uname = ""  # noqa
-            tarinfo.gname = ""  # noqa
+            tarinfo.uid = 0
+            tarinfo.gid = 0
+            tarinfo.uname = ""
+            tarinfo.gname = ""
             return tarinfo
 
         tar_path = compr_file_path + ".tar.gz"

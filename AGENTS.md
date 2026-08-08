@@ -9,6 +9,9 @@ FlareSolverr is a proxy server that uses Chromium (custom-patched or stock via `
 Run the test suite before finishing work:
 
 ```bash
+# Full local validation (format, lint, typecheck, bandit, vulture, tests)
+uv run make
+
 # Unit tests only (default; integration tests are excluded by pyproject addopts)
 PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/unit
 

@@ -1,6 +1,8 @@
 """Brave Search challenge service."""
 
 import logging
+
+logger = logging.getLogger(__name__)
 import re
 import time
 from typing import Any
@@ -42,11 +44,11 @@ class BraveService(ChallengeService):
                 return False
 
             if self._page_has_captcha(driver):
-                logging.info("Challenge detected. Brave captcha page found.")
+                logger.info("Challenge detected. Brave captcha page found.")
                 return True
             return False
-        except Exception:
-            logging.debug("Brave detect failed due to navigation in progress, assuming not detected")
+        except Exception:  # noqa: BLE001
+            logger.debug("Brave detect failed due to navigation in progress, assuming not detected")
             return False
 
     def resolve(self, driver: WebDriver) -> None:
@@ -59,7 +61,7 @@ class BraveService(ChallengeService):
             attempt += 1
             try:
                 current_url = utils.retry_driver_read(lambda: driver.current_url or "")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 break
             if not current_url.startswith("https://search.brave.com/"):
                 break
@@ -68,12 +70,12 @@ class BraveService(ChallengeService):
             if not has_captcha:
                 break
 
-            setattr(driver, "_flaresolverr_brave_debug", self._collect_debug_state(driver, attempt))
+            driver._flaresolverr_brave_debug = self._collect_debug_state(driver, attempt)  # pyright: ignore[reportAttributeAccessIssue]
             button = self._find_clickable_verify_button(driver)
             if button is not None:
                 try:
                     button.click()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     html_element = self._get_html_element(driver)
                     if html_element is None:
                         break
@@ -94,7 +96,7 @@ class BraveService(ChallengeService):
     def _page_has_captcha(self, driver: WebDriver) -> bool:
         try:
             return bool(BRAVE_CAPTCHA_RE.search(driver.page_source))
-        except Exception:
+        except Exception:  # noqa: BLE001
             return False
 
     def _collect_debug_state(self, driver: WebDriver, attempt: int) -> dict[str, Any]:
@@ -102,17 +104,17 @@ class BraveService(ChallengeService):
         state: dict[str, Any] = {"attempts": attempt}
         try:
             state["url"] = driver.current_url or ""
-        except Exception:
+        except Exception:  # noqa: BLE001
             state["url"] = ""
         try:
             state["title"] = driver.title or ""
-        except Exception:
+        except Exception:  # noqa: BLE001
             state["title"] = ""
         try:
             html = driver.page_source or ""
             state["captcha_present"] = bool(BRAVE_CAPTCHA_RE.search(html))
             state["page_source_snippet"] = html[:500]
-        except Exception:
+        except Exception:  # noqa: BLE001
             state["captcha_present"] = False
             state["page_source_snippet"] = ""
         state["button_found"] = self._find_clickable_verify_button(driver) is not None
@@ -129,5 +131,5 @@ class BraveService(ChallengeService):
                     if el.is_displayed() and not el.get_attribute("disabled"):
                         return el
             return None
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None

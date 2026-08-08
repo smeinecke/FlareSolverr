@@ -12,6 +12,8 @@ Upstream references:
 """
 
 import logging
+
+logger = logging.getLogger(__name__)
 import os
 from abc import ABC, abstractmethod
 
@@ -26,7 +28,6 @@ class CaptchaSolver(ABC):
     @abstractmethod
     def is_available(self) -> bool:
         """Check if the solver is available/installed."""
-        pass
 
     @abstractmethod
     def solve(self, driver: WebDriver, captcha_type: str) -> bool:
@@ -39,7 +40,6 @@ class CaptchaSolver(ABC):
         Returns:
             True if solved successfully, False otherwise
         """
-        pass
 
 
 class DefaultSolver(CaptchaSolver):
@@ -53,7 +53,7 @@ class DefaultSolver(CaptchaSolver):
     def solve(self, driver: WebDriver, captcha_type: str) -> bool:
         # Default solver doesn't do anything special
         # The main flaresolverr_service.py handles this
-        logging.debug(f"Using default solver for {captcha_type}")
+        logger.debug(f"Using default solver for {captcha_type}")
         return False
 
 
@@ -67,9 +67,8 @@ class SolverManager:
 
     def _register_builtin_solvers(self) -> None:
         """Register built-in solver implementations."""
-        pass
 
-    def register_solver(self, solver: CaptchaSolver) -> None:  # noqa
+    def register_solver(self, solver: CaptchaSolver) -> None:
         """Register a new captcha solver."""
         self._solvers[solver.name] = solver
 
@@ -89,7 +88,7 @@ class SolverManager:
             return self._solvers[name]
 
         if name != "default":
-            logging.warning(f"Captcha solver '{name}' not found, using default")
+            logger.warning(f"Captcha solver '{name}' not found, using default")
 
         return self._default_solver
 

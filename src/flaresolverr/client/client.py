@@ -529,7 +529,7 @@ class FlareSolverrClient:
         self.sessions = _SessionManager(self)
         self.request = _RequestManager(self)
 
-    def health(self, details: bool = False) -> HealthResponse:  # noqa
+    def health(self, details: bool = False) -> HealthResponse:
         """Check the health status of the FlareSolverr service.
 
         Args:
@@ -547,7 +547,7 @@ class FlareSolverrClient:
         response.raise_for_status()
         return HealthResponse.from_dict(response.json())
 
-    def index(self) -> IndexResponse:  # noqa
+    def index(self) -> IndexResponse:
         """Get the FlareSolverr service information.
 
         Returns:
@@ -586,7 +586,7 @@ class FlareSolverrClient:
 
         try:
             data = response.json()
-        except Exception:
+        except Exception:  # noqa: BLE001
             response.raise_for_status()
             raise FlareSolverrError(f"Invalid JSON response: {response.text}")
 
@@ -621,7 +621,7 @@ class FlareSolverrClient:
 
         try:
             data = response.json()
-        except Exception:
+        except Exception:  # noqa: BLE001
             response.raise_for_status()
             raise FlareSolverrError(f"Invalid JSON response: {response.text}")
 

@@ -1,5 +1,7 @@
 import json
 import logging
+
+logger = logging.getLogger(__name__)
 import os
 import platform
 import random
@@ -20,8 +22,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.expected_conditions import presence_of_element_located, visibility_of_element_located
 from selenium.webdriver.support.wait import WebDriverWait
 
-from flaresolverr import sessions
-from flaresolverr import utils
+from flaresolverr import sessions, utils
 from flaresolverr.captcha_solvers import SOLVER_MANAGER, get_available_solvers, get_config_captcha_solver
 from flaresolverr.dtos import (
     STATUS_ERROR,
@@ -36,7 +37,7 @@ from flaresolverr.dtos import (
 )
 from flaresolverr.services import SERVICE_MANAGER
 from flaresolverr.services.cloudflare import CloudflareService
-from flaresolverr.sessions import SessionsStorage, SessionLimitExceededError
+from flaresolverr.sessions import SessionLimitExceededError, SessionsStorage
 from flaresolverr.utils import _human_like_click, _random_delay
 
 ACCESS_DENIED_TITLES = [
@@ -113,33 +114,33 @@ _active_requests_lock = threading.Lock()
 
 
 def test_browser_installation() -> None:
-    logging.info("Testing web browser installation...")
-    logging.info("Platform: " + platform.platform())
+    logger.info("Testing web browser installation...")
+    logger.info("Platform: " + platform.platform())
 
     chrome_exe_path = utils.get_chrome_exe_path()
     if chrome_exe_path is None:
-        logging.error("Chrome / Chromium web browser not installed!")
+        logger.error("Chrome / Chromium web browser not installed!")
         sys.exit(1)
     else:
-        logging.info("Chrome / Chromium path: " + chrome_exe_path)
+        logger.info("Chrome / Chromium path: " + chrome_exe_path)
 
     chrome_major_version = utils.get_chrome_major_version()
     if chrome_major_version == "":
-        logging.error("Chrome / Chromium version not detected!")
+        logger.error("Chrome / Chromium version not detected!")
         sys.exit(1)
     else:
-        logging.info("Chrome / Chromium major version: " + chrome_major_version)
+        logger.info("Chrome / Chromium major version: " + chrome_major_version)
 
-    logging.info("Launching web browser...")
+    logger.info("Launching web browser...")
     user_agent = utils.get_user_agent()
-    logging.info("FlareSolverr User-Agent: " + user_agent)
-    logging.info("Test successful!")
+    logger.info("FlareSolverr User-Agent: " + user_agent)
+    logger.info("Test successful!")
 
 
 def index_endpoint() -> IndexResponse:
     res = IndexResponse({})
-    res.msg = "FlareSolverr is ready!"  # noqa
-    res.version = utils.get_flaresolverr_version()  # noqa
+    res.msg = "FlareSolverr is ready!"
+    res.version = utils.get_flaresolverr_version()
     res.userAgent = utils.get_user_agent()
     return res
 
@@ -158,10 +159,10 @@ def _get_public_config() -> dict[str, Any]:
         "minimalFingerprint": utils.get_config_minimal_fingerprint(),
         "stealthMode": utils.get_config_stealth_mode(),
         "acceptLanguage": utils.get_config_accept_language(),
-        "port": int(os.environ.get("PORT", 8191)),
+        "port": int(os.environ.get("PORT", "8191")),
         "host": os.environ.get("HOST", "0.0.0.0"),  # nosec: B104
         "prometheusEnabled": os.environ.get("PROMETHEUS_ENABLED", "false").lower() == "true",
-        "prometheusPort": int(os.environ.get("PROMETHEUS_PORT", 8192)),
+        "prometheusPort": int(os.environ.get("PROMETHEUS_PORT", "8192")),
         "sessionMaxRuntimeSeconds": int(session_max_runtime.total_seconds()) if session_max_runtime is not None else None,
         "sessionIdleTimeoutSeconds": int(session_idle_timeout.total_seconds()),
         "sessionMaxCount": utils.get_config_session_max_count(),
@@ -227,7 +228,7 @@ def _redact_request_for_log(req_dict: dict) -> dict:
 
 def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
     start_ts = int(time.time() * 1000)
-    logging.info(f"Incoming request => POST /v1 body: {_redact_request_for_log(utils.object_to_dict(req))}")
+    logger.info(f"Incoming request => POST /v1 body: {_redact_request_for_log(utils.object_to_dict(req))}")
 
     if _PARALLEL_REQUESTS_SEMAPHORE is not None and not _PARALLEL_REQUESTS_SEMAPHORE.acquire(blocking=False):
         res = V1ResponseBase({})
@@ -236,8 +237,8 @@ def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
         res.message = "Error: Maximum parallel requests limit reached. Please retry later."
         res.startTimestamp = start_ts
         res.endTimestamp = int(time.time() * 1000)
-        res.version = utils.get_flaresolverr_version()  # noqa
-        logging.warning("Request rejected: maximum parallel requests limit reached")
+        res.version = utils.get_flaresolverr_version()
+        logger.warning("Request rejected: maximum parallel requests limit reached")
         return res
 
     try:
@@ -260,8 +261,8 @@ def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
             res.message = "Error: " + str(e)
             res.startTimestamp = start_ts
             res.endTimestamp = int(time.time() * 1000)
-            res.version = utils.get_flaresolverr_version()  # noqa
-            logging.warning("Request rejected: " + str(e))
+            res.version = utils.get_flaresolverr_version()
+            logger.warning("Request rejected: " + str(e))
             return res
         except ChallengeError as e:
             res = V1ResponseBase({})
@@ -269,23 +270,23 @@ def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
             res.status = STATUS_ERROR
             res.message = "Error: " + str(e)
             res.details = e.details
-            logging.error(res.message)
-        except Exception as e:
+            logger.error(res.message)
+        except Exception as e:  # noqa: BLE001
             res = V1ResponseBase({})
             res.__error_500__ = True
             res.status = STATUS_ERROR
             res.message = "Error: " + str(e)
-            logging.error(res.message)
+            logger.error(res.message)
 
         res.startTimestamp = start_ts
         res.endTimestamp = int(time.time() * 1000)
-        res.version = utils.get_flaresolverr_version()  # noqa
+        res.version = utils.get_flaresolverr_version()
         debug_res = utils.object_to_dict(res)
         if debug_res.get("solution", {}).get("response"):
             html = debug_res["solution"]["response"]
             debug_res["solution"]["response"] = html[:500] + ("..." if len(html) > 500 else "")
-        logging.debug(f"Response => POST /v1 body: {debug_res}")
-        logging.info(f"Response in {(res.endTimestamp - res.startTimestamp) / 1000} s")
+        logger.debug(f"Response => POST /v1 body: {debug_res}")
+        logger.info(f"Response in {(res.endTimestamp - res.startTimestamp) / 1000} s")
         return res
     finally:
         with _active_requests_lock:
@@ -307,7 +308,7 @@ def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
 def _controller_v1_handler(req: V1RequestBase) -> V1ResponseBase:
     # do some validations
     if req.cmd is None:
-        raise Exception("Request parameter 'cmd' is mandatory.")
+        raise RuntimeError("Request parameter 'cmd' is mandatory.")
 
     # set default values
     if req.maxTimeout is None or int(req.maxTimeout) < 1:
@@ -344,7 +345,7 @@ def _controller_v1_handler(req: V1RequestBase) -> V1ResponseBase:
     elif req.cmd == "request.post":
         res = _cmd_request_post(req)
     else:
-        raise Exception(f"Request parameter 'cmd' = '{req.cmd}' is invalid.")
+        raise RuntimeError(f"Request parameter 'cmd' = '{req.cmd}' is invalid.")
 
     return res
 
@@ -352,29 +353,29 @@ def _controller_v1_handler(req: V1RequestBase) -> V1ResponseBase:
 def _validate_common_request_params(req: V1RequestBase) -> None:
     """Validate request parameters shared between GET and POST commands."""
     if req.returnRawHtml is not None:
-        logging.warning("Request parameter 'returnRawHtml' was removed in FlareSolverr v2.")
+        logger.warning("Request parameter 'returnRawHtml' was removed in FlareSolverr v2.")
     if req.captchaSolver is not None:
         available = get_available_solvers()
         if req.captchaSolver not in available:
-            raise Exception(f"Request parameter 'captchaSolver' = '{req.captchaSolver}' is invalid. Available solvers: {available}")
+            raise RuntimeError(f"Request parameter 'captchaSolver' = '{req.captchaSolver}' is invalid. Available solvers: {available}")
 
 
 def _safe_driver_call(callable_, default):
     """Safely call a driver method/property, returning default on failure."""
     try:
         return callable_()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return default
 
 
 def _cmd_request_get(req: V1RequestBase) -> V1ResponseBase:
     # do some validations
     if req.url is None:
-        raise Exception("Request parameter 'url' is mandatory in 'request.get' command.")
+        raise RuntimeError("Request parameter 'url' is mandatory in 'request.get' command.")
     if req.postData is not None:
-        raise Exception("Cannot use 'postData' when sending a GET request.")
+        raise RuntimeError("Cannot use 'postData' when sending a GET request.")
     if req.postDataRaw is not None:
-        raise Exception("Cannot use 'postDataRaw' when sending a GET request.")
+        raise RuntimeError("Cannot use 'postDataRaw' when sending a GET request.")
     _validate_common_request_params(req)
 
     challenge_res = _resolve_challenge(req, "GET")
@@ -384,9 +385,9 @@ def _cmd_request_get(req: V1RequestBase) -> V1ResponseBase:
 def _cmd_request_post(req: V1RequestBase) -> V1ResponseBase:
     # do some validations
     if req.postData is None and req.postDataRaw is None:
-        raise Exception("Request parameter 'postData' or 'postDataRaw' is mandatory in 'request.post' command.")
+        raise RuntimeError("Request parameter 'postData' or 'postDataRaw' is mandatory in 'request.post' command.")
     if req.postData is not None and req.postDataRaw is not None:
-        raise Exception("Cannot use both 'postData' and 'postDataRaw' in the same request.")
+        raise RuntimeError("Cannot use both 'postData' and 'postDataRaw' in the same request.")
     _validate_common_request_params(req)
 
     challenge_res = _resolve_challenge(req, "POST")
@@ -403,7 +404,7 @@ def _build_response_from_challenge(challenge_res: ChallengeResolutionT) -> V1Res
 
 
 def _cmd_sessions_create(req: V1RequestBase) -> V1ResponseBase:
-    logging.debug("Creating new session...")
+    logger.debug("Creating new session...")
     req_stealth_mode = _resolve_request_stealth_mode(req)
     enabled_services = req.enabledServices if req.enabledServices is not None else ["cloudflare", "ddos_guard"]
 
@@ -436,11 +437,11 @@ def _cmd_sessions_list(req: V1RequestBase) -> V1ResponseBase:
 def _cmd_sessions_destroy(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
-        raise Exception("Request parameter 'session' is mandatory in 'sessions.destroy' command.")
+        raise RuntimeError("Request parameter 'session' is mandatory in 'sessions.destroy' command.")
     existed = SESSIONS_STORAGE.destroy(session_id)
 
     if not existed:
-        raise Exception("The session doesn't exist.")
+        raise RuntimeError("The session doesn't exist.")
 
     return V1ResponseBase({"status": STATUS_OK, "message": "The session has been removed."})
 
@@ -454,7 +455,7 @@ def _get_session_locked(session_id: str) -> sessions.Session:
     with SESSIONS_STORAGE._lock:
         session = SESSIONS_STORAGE.sessions.get(session_id)
     if session is None:
-        raise Exception("The session doesn't exist.")
+        raise RuntimeError("The session doesn't exist.")
     session.lock.acquire()
     return session
 
@@ -467,12 +468,12 @@ def _cmd_sessions_cleanup(req: V1RequestBase) -> V1ResponseBase:
 def _cmd_sessions_get(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
-        raise Exception("Request parameter 'session' is mandatory in 'sessions.get' command.")
+        raise RuntimeError("Request parameter 'session' is mandatory in 'sessions.get' command.")
 
     session = _get_session_locked(session_id)
     try:
         driver = session.driver
-        logging.debug(f"sessions.get (session_id={session_id})")
+        logger.debug(f"sessions.get (session_id={session_id})")
 
         result = ChallengeResolutionResultT({})
         result.url = driver.current_url
@@ -493,20 +494,20 @@ def _cmd_sessions_get(req: V1RequestBase) -> V1ResponseBase:
 def _cmd_sessions_eval(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
-        raise Exception("Request parameter 'session' is mandatory in 'sessions.eval' command.")
+        raise RuntimeError("Request parameter 'session' is mandatory in 'sessions.eval' command.")
     script = req.script
     if script is None:
-        raise Exception("Request parameter 'script' is mandatory in 'sessions.eval' command.")
+        raise RuntimeError("Request parameter 'script' is mandatory in 'sessions.eval' command.")
 
     session = _get_session_locked(session_id)
     try:
         driver = session.driver
-        logging.debug(f"sessions.eval (session_id={session_id})")
+        logger.debug(f"sessions.eval (session_id={session_id})")
 
         try:
             result = driver.execute_script(script)
-        except Exception as e:
-            raise Exception(f"Error executing script: {e}")
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"Error executing script: {e}")
 
         result_obj = ChallengeResolutionResultT({})
         result_obj.evalResult = result
@@ -525,12 +526,12 @@ def _cmd_sessions_eval(req: V1RequestBase) -> V1ResponseBase:
 def _cmd_sessions_network(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
-        raise Exception("Request parameter 'session' is mandatory in 'sessions.network' command.")
+        raise RuntimeError("Request parameter 'session' is mandatory in 'sessions.network' command.")
 
     session = _get_session_locked(session_id)
     try:
         driver = session.driver
-        logging.debug(f"sessions.network (session_id={session_id})")
+        logger.debug(f"sessions.network (session_id={session_id})")
 
         parsed_logs = utils.get_performance_log(driver)
 
@@ -550,25 +551,25 @@ def _cmd_sessions_network(req: V1RequestBase) -> V1ResponseBase:
 def _cmd_sessions_click(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
-        raise Exception("Request parameter 'session' is mandatory in 'sessions.click' command.")
+        raise RuntimeError("Request parameter 'session' is mandatory in 'sessions.click' command.")
     selector = req.selector
     if selector is None:
-        raise Exception("Request parameter 'selector' is mandatory in 'sessions.click' command.")
+        raise RuntimeError("Request parameter 'selector' is mandatory in 'sessions.click' command.")
 
     session = _get_session_locked(session_id)
     try:
         driver = session.driver
-        logging.debug(f"sessions.click (session_id={session_id}, selector={selector})")
+        logger.debug(f"sessions.click (session_id={session_id}, selector={selector})")
 
         try:
             element = driver.find_element(By.XPATH, selector)
             if not element.is_displayed():
-                raise Exception("Element is not displayed.")
+                raise RuntimeError("Element is not displayed.")
             if element.get_attribute("disabled"):
-                raise Exception("Element is disabled.")
+                raise RuntimeError("Element is disabled.")
             _human_like_click(driver, element)
-        except Exception as e:
-            raise Exception(f"Error clicking element: {e}")
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"Error clicking element: {e}")
 
         result = ChallengeResolutionResultT({})
         result.url = driver.current_url
@@ -586,20 +587,20 @@ def _cmd_sessions_click(req: V1RequestBase) -> V1ResponseBase:
 def _cmd_sessions_action(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
-        raise Exception("Request parameter 'session' is mandatory in 'sessions.action' command.")
+        raise RuntimeError("Request parameter 'session' is mandatory in 'sessions.action' command.")
     actions = req.actions
     if actions is None:
-        raise Exception("Request parameter 'actions' is mandatory in 'sessions.action' command.")
+        raise RuntimeError("Request parameter 'actions' is mandatory in 'sessions.action' command.")
 
     session = _get_session_locked(session_id)
     try:
         driver = session.driver
-        logging.debug(f"sessions.action (session_id={session_id}, actions={len(actions)})")
+        logger.debug(f"sessions.action (session_id={session_id}, actions={len(actions)})")
 
         try:
             action_results = _execute_actions(driver, actions)
-        except Exception as e:
-            raise Exception(f"Error executing actions: {e}")
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"Error executing actions: {e}")
 
         result = ChallengeResolutionResultT({})
         result.url = driver.current_url
@@ -620,28 +621,28 @@ def _cmd_sessions_action(req: V1RequestBase) -> V1ResponseBase:
 
 def _clear_session_context(driver: WebDriver) -> None:
     """Clear cookies, storage, cache, IndexedDB and service workers, then navigate to about:blank."""
-    logging.debug("Clearing session context...")
+    logger.debug("Clearing session context...")
 
     # 1. Cookies
     try:
         driver.delete_all_cookies()
-        logging.debug("Cookies cleared")
-    except Exception as e:
-        logging.debug(f"Cookie clear failed: {e}")
+        logger.debug("Cookies cleared")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Cookie clear failed: {e}")
 
     # 2. localStorage / sessionStorage
     try:
         driver.execute_script("try { localStorage.clear(); } catch(e) {} try { sessionStorage.clear(); } catch(e) {}")
-        logging.debug("Storage cleared")
-    except Exception as e:
-        logging.debug(f"Storage clear failed: {e}")
+        logger.debug("Storage cleared")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Storage clear failed: {e}")
 
     # 3. Browser cache via CDP
     try:
         driver.execute_cdp_cmd("Network.clearBrowserCache", {})
-        logging.debug("Browser cache cleared")
-    except Exception as e:
-        logging.debug(f"Browser cache clear failed: {e}")
+        logger.debug("Browser cache cleared")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Browser cache clear failed: {e}")
 
     # 4. IndexedDB
     try:
@@ -653,9 +654,9 @@ def _clear_session_context(driver: WebDriver) -> None:
                 });
             });
         """)
-        logging.debug("IndexedDB cleared")
-    except Exception as e:
-        logging.debug(f"IndexedDB clear failed: {e}")
+        logger.debug("IndexedDB cleared")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"IndexedDB clear failed: {e}")
 
     # 5. Service workers
     try:
@@ -666,32 +667,32 @@ def _clear_session_context(driver: WebDriver) -> None:
                 });
             }
         """)
-        logging.debug("Service workers unregistered")
-    except Exception as e:
-        logging.debug(f"Service worker unregister failed: {e}")
+        logger.debug("Service workers unregistered")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Service worker unregister failed: {e}")
 
     # 6. Navigate to about:blank
     try:
         driver.get("about:blank")
-        logging.debug("Navigated to about:blank")
-    except Exception as e:
-        logging.debug(f"Navigate to about:blank failed: {e}")
+        logger.debug("Navigated to about:blank")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Navigate to about:blank failed: {e}")
 
 
 def _cmd_sessions_clear(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
-        raise Exception("Request parameter 'session' is mandatory in 'sessions.clear' command.")
+        raise RuntimeError("Request parameter 'session' is mandatory in 'sessions.clear' command.")
 
     session = _get_session_locked(session_id)
     try:
         driver = session.driver
-        logging.debug(f"sessions.clear (session_id={session_id})")
+        logger.debug(f"sessions.clear (session_id={session_id})")
 
         try:
             _clear_session_context(driver)
-        except Exception as e:
-            raise Exception(f"Error clearing session context: {e}")
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"Error clearing session context: {e}")
 
         result = ChallengeResolutionResultT({})
         result.url = driver.current_url
@@ -710,17 +711,17 @@ def _cmd_sessions_clear(req: V1RequestBase) -> V1ResponseBase:
 def _cmd_sessions_screenshot(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
-        raise Exception("Request parameter 'session' is mandatory in 'sessions.screenshot' command.")
+        raise RuntimeError("Request parameter 'session' is mandatory in 'sessions.screenshot' command.")
 
     session = _get_session_locked(session_id)
     try:
         driver = session.driver
-        logging.debug(f"sessions.screenshot (session_id={session_id})")
+        logger.debug(f"sessions.screenshot (session_id={session_id})")
 
         try:
             screenshot_b64 = driver.get_screenshot_as_base64()
-        except Exception as e:
-            raise Exception(f"Error capturing screenshot: {e}")
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"Error capturing screenshot: {e}")
 
         result = ChallengeResolutionResultT({})
         result.screenshot = screenshot_b64
@@ -739,7 +740,7 @@ def _cmd_sessions_screenshot(req: V1RequestBase) -> V1ResponseBase:
 def _cmd_sessions_cdp(req: V1RequestBase) -> V1ResponseBase:
     session_id = req.session
     if session_id is None:
-        raise Exception("Request parameter 'session' is mandatory in 'sessions.cdp' command.")
+        raise RuntimeError("Request parameter 'session' is mandatory in 'sessions.cdp' command.")
 
     session = _get_session_locked(session_id)
     try:
@@ -747,13 +748,13 @@ def _cmd_sessions_cdp(req: V1RequestBase) -> V1ResponseBase:
         cdp_cmd = req.cdp.get("cmd") if req.cdp else None
         cdp_params = req.cdp.get("params", {}) if req.cdp else {}
         if not cdp_cmd:
-            raise Exception("Request parameter 'cdp.cmd' is mandatory in 'sessions.cdp' command.")
-        logging.debug(f"sessions.cdp (session_id={session_id}, cmd={cdp_cmd})")
+            raise RuntimeError("Request parameter 'cdp.cmd' is mandatory in 'sessions.cdp' command.")
+        logger.debug(f"sessions.cdp (session_id={session_id}, cmd={cdp_cmd})")
 
         try:
             cdp_result = driver.execute_cdp_cmd(cdp_cmd, cdp_params)
-        except Exception as e:
-            raise Exception(f"Error executing CDP command: {e}")
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"Error executing CDP command: {e}")
 
         result = ChallengeResolutionResultT({})
         result.url = driver.current_url
@@ -785,14 +786,14 @@ def _get_session_driver(session_id: str, req: V1RequestBase, req_stealth_mode: s
     )
 
     if fresh:
-        logging.debug(f"new session created to perform the request (session_id={session_id})")
+        logger.debug(f"new session created to perform the request (session_id={session_id})")
     else:
-        logging.debug(f"existing session is used to perform the request (session_id={session_id}, lifetime={str(session.lifetime())}, ttl={str(ttl)})")
+        logger.debug(f"existing session is used to perform the request (session_id={session_id}, lifetime={session.lifetime()!s}, ttl={ttl!s})")
 
     # Acquire lock to prevent concurrent access to the same session
-    logging.debug(f"acquiring session lock (session_id={session_id})")
+    logger.debug(f"acquiring session lock (session_id={session_id})")
     session.lock.acquire()
-    logging.debug(f"session lock acquired (session_id={session_id})")
+    logger.debug(f"session lock acquired (session_id={session_id})")
     return session, True
 
 
@@ -802,7 +803,7 @@ def _create_one_off_driver(req: V1RequestBase, req_stealth_mode: str | None) -> 
     driver = utils.get_webdriver(req.proxy, stealth_mode=req_stealth_mode, logging_prefs=logging_prefs)
     if req.userAgent is not None:
         utils.apply_user_agent_override(driver, req.userAgent, req.acceptLanguage or utils.get_config_accept_language())
-    logging.debug("New instance of webdriver has been created to perform the request")
+    logger.debug("New instance of webdriver has been created to perform the request")
     return driver
 
 
@@ -825,7 +826,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         if enabled_services is None:
             enabled_services = ["cloudflare", "ddos_guard"]
         if req.waitInSeconds and req.waitInSeconds > 0 and req.waitInSeconds >= timeout * 0.8:
-            logging.warning(f"waitInSeconds ({req.waitInSeconds}s) is close to maxTimeout ({timeout}s); the request may time out before the wait completes.")
+            logger.warning(f"waitInSeconds ({req.waitInSeconds}s) is close to maxTimeout ({timeout}s); the request may time out before the wait completes.")
         challenge_result = func_timeout(timeout, _evil_logic, (req, driver, method, enabled_services))
         if session is not None:
             session.request_count += 1
@@ -836,34 +837,34 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         detected = None
         try:
             detected = getattr(driver, "_flaresolverr_detected_service", None)
-        except Exception:
-            logging.debug("Could not read detected service from driver after timeout")
+        except Exception:  # noqa: BLE001
+            logger.debug("Could not read detected service from driver after timeout")
         if detected is not None:
             svc = SERVICE_MANAGER.get_service(detected)
             if svc is not None and driver is not None:
                 try:
                     debug_info = svc.get_debug_info(driver)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     debug_info = None
                 if debug_info is not None:
                     raise ChallengeError(msg, details=debug_info)
-        raise Exception(msg)
-    except Exception as e:
-        raise Exception("Error solving the challenge. " + str(e).replace("\n", "\\n"))
+        raise RuntimeError(msg)
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError("Error solving the challenge. " + str(e).replace("\n", "\\n"))
     finally:
         # Release session lock only if this thread acquired it
         if lock_acquired and session is not None:
             session.lock.release()
-            logging.debug(f"session lock released (session_id={session.session_id})")
+            logger.debug(f"session lock released (session_id={session.session_id})")
         # Quit one-off webdriver instances created for non-session requests
         if session is None and driver is not None:
             try:
                 if utils.PLATFORM_VERSION == "nt":
                     driver.close()
                 driver.quit()
-                logging.debug("A used instance of webdriver has been destroyed")
-            except Exception as e:
-                logging.debug(f"Failed to quit webdriver: {e}")
+                logger.debug("A used instance of webdriver has been destroyed")
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"Failed to quit webdriver: {e}")
             # Clean up any leaked temp dirs (e.g. if get_webdriver failed
             # after creating the proxy extension temp dir)
             utils._cleanup_orphaned_temp_dirs()
@@ -885,11 +886,10 @@ def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
         if isinstance(cloudflare_svc, CloudflareService):
             cloudflare_svc._click_verify(driver, num_tabs=tabs)
         turnstile_token = token_input.get_attribute("value")
-        if turnstile_token:
-            if turnstile_token != current_value:
-                logging.info(f"Turnstile token: {turnstile_token}")
-                return turnstile_token
-        logging.debug("Failed to extract token possibly click failed")
+        if turnstile_token and turnstile_token != current_value:
+            logger.info(f"Turnstile token: {turnstile_token}")
+            return turnstile_token
+        logger.debug("Failed to extract token possibly click failed")
 
         # reset focus
         driver.execute_script("""
@@ -907,7 +907,7 @@ def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
             el.focus();
         """)
         time.sleep(1)
-    logging.warning("Failed to extract turnstile token after 30 attempts")
+    logger.warning("Failed to extract turnstile token after 30 attempts")
     return None
 
 
@@ -915,8 +915,8 @@ def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver) -> str | N
     turnstile_token = None
     if req.tabs_till_verify is not None:
         if req.url is None:
-            raise Exception("Request parameter 'url' is mandatory in request commands.")
-        logging.debug(f"Navigating to... {req.url} in order to pass the turnstile challenge")
+            raise RuntimeError("Request parameter 'url' is mandatory in request commands.")
+        logger.debug(f"Navigating to... {req.url} in order to pass the turnstile challenge")
         driver.get(req.url)
 
         turnstile_challenge_found = False
@@ -924,12 +924,12 @@ def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver) -> str | N
             found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
             if len(found_elements) > 0:
                 turnstile_challenge_found = True
-                logging.info("Turnstile challenge detected. Selector found: " + selector)
+                logger.info("Turnstile challenge detected. Selector found: " + selector)
                 break
         if turnstile_challenge_found:
             turnstile_token = _get_turnstile_token(driver=driver, tabs=req.tabs_till_verify)
         else:
-            logging.debug("Turnstile challenge not found")
+            logger.debug("Turnstile challenge not found")
     return turnstile_token
 
 
@@ -940,19 +940,19 @@ def _configure_blocked_media(req: V1RequestBase, driver: WebDriver) -> None:
     if not disable_media:
         return
     try:
-        logging.debug("Network.setBlockedURLs: %s", BLOCK_MEDIA_URL_PATTERNS)
+        logger.debug("Network.setBlockedURLs: %s", BLOCK_MEDIA_URL_PATTERNS)
         driver.execute_cdp_cmd("Network.enable", {})
         driver.execute_cdp_cmd("Network.setBlockedURLs", {"urls": BLOCK_MEDIA_URL_PATTERNS})
-    except Exception:
+    except Exception:  # noqa: BLE001
         # if CDP commands are not available or fail, ignore and continue
-        logging.debug("Network.setBlockedURLs failed or unsupported on this webdriver")
+        logger.debug("Network.setBlockedURLs failed or unsupported on this webdriver")
 
 
 def _set_custom_headers(req: V1RequestBase, driver: WebDriver) -> None:
     if req.headers is None or len(req.headers) == 0:
         return
     try:
-        logging.debug(f"Setting custom headers: {req.headers}")
+        logger.debug(f"Setting custom headers: {req.headers}")
         # Convert headers list to dict for CDP
         headers_dict = {}
         for header in req.headers:
@@ -965,13 +965,13 @@ def _set_custom_headers(req: V1RequestBase, driver: WebDriver) -> None:
         if headers_dict:
             driver.execute_cdp_cmd("Network.enable", {})
             driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": headers_dict})
-            logging.debug(f"Custom headers set: {headers_dict}")
-    except Exception as e:
-        logging.warning(f"Failed to set custom headers: {e}")
+            logger.debug(f"Custom headers set: {headers_dict}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to set custom headers: {e}")
 
 
 def _navigate_request(req: V1RequestBase, driver: WebDriver, method: str, target_url: str) -> str | None:
-    logging.debug(f"Navigating to... {req.url}")
+    logger.debug(f"Navigating to... {req.url}")
     if method == "POST":
         _post_request(req, driver)
         return None
@@ -984,7 +984,7 @@ def _navigate_request(req: V1RequestBase, driver: WebDriver, method: str, target
 def _set_request_cookies(req: V1RequestBase, driver: WebDriver, target_url: str) -> None:
     if req.cookies is None or len(req.cookies) == 0:
         return
-    logging.debug("Setting cookies...")
+    logger.debug("Setting cookies...")
     # Navigate to the origin first so Chrome accepts domain-scoped cookies,
     # but skip if we're already on the same origin.
     parsed = urlparse(target_url)
@@ -995,7 +995,7 @@ def _set_request_cookies(req: V1RequestBase, driver: WebDriver, target_url: str)
         driver.get(origin)
     for cookie in req.cookies:
         if not isinstance(cookie, dict) or "name" not in cookie:
-            raise Exception(f"Each cookie must be an object with at least a 'name' field, got: {cookie!r}")
+            raise RuntimeError(f"Each cookie must be an object with at least a 'name' field, got: {cookie!r}")
         driver.delete_cookie(cookie["name"])
         driver.add_cookie(cookie)
 
@@ -1003,11 +1003,11 @@ def _set_request_cookies(req: V1RequestBase, driver: WebDriver, target_url: str)
 def _raise_if_access_denied(driver: WebDriver, page_title: str) -> None:
     for title in ACCESS_DENIED_TITLES:
         if page_title.startswith(title):
-            raise Exception("Cloudflare has blocked this request. Probably your IP is banned for this site, check in your web browser.")
+            raise RuntimeError("Cloudflare has blocked this request. Probably your IP is banned for this site, check in your web browser.")
     for selector in ACCESS_DENIED_SELECTORS:
         found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
         if len(found_elements) > 0:
-            raise Exception("Cloudflare has blocked this request. Probably your IP is banned for this site, check in your web browser.")
+            raise RuntimeError("Cloudflare has blocked this request. Probably your IP is banned for this site, check in your web browser.")
 
 
 def _raise_if_navigation_error(driver: WebDriver) -> None:
@@ -1032,8 +1032,8 @@ def _raise_if_navigation_error(driver: WebDriver) -> None:
 
     match = _NET_ERROR_CODE_RE.search(page_source)
     if match is not None:
-        raise Exception(f"Message: unknown error: net::{match.group(0)}")
-    raise Exception("Message: unknown error: net::ERR_FAILED")
+        raise RuntimeError(f"Message: unknown error: net::{match.group(0)}")
+    raise RuntimeError("Message: unknown error: net::ERR_FAILED")
 
 
 def _find_and_scroll_element(driver, selector, timeout, delay_min, delay_max):
@@ -1053,7 +1053,7 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
     eval_results: list[Any | None] = []
     for i, action in enumerate(actions):
         if not isinstance(action, dict):
-            raise Exception(f"Action at index {i} is not an object (got {type(action).__name__}), expected dict with 'type' key.")
+            raise TypeError(f"Action at index {i} is not an object (got {type(action).__name__}), expected dict with 'type' key.")
         action_type = action.get("type")
         selector = action.get("selector")
         if action_type == "fill":
@@ -1074,15 +1074,15 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
             for ch in action.get("value", ""):
                 el.send_keys(ch)
                 time.sleep(random.uniform(0.06, 0.18))  # nosec B311
-            logging.debug(f"Action fill: selector={selector}")
+            logger.debug(f"Action fill: selector={selector}")
         elif action_type == "click":
-            logging.debug(f"Action click: waiting for selector={selector}")
+            logger.debug(f"Action click: waiting for selector={selector}")
             el = _find_and_scroll_element(driver, selector, default_action_timeout, 0.2, 0.4)
-            logging.debug("Action click: element found, scrolling")
+            logger.debug("Action click: element found, scrolling")
             if action.get("humanLike"):
                 _human_like_click(driver, el)
             else:
-                logging.debug("Action click: calling ActionChains.perform()")
+                logger.debug("Action click: calling ActionChains.perform()")
                 try:
                     # Use a small non-zero offset to avoid exact-center click detection
                     _s = el.size
@@ -1094,49 +1094,49 @@ def _execute_actions(driver: WebDriver, actions: list) -> list[Any | None]:
                 except UnexpectedAlertPresentException:
                     try:
                         alert_text = driver.switch_to.alert.text
-                        logging.debug(f"Action click: dismissing alert: {alert_text!r}")
+                        logger.debug(f"Action click: dismissing alert: {alert_text!r}")
                         driver.switch_to.alert.dismiss()
                     except Exception as alert_err:  # noqa: BLE001
-                        logging.debug(f"Action click: alert already gone: {alert_err}")
-            logging.debug(f"Action click: done selector={selector}")
+                        logger.debug(f"Action click: alert already gone: {alert_err}")
+            logger.debug(f"Action click: done selector={selector}")
         elif action_type == "wait_for":
             if selector is None:
-                raise Exception("Action 'wait_for' requires a 'selector' field.")
+                raise RuntimeError("Action 'wait_for' requires a 'selector' field.")
             timeout_ms = action.get("timeout")
             wait_timeout = timeout_ms / 1000.0 if timeout_ms is not None else default_action_timeout
-            logging.debug(f"Action wait_for: selector={selector}, timeout={wait_timeout}s")
+            logger.debug(f"Action wait_for: selector={selector}, timeout={wait_timeout}s")
             WebDriverWait(driver, wait_timeout).until(visibility_of_element_located((By.XPATH, selector)))
             # Brief grace period: the element is visible but sibling JS signals may
             # still be writing their final values into the DOM.
             time.sleep(0.5)
-            logging.debug(f"Action wait_for done: selector={selector}")
+            logger.debug(f"Action wait_for done: selector={selector}")
         elif action_type == "wait":
             seconds = float(action.get("seconds", 1))
-            logging.debug(f"Action wait: {seconds}s")
+            logger.debug(f"Action wait: {seconds}s")
             time.sleep(seconds)
         elif action_type == "eval":
             # issue #38 - eval supports an optional returnResult flag.
             # Defaults to True for backward compatibility.
             script = action.get("script", "")
             should_return = action.get("returnResult", True)
-            logging.debug(f"Action eval: script={script[:80]!r}")
+            logger.debug(f"Action eval: script={script[:80]!r}")
             try:
                 result = driver.execute_script(script)
-            except Exception as e:
-                raise Exception(f"Error executing eval action: {e}")
+            except Exception as e:  # noqa: BLE001
+                raise RuntimeError(f"Error executing eval action: {e}")
             if should_return:
                 eval_results.append(result)
             else:
                 eval_results.append(None)
             continue
         elif action_type == "clear_context":
-            logging.debug("Action clear_context")
+            logger.debug("Action clear_context")
             try:
                 _clear_session_context(driver)
-            except Exception as e:
-                raise Exception(f"Error executing clear_context action: {e}")
+            except Exception as e:  # noqa: BLE001
+                raise RuntimeError(f"Error executing clear_context action: {e}")
         else:
-            logging.warning(f"Unknown action type: {action_type!r}")
+            logger.warning(f"Unknown action type: {action_type!r}")
         eval_results.append(None)
     return eval_results
 
@@ -1156,8 +1156,8 @@ def _get_download_content(driver: WebDriver, url: str) -> tuple[str, bool, dict[
         if is_base64:
             return content, True, None
         return content, False, None
-    except Exception as e:
-        logging.debug(f"Page.getResourceContent failed: {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Page.getResourceContent failed: {e}")
 
     # Fallback: JS fetch with FileReader data URL
     script = """
@@ -1189,8 +1189,8 @@ def _get_download_content(driver: WebDriver, url: str) -> tuple[str, bool, dict[
             if size:
                 headers["Content-Length"] = str(size)
             return content, is_binary, headers
-    except Exception as e:
-        logging.debug(f"JS fetch fallback failed: {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"JS fetch fallback failed: {e}")
 
     # Ultimate fallback: page_source
     page_source = _safe_driver_call(lambda: driver.page_source, "")
@@ -1204,9 +1204,9 @@ def _build_challenge_result(
     har_entries: list[dict[str, Any]] | None = None,
 ) -> ChallengeResolutionResultT:
     challenge_res = ChallengeResolutionResultT({})
-    logging.debug("_build_challenge_result: reading current_url")
+    logger.debug("_build_challenge_result: reading current_url")
     challenge_res.url = utils.retry_driver_read(lambda: driver.current_url)
-    logging.debug("_build_challenge_result: reading userAgent")
+    logger.debug("_build_challenge_result: reading userAgent")
     challenge_res.userAgent = utils.retry_driver_read(lambda: utils.get_user_agent(driver))
     challenge_res.turnstile_token = turnstile_token
     challenge_res.status = 200  # todo: fix, selenium not provides this info
@@ -1221,26 +1221,26 @@ def _build_challenge_result(
                 challenge_res.evalResult = eval_values if len(eval_values) > 1 else eval_values[0]
 
         if req.waitInSeconds and req.waitInSeconds > 0:
-            logging.info("Waiting " + str(req.waitInSeconds) + " seconds before returning the response...")
+            logger.info("Waiting " + str(req.waitInSeconds) + " seconds before returning the response...")
             time.sleep(req.waitInSeconds)
 
         if req.download:
-            logging.debug("_build_challenge_result: reading download content")
+            logger.debug("_build_challenge_result: reading download content")
             content, is_binary, download_headers = _get_download_content(driver, challenge_res.url)
             challenge_res.response = content
             challenge_res.isBinary = is_binary
             if download_headers:
                 challenge_res.headers = download_headers
         else:
-            logging.debug("_build_challenge_result: reading page_source")
+            logger.debug("_build_challenge_result: reading page_source")
             challenge_res.response = utils.retry_driver_read(lambda: driver.page_source)
 
     # Get cookies after waiting to ensure all challenge cookies are captured
-    logging.debug("_build_challenge_result: reading cookies")
+    logger.debug("_build_challenge_result: reading cookies")
     challenge_res.cookies = utils.retry_driver_read(lambda: driver.get_cookies())
 
     if req.returnScreenshot:
-        challenge_res.screenshot = driver.get_screenshot_as_base64()  # noqa
+        challenge_res.screenshot = driver.get_screenshot_as_base64()
 
     if req.recordHar and har_entries is not None:
         challenge_res.har = utils.performance_logs_to_har(har_entries)
@@ -1253,8 +1253,8 @@ def _remove_js_injection(driver: WebDriver, identifiers: list[str]) -> None:
     for script_id in identifiers:
         try:
             driver.execute_cdp_cmd("Page.removeScriptToEvaluateOnNewDocument", {"identifier": script_id})
-        except Exception as e:
-            logging.debug(f"Failed to remove injected script {script_id}: {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Failed to remove injected script {script_id}: {e}")
 
 
 def _apply_js_injection(req: V1RequestBase, driver: WebDriver, point: str) -> list[str]:
@@ -1270,7 +1270,7 @@ def _apply_js_injection(req: V1RequestBase, driver: WebDriver, point: str) -> li
     identifiers: list[str] = []
     if not utils.get_config_js_injection_enabled():
         if req.scriptInject is not None:
-            logging.warning("JS injection fields ignored because JS_INJECTION_ENABLED is not set to true.")
+            logger.warning("JS injection fields ignored because JS_INJECTION_ENABLED is not set to true.")
         return identifiers
 
     if req.scriptInject is None or len(req.scriptInject) == 0:
@@ -1292,26 +1292,26 @@ def _apply_js_injection(req: V1RequestBase, driver: WebDriver, point: str) -> li
         return identifiers
 
     for script in matched:
-        logging.info(f"Applying JS injection at '{point}'")
+        logger.info(f"Applying JS injection at '{point}'")
         if point == "document_start":
             try:
                 result = driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": script})
                 script_id = result.get("identifier") if isinstance(result, dict) else None
                 if script_id:
                     identifiers.append(script_id)
-            except Exception as e:
-                logging.warning(f"Failed to inject script at document_start: {e}")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Failed to inject script at document_start: {e}")
         else:
             try:
                 driver.execute_script(script)
-            except Exception as e:
-                logging.warning(f"Failed to inject script at {point}: {e}")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Failed to inject script at {point}: {e}")
     return identifiers
 
 
 def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_services: list[str]) -> ChallengeResolutionT:
     if req.url is None:
-        raise Exception("Request parameter 'url' is mandatory in request commands.")
+        raise RuntimeError("Request parameter 'url' is mandatory in request commands.")
     target_url = req.url
 
     res = ChallengeResolutionT({})
@@ -1337,7 +1337,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
 
         # wait for the page
         if utils.get_config_log_html():
-            logging.debug(f"Response HTML:\n{driver.page_source}")
+            logger.debug(f"Response HTML:\n{driver.page_source}")
         page_title = driver.title
 
         _apply_js_injection(req, driver, "document_end")
@@ -1345,37 +1345,37 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
         _raise_if_access_denied(driver, page_title)
         detected_service = SERVICE_MANAGER.detect(driver, enabled_services)
         if detected_service is not None:
-            setattr(driver, "_flaresolverr_detected_service", detected_service)
+            driver._flaresolverr_detected_service = detected_service  # pyright: ignore[reportAttributeAccessIssue]
             # Try external captcha solver first if configured
             solver_used = False
             effective_solver = req.captchaSolver if req.captchaSolver is not None else get_config_captcha_solver()
             if effective_solver != "default":
                 solver_type = _detect_captcha_type(driver)
                 if solver_type:
-                    logging.info(f"Attempting to solve {solver_type} captcha with {effective_solver} solver")
+                    logger.info(f"Attempting to solve {solver_type} captcha with {effective_solver} solver")
                     solver_used = SOLVER_MANAGER.solve(driver, solver_type, effective_solver)
                     if solver_used:
-                        logging.info(f"Captcha solved successfully with {effective_solver}")
+                        logger.info(f"Captcha solved successfully with {effective_solver}")
 
             if not solver_used:
                 # Fall back to default challenge resolution
-                logging.debug("_evil_logic: resolving challenge for service=%s", detected_service)
+                logger.debug("_evil_logic: resolving challenge for service=%s", detected_service)
                 SERVICE_MANAGER.resolve(driver, detected_service)
-                logging.debug("_evil_logic: challenge resolution finished")
+                logger.debug("_evil_logic: challenge resolution finished")
 
-            logging.info("Challenge solved!")
+            logger.info("Challenge solved!")
             res.message = "Challenge solved!"
-            logging.debug("_evil_logic: waiting for post-challenge page to stabilize")
+            logger.debug("_evil_logic: waiting for post-challenge page to stabilize")
             utils.wait_for_page_stable(driver)
         else:
-            logging.info("Challenge not detected!")
+            logger.info("Challenge not detected!")
             res.message = "Challenge not detected!"
 
         _apply_js_injection(req, driver, "document_idle")
-        logging.debug("_evil_logic: building challenge result")
+        logger.debug("_evil_logic: building challenge result")
         har_entries = utils.get_performance_log(driver) if req.recordHar else None
         res.result = _build_challenge_result(req, driver, turnstile_token, har_entries)
-        logging.debug("_evil_logic: challenge result built successfully")
+        logger.debug("_evil_logic: challenge result built successfully")
         return res
     finally:
         if injected_ids:
@@ -1391,30 +1391,30 @@ def _detect_captcha_type(driver: WebDriver) -> str | None:
     # Check for hCaptcha
     hcaptcha_elements = driver.find_elements(By.CSS_SELECTOR, ".h-captcha, iframe[src*='hcaptcha.com']")
     if hcaptcha_elements:
-        logging.debug("hCaptcha detected on page")
+        logger.debug("hCaptcha detected on page")
         return "hcaptcha"
 
     # Check for reCAPTCHA
     recaptcha_elements = driver.find_elements(By.CSS_SELECTOR, ".g-recaptcha, iframe[src*='google.com/recaptcha']")
     if recaptcha_elements:
-        logging.debug("reCAPTCHA detected on page")
+        logger.debug("reCAPTCHA detected on page")
         return "recaptcha"
 
     # Check for Turnstile (already handled separately, but for completeness)
     turnstile_elements = driver.find_elements(By.CSS_SELECTOR, "input[name='cf-turnstile-response'], #turnstile-wrapper")
     if turnstile_elements:
-        logging.debug("Turnstile detected on page")
+        logger.debug("Turnstile detected on page")
         return "turnstile"
 
-    logging.debug("No specific captcha type detected")
+    logger.debug("No specific captcha type detected")
     return None
 
 
 def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
     if req.url is None:
-        raise Exception("Request parameter 'url' is mandatory in request commands.")
+        raise RuntimeError("Request parameter 'url' is mandatory in request commands.")
     if req.postDataRaw is None:
-        raise Exception("Request parameter 'postDataRaw' is mandatory for raw POST requests.")
+        raise RuntimeError("Request parameter 'postDataRaw' is mandatory for raw POST requests.")
 
     target_url = req.url
     post_data = req.postDataRaw
@@ -1475,7 +1475,7 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
     while time.time() - wait_start < wait_timeout:
         try:
             done = driver.execute_script("return window.__flaresolverr_raw_post_done")
-        except Exception:
+        except Exception:  # noqa: BLE001
             done = None
         if done:
             break
@@ -1483,12 +1483,12 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
 
     error = driver.execute_script("return window.__flaresolverr_raw_post_error")
     if error:
-        raise Exception(f"Raw POST request failed: {error}")
+        raise RuntimeError(f"Raw POST request failed: {error}")
 
 
 def _post_request(req: V1RequestBase, driver: WebDriver) -> None:
     if req.url is None:
-        raise Exception("Request parameter 'url' is mandatory in request commands.")
+        raise RuntimeError("Request parameter 'url' is mandatory in request commands.")
     if req.postDataRaw is not None:
         _post_request_raw(req, driver)
         return
@@ -1500,14 +1500,14 @@ def _post_request(req: V1RequestBase, driver: WebDriver) -> None:
         # noinspection PyBroadException
         try:
             name = unquote(parts[0])
-        except Exception:
+        except Exception:  # noqa: BLE001
             name = parts[0]
         if name == "submit":
             continue
         # noinspection PyBroadException
         try:
             value = unquote(parts[1]) if len(parts) > 1 else ""
-        except Exception:
+        except Exception:  # noqa: BLE001
             value = parts[1] if len(parts) > 1 else ""
         # Protection of " character, for syntax
         value = value.replace('"', "&quot;")

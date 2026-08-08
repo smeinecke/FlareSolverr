@@ -1,9 +1,12 @@
-"""Vulture whitelist for public API names and dynamically-used symbols.
+"""Vulture whitelist for public API names and dynamically-used symbols.  # noqa: B018
 
-These are referenced dynamically (e.g. bottle plugin loading, public client
-library methods, model fields populated by dict unpacking) and appear unused
-to static analysis, but are required at runtime.
+These are referenced dynamically (e.g. bottle plugin loading, public client  # noqa: B018
+library methods, model fields populated by dict unpacking) and appear unused  # noqa: B018
+to static analysis, but are required at runtime.  # noqa: B018
 """
+
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.remote.webdriver import WebDriver
 
 from flaresolverr.bottle_plugins import error_plugin, logger_plugin, prometheus_plugin
 from flaresolverr.client.actions import ActionQueue
@@ -11,77 +14,75 @@ from flaresolverr.client.client import _SessionManager
 from flaresolverr.client.models import ChallengeSolution
 from flaresolverr.dtos import ChallengeResolutionResultT
 from flaresolverr.sessions import SessionsStorage
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.remote.webdriver import WebDriver
 
 # Public _SessionManager API methods (called by users of the client library)
-_SessionManager.cdp
-_SessionManager.create
-_SessionManager.destroy
-_SessionManager.eval
-_SessionManager.get
-_SessionManager.list
-_SessionManager.network
-_SessionManager.screenshot
-_SessionManager.click
-_SessionManager.action
-_SessionManager.clear
+_SessionManager.cdp  # noqa: B018
+_SessionManager.create  # noqa: B018
+_SessionManager.destroy  # noqa: B018
+_SessionManager.eval  # noqa: B018
+_SessionManager.get  # noqa: B018
+_SessionManager.list  # noqa: B018
+_SessionManager.network  # noqa: B018
+_SessionManager.screenshot  # noqa: B018
+_SessionManager.click  # noqa: B018
+_SessionManager.action  # noqa: B018
+_SessionManager.clear  # noqa: B018
 
 # Public ActionQueue fluent builder methods
-ActionQueue.clear_context
+ActionQueue.clear_context  # noqa: B018
 
 # Model fields populated dynamically from API responses
-ChallengeResolutionResultT.isBinary
-ChallengeResolutionResultT.har
-ChallengeSolution.evalResult
-ChallengeSolution.networkLogs
-ChallengeSolution.screenshot
+ChallengeResolutionResultT.isBinary  # noqa: B018
+ChallengeResolutionResultT.har  # noqa: B018
+ChallengeSolution.evalResult  # noqa: B018
+ChallengeSolution.networkLogs  # noqa: B018
+ChallengeSolution.screenshot  # noqa: B018
 
 # Bottle plugin entry points (loaded dynamically by Bottle framework)
-error_plugin.plugin
-logger_plugin.plugin
-prometheus_plugin.plugin
-prometheus_plugin.setup
+error_plugin.plugin  # noqa: B018
+logger_plugin.plugin  # noqa: B018
+prometheus_plugin.plugin  # noqa: B018
+prometheus_plugin.setup  # noqa: B018
 
 # SessionsStorage internals
-SessionsStorage.session_ids
-SessionsStorage.stop_cleanup
+SessionsStorage.session_ids  # noqa: B018
+SessionsStorage.stop_cleanup  # noqa: B018
 
 # Attribute set on driver options by undetected_chromedriver
-Options.binary_location
+Options.binary_location  # noqa: B018
 
 # Proxy extension attributes stored on WebDriver instances
-WebDriver._proxy_ext_id
+WebDriver._proxy_ext_id  # noqa: B018
 
 # Agent-check TCP server (handle is called by socketserver framework, daemon_threads by ThreadingMixIn)
-from flaresolverr.agent_check import AgentCheckHandler, ThreadedTCPServer  # noqa
+from flaresolverr.agent_check import AgentCheckHandler, ThreadedTCPServer
 
-AgentCheckHandler.handle
-ThreadedTCPServer.daemon_threads
+AgentCheckHandler.handle  # noqa: B018
+ThreadedTCPServer.daemon_threads  # noqa: B018
 
 # HealthResponse model fields populated dynamically from dict unpacking
-from flaresolverr.dtos import HealthResponse  # noqa
+from flaresolverr.dtos import HealthResponse
 
-HealthResponse.sessionsCount
-HealthResponse.activeParallelRequests
-HealthResponse.maxParallelRequests
-HealthResponse.maxSessionCount
-HealthResponse.sessionMaxRuntime
-HealthResponse.sessionIdleTimeout
-HealthResponse.version
-HealthResponse.config
-HealthResponse.activeRequests
-HealthResponse.sessions
+HealthResponse.sessionsCount  # noqa: B018
+HealthResponse.activeParallelRequests  # noqa: B018
+HealthResponse.maxParallelRequests  # noqa: B018
+HealthResponse.maxSessionCount  # noqa: B018
+HealthResponse.sessionMaxRuntime  # noqa: B018
+HealthResponse.sessionIdleTimeout  # noqa: B018
+HealthResponse.version  # noqa: B018
+HealthResponse.config  # noqa: B018
+HealthResponse.activeRequests  # noqa: B018
+HealthResponse.sessions  # noqa: B018
 
-from flaresolverr.client.models import HealthResponse as ClientHealthResponse  # noqa
+from flaresolverr.client.models import HealthResponse as ClientHealthResponse
 
-ClientHealthResponse.sessionsCount
-ClientHealthResponse.activeParallelRequests
-ClientHealthResponse.maxParallelRequests
-ClientHealthResponse.maxSessionCount
-ClientHealthResponse.sessionMaxRuntime
-ClientHealthResponse.sessionIdleTimeout
-ClientHealthResponse.version
-ClientHealthResponse.config
-ClientHealthResponse.activeRequests
-ClientHealthResponse.sessions
+ClientHealthResponse.sessionsCount  # noqa: B018
+ClientHealthResponse.activeParallelRequests  # noqa: B018
+ClientHealthResponse.maxParallelRequests  # noqa: B018
+ClientHealthResponse.maxSessionCount  # noqa: B018
+ClientHealthResponse.sessionMaxRuntime  # noqa: B018
+ClientHealthResponse.sessionIdleTimeout  # noqa: B018
+ClientHealthResponse.version  # noqa: B018
+ClientHealthResponse.config  # noqa: B018
+ClientHealthResponse.activeRequests  # noqa: B018
+ClientHealthResponse.sessions  # noqa: B018
