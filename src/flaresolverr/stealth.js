@@ -7,10 +7,10 @@
  *   - user agent and user-agent client hints (--user-agent command line)
  *   - WebGL vendor/renderer (--webgl-unmasked-*)
  *   - visualViewport coherence (--stealth-viewport-size)
- *   - performance.now (no JS override; timing jitter is a low-value,
- *     easily-detectable signal that is not worth emulating)
- *
- * The only signals that still need a runtime shim are:
+ *   - performance.now: timing probes build a linear regression between
+ *     performance.now() and Date.now(); an unjittered, microsecond-precise
+ *     headless timer produces a near-perfect correlation. A small, bounded,
+ *     monotonic noise floor breaks the correlation while leaving the API usable.
  *   - window.outerWidth/outerHeight: in --headless=new the browser may report
  *     values that do not include the window chrome. The getters are locked to
  *     plausible desktop dimensions while the native fix is being upstreamed.
@@ -60,6 +60,27 @@
         set: function () {},
         configurable: false,
         enumerable: false,
+      });
+    } catch (_) {}
+
+    // Add bounded, monotonic jitter to performance.now to defeat timing probes
+    // that rely on a perfectly linear, high-resolution headless timer.
+    try {
+      const origNow = performance.now.bind(performance);
+      let last = 0;
+      const nowFn = function () {
+        const t = origNow();
+        const jitter = Math.random() * 2.5;
+        last = Math.max(t, last + jitter);
+        return last;
+      };
+      nowFn.toString = function () {
+        return "function now() { [native code] }";
+      };
+      Object.defineProperty(Performance.prototype, "now", {
+        value: nowFn,
+        configurable: false,
+        writable: false,
       });
     } catch (_) {}
   } catch (_) {}

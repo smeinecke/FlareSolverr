@@ -127,11 +127,18 @@ jobs:
           docker compose -f docker-compose.test.yml logs go-httpbin
           exit 1
 
+      - name: Extract custom Chromium binary for local driver tests
+        run: |
+          docker cp flaresolverr-flaresolverr-1:/usr/lib/chromium /tmp/chromium
+          ls -la /tmp/chromium/
+
       - name: Run integration tests (non-proxy scenarios)
         if: ${{ github.event.inputs.scope == 'non-proxy' || github.event.inputs.scope == 'all' }}
         env:
           FLARESOLVERR_URL: http://127.0.0.1:8191
           HTTPBIN_URL: http://go-httpbin:8080
+          STEALTH_MODE: standard
+          CHROME_EXE_PATH: /tmp/chromium/chrome
         run: |
           uv run pytest -m integration tests/integration -k "not proxy_http_param and not proxy_http_param_with_credentials and not proxy_socks_param" -vv
 
@@ -144,6 +151,8 @@ jobs:
           PROXY_SOCKS_URL: socks5://proxy-socks:1080
           PROXY_HTTP_CHECK_URL: http://127.0.0.1:8888
           PROXY_SOCKS_CHECK_URL: socks5://127.0.0.1:1080
+          STEALTH_MODE: standard
+          CHROME_EXE_PATH: /tmp/chromium/chrome
         run: |
           uv run pytest -m integration tests/integration/test_api.py -k "proxy_http_param or proxy_http_param_with_credentials or proxy_socks_param" -vv
 

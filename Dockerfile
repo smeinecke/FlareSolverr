@@ -107,6 +107,7 @@ RUN mkdir -p /opt/chromium && \
         ln -sf /usr/lib/chromium/chromedriver /usr/bin/chromedriver && \
         cp /usr/lib/chromium/chromedriver /app/chromedriver && \
         cp /opt/chromium-dist/.stealth-patched /opt/chromium/.stealth-patched 2>/dev/null || touch /opt/chromium/.stealth-patched && \
+        cp /opt/chromium/.stealth-patched /usr/lib/chromium/.stealth-patched && \
         rm -rf /opt/chromium-dist; \
     fi
 

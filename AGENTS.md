@@ -51,6 +51,7 @@ npm run build
 - `--user-agent` command-line switch is used instead of CDP `Emulation.setUserAgentOverride` so the UA is consistent across main, dedicated worker and shared worker contexts.
 - `--stealth-navigator-languages` and `--stealth-viewport-size` custom switches are forwarded by `apply.py` to renderer processes.
 - `navigator.hardwareConcurrency` is kept at a plausible value via CPU affinity (`_limit_cpu_affinity`) rather than JS patching.
+- `performance.now()` is patched by `stealth.js` with a bounded, monotonic jitter to defeat timing-resolution probes (e.g. `deviceandbrowserinfo.com`).
 
 ## External Checks
 

@@ -43,7 +43,7 @@ compatibility workarounds because the binary is not under our control.
 | console method replacement | Fallback JS only | `stealth_fallback.js` wraps `console.log` | C | Low-value; keep only in fallback if necessary. |
 | `speechSynthesis` fake voices | Fallback JS only | `stealth_fallback.js` inserts a fake voice | C | Low-value; fallback only. |
 | `navigator.plugins` / `mimeTypes` | Fallback JS only | `stealth_fallback.js` fakes plugin/mime arrays | C | Low-value; fallback only. |
-| `performance.now` timing jitter | Remove | Removed from `stealth.js` | C/D | No JS timing modification; native timer is left untouched. |
+| `performance.now` timing jitter | Custom JS | `stealth.js` adds bounded monotonic jitter | C/D | Needed to defeat timing-resolution probes that correlate `performance.now()` with `Date.now()`. |
 | `Error.prepareStackTrace` guard | Custom JS (narrow) | `stealth.js` makes it non-configurable to block CDP stack-trace probes | C | No reasonable source-level alternative; keep as narrow runtime guard. |
 | `Function.prototype.toString` / descriptor disguises | Remove | Not present in current `stealth.js` | D | Do not re-add. |
 | Worker / SharedWorker constructor wrappers | Remove from custom | Only `stealth_fallback.js` wraps `window.Worker` | C | Custom Chromium uses native state, no wrappers. |
