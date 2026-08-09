@@ -237,30 +237,6 @@ class PatchApplier:
             ],
         )
 
-        # Revert any C++ changes left behind by the previous Patch 2 approach
-        # (std::nullopt / std::optional<bool>). These are no-ops on a fresh tree.
-        self.patch(
-            "third_party/blink/renderer/core/frame/navigator.h",
-            "  std::optional<bool> webdriver() const;",
-            "  bool webdriver() const;",
-            "revert old Patch 2 header change (std::optional → bool)",
-            required=False,
-        )
-        self.patch(
-            "third_party/blink/renderer/core/frame/navigator.cc",
-            "std::optional<bool> Navigator::webdriver() const {\n  return std::nullopt;\n}",
-            "bool Navigator::webdriver() const {\n"
-            "  if (RuntimeEnabledFeatures::AutomationControlledEnabled())\n"
-            "    return true;\n"
-            "\n"
-            "  bool automation_enabled = false;\n"
-            "  probe::ApplyAutomationOverride(GetExecutionContext(), automation_enabled);\n"
-            "  return automation_enabled;\n"
-            "}",
-            "revert old Patch 2 C++ implementation (std::nullopt → original)",
-            required=False,
-        )
-
         # ──────────────────────────────────────────────────────────────────────────────
         # Patch 3: WebGL vendor/renderer command-line override
         # Chrome 112+ uses WebGLDebugRendererInfo enum values instead of GL_UNMASKED_*.
@@ -339,189 +315,6 @@ class PatchApplier:
                 '      return WebGLAny(script_state, String("WebKit"));',
             ],
         )
-
-        # Patch 3b: Forward webgl-unmasked-* switches from browser process to renderer.
-        # Chrome's multi-process model does NOT automatically propagate custom switches
-        # to renderer processes - they must be explicitly copied in AppendRendererCommandLine
-        # (or the equivalent AppendExtraCommandLineSwitches hook).
-        # File: content/browser/renderer_host/render_process_host_impl.cc
-        print("Patch 3b: forward webgl-unmasked-* switches to renderer processes")
-
-        self.add_include(
-            "content/browser/renderer_host/render_process_host_impl.cc",
-            '#include "base/command_line.h"',
-            after_patterns=[
-                '#include "base/check_deref.h"',
-                '#include "base/byte_count.h"',
-                '#include "base/allocator/partition_allocator/src/partition_alloc/partition_alloc_buildflags.h"',
-            ],
-        )
-
-        self.patch(
-            "content/browser/renderer_host/render_process_host_impl.cc",
-            "void RenderProcessHostImpl::AppendRendererCommandLine(\n    base::CommandLine* command_line) {",
-            "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
-            "    base::CommandLine* command_line) {\n"
-            "  // Forward custom stealth switches to renderer processes.\n"
-            "  const base::CommandLine& browser_cmd =\n"
-            "      *base::CommandLine::ForCurrentProcess();\n"
-            '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
-            '                          "preload-script"}) {\n'
-            "    if (browser_cmd.HasSwitch(sw))\n"
-            "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
-            "  }",
-            "forward stealth switches from browser to renderer process command line",
-        )
-
-        # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 4: --preload-script flag (document_start injection via raw V8)
-        # Hook into RenderFrameImpl::DidCreateDocumentElement - fires AFTER V8 context
-        # creation is complete, so it is safe to compile and run scripts.
-        # DO NOT use DidCreateScriptContext: that fires DURING V8 context creation while
-        # V8 holds internal spinlocks; calling Script::Compile there spins at 97% CPU.
-        # Uses raw V8 with kDoNotRunMicrotasks to prevent microtask-queue re-entrancy spin.
-        # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 4: --preload-script flag")
-
-        self.add_include(
-            "content/renderer/render_frame_impl.cc",
-            '#include "base/files/file_util.h"',
-            after_patterns=[
-                '#include "base/command_line.h"',
-                '#include "base/check_deref.h"',
-                '#include "base/byte_count.h"',
-            ],
-        )
-
-        self.add_include(
-            "content/renderer/render_frame_impl.cc",
-            '#include "v8/include/v8.h"',
-            after_patterns=[
-                '#include "base/files/file_util.h"',
-                '#include "base/command_line.h"',
-            ],
-        )
-
-        _PRELOAD_INJECTION = (
-            "  // --preload-script: evaluate JS file before any page scripts.\n"
-            "  // Uses raw V8 with kDoNotRunMicrotasks to prevent microtask re-entrancy spin.\n"
-            "  {\n"
-            "    static std::string* preload_script_content = new std::string();\n"
-            "    static bool preload_script_loaded = false;\n"
-            "    if (!preload_script_loaded) {\n"
-            "      preload_script_loaded = true;\n"
-            "      base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();\n"
-            '      if (cmd->HasSwitch("preload-script")) {\n'
-            "        base::ReadFileToString(\n"
-            '            cmd->GetSwitchValuePath("preload-script"),\n'
-            "            preload_script_content);\n"
-            "      }\n"
-            "    }\n"
-            "    if (!preload_script_content->empty() && GetWebFrame()) {\n"
-            "      v8::Isolate* isolate = v8::Isolate::GetCurrent();\n"
-            "      v8::Local<v8::Context> ctx =\n"
-            "          GetWebFrame()->MainWorldScriptContext();\n"
-            "      if (isolate && !ctx.IsEmpty()) {\n"
-            "        v8::HandleScope handle_scope(isolate);\n"
-            "        v8::Context::Scope context_scope(ctx);\n"
-            "        v8::MicrotasksScope no_microtasks(\n"
-            "            isolate, ctx->GetMicrotaskQueue(),\n"
-            "            v8::MicrotasksScope::kDoNotRunMicrotasks);\n"
-            "        v8::TryCatch try_catch(isolate);\n"
-            "        v8::Local<v8::String> src;\n"
-            "        if (v8::String::NewFromUtf8(\n"
-            "                isolate, preload_script_content->c_str()).ToLocal(&src)) {\n"
-            "          v8::Local<v8::Script> script;\n"
-            "          if (v8::Script::Compile(ctx, src).ToLocal(&script)) {\n"
-            "            v8::Local<v8::Value> result;\n"
-            "            (void)script->Run(ctx).ToLocal(&result);\n"
-            "          }\n"
-            "        }\n"
-            "      }\n"
-            "    }\n"
-            "  }\n"
-        )
-
-        # Main-frame preload injection is disabled: running v8::Script from
-        # DidCreateDocumentElement causes 100% CPU spin (same as DidCreateScriptContext).
-        # kDoNotRunMicrotasks does not fix it. Main frame uses CDP
-        # Page.addScriptToEvaluateOnNewDocument instead - see utils.py.
-        # _PRELOAD_INJECTION is kept above for future investigation.
-
-        # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 5: Inject preload script into DedicatedWorkerGlobalScope at C++ level
-        # Chrome 112+: hook before EvaluateClassicScript() in DidFetchClassicScript.
-        # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 5: worker prelude injection")
-
-        self.add_include(
-            "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
-            '#include "base/command_line.h"',
-            after_patterns=[
-                '#include "base/types/pass_key.h"',
-                '#include "base/metrics/histogram_macros.h"',
-                '#include "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.h"',
-                '#include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"',
-            ],
-        )
-
-        self.add_include(
-            "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
-            '#include "base/files/file_util.h"',
-            after_patterns=[
-                '#include "base/command_line.h"',
-            ],
-        )
-
-        self.add_include(
-            "third_party/blink/renderer/core/workers/dedicated_worker_global_scope.cc",
-            '#include "v8/include/v8.h"',
-            after_patterns=[
-                '#include "base/files/file_util.h"',
-            ],
-        )
-
-        _WORKER_PRELOAD = (
-            "  // --preload-script: evaluate preload content before any user worker scripts.\n"
-            "  // Uses raw V8 with kDoNotRunMicrotasks to prevent microtask-queue draining\n"
-            "  // from re-entering the worker lifecycle and causing a CPU spin.\n"
-            "  {\n"
-            "    static std::string* preload_content = new std::string();\n"
-            "    static bool preload_loaded = false;\n"
-            "    if (!preload_loaded) {\n"
-            "      preload_loaded = true;\n"
-            "      base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();\n"
-            '      if (cmd->HasSwitch("preload-script")) {\n'
-            '        base::FilePath path = cmd->GetSwitchValuePath("preload-script");\n'
-            "        if (!base::ReadFileToString(path, preload_content))\n"
-            "          preload_content->clear();\n"
-            "      }\n"
-            "    }\n"
-            "    if (!preload_content->empty()) {\n"
-            "      v8::Isolate* isolate = ScriptController()->GetScriptState()->GetIsolate();\n"
-            "      v8::HandleScope handle_scope(isolate);\n"
-            "      v8::Local<v8::Context> ctx = ScriptController()->GetScriptState()->GetContext();\n"
-            "      v8::MicrotasksScope no_microtasks(\n"
-            "          isolate, ctx->GetMicrotaskQueue(),\n"
-            "          v8::MicrotasksScope::kDoNotRunMicrotasks);\n"
-            "      v8::TryCatch try_catch(isolate);\n"
-            "      v8::Local<v8::String> src;\n"
-            "      if (v8::String::NewFromUtf8(isolate, preload_content->c_str()).ToLocal(&src)) {\n"
-            "        v8::Local<v8::Script> script;\n"
-            "        if (v8::Script::Compile(ctx, src).ToLocal(&script)) {\n"
-            "          v8::Local<v8::Value> result;\n"
-            "          (void)script->Run(ctx).ToLocal(&result);\n"
-            "        }\n"
-            "      }\n"
-            "    }\n"
-            "  }\n"
-        )
-
-        # Worker prelude injection is disabled: running v8::Script from
-        # DidFetchClassicScript causes 100% CPU spin regardless of MicrotasksScope
-        # suppression. C++ Patches 2/3/8 already cover all signals that
-        # hasInconsistentWorkerValues checks (webdriver, languages, WebGL).
-        # _WORKER_PRELOAD is kept above for future investigation.
 
         # ──────────────────────────────────────────────────────────────────────────────
         # Patch 6: Remove "HeadlessChrome" product name token from UA string and
@@ -713,9 +506,9 @@ class PatchApplier:
                 "      // Forward custom stealth switches to renderer processes.\n"
                 '      "webgl-unmasked-vendor",\n'
                 '      "webgl-unmasked-renderer",\n'
-                '      "preload-script",\n'
                 '      "stealth-navigator-languages",\n'
                 '      "stealth-viewport-size",\n'
+                '      "stealth-no-media-devices",\n'
                 "\n"
                 "      switches::kWebRtcMaxCaptureFramerate,"
             ),
@@ -791,8 +584,46 @@ class PatchApplier:
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 11: Remove chromedriver CDC variable injection
-        # (Formerly Patch 10; renumbered after adding locale patch.)
+        # Patch 11: --stealth-no-media-devices switch makes enumerateDevices()
+        # return an empty list natively. Headless/container Chrome may expose a
+        # small set of fake/default media devices that integrity probes flag as
+        # non-native. Returning an empty list is less fingerprintable than JS
+        # fabricating device objects and will let the JS shim in stealth.js be
+        # removed once the custom build includes this patch.
+        # File: third_party/blink/renderer/modules/mediastream/media_devices.cc
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 11: --stealth-no-media-devices native enumerateDevices() empty list")
+
+        self.add_include(
+            "third_party/blink/renderer/modules/mediastream/media_devices.cc",
+            '#include "base/command_line.h"',
+            after_patterns=[
+                '#include "base/feature_list.h"',
+            ],
+        )
+
+        self.patch(
+            "third_party/blink/renderer/modules/mediastream/media_devices.cc",
+            "  const auto promise = result_tracker->Promise();\n"
+            "\n"
+            "  SendLogMessage(base::StringPrintf(",
+            "  const auto promise = result_tracker->Promise();\n"
+            "\n"
+            "  // When the --stealth-no-media-devices switch is set, skip the device\n"
+            "  // enumeration and resolve with an empty list. This avoids integrity\n"
+            "  // probes that flag container/headless default devices as non-native.\n"
+            "  if (base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
+            '      "stealth-no-media-devices")) {\n'
+            "    result_tracker->Resolve(MediaDeviceInfoVector());\n"
+            "    return promise;\n"
+            "  }\n"
+            "\n"
+            "  SendLogMessage(base::StringPrintf(",
+            "short-circuit enumerateDevices to empty list with --stealth-no-media-devices",
+        )
+
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 12: Remove chromedriver CDC variable injection
         # ChromeDriver injects window.cdc_adoQpoasnfa76pfcZLmcfl_* aliases into
         # every page via Page.addScriptToEvaluateOnNewDocument / Runtime.evaluate.
         # These variables are a well-known automation fingerprint.
@@ -801,7 +632,7 @@ class PatchApplier:
         # missing (window.cdc_... || window.X), so removing the injection is
         # safe for chromedriver runtime operation.
         # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 11: remove chromedriver CDC (window.cdc_*) injection")
+        print("Patch 12: remove chromedriver CDC (window.cdc_*) injection")
 
         self.patch_regex(
             "chrome/test/chromedriver/chrome/devtools_client_impl.cc",

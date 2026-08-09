@@ -115,9 +115,55 @@ BROWSER_CONSISTENCY_SCRIPT = """
     const iframeEl = document.createElement("iframe");
     iframeEl.style.display = "none";
     document.body.appendChild(iframeEl);
+    const iframeWindow = iframeEl.contentWindow;
     iframe = {
-      navigator: collectNavigator(iframeEl.contentWindow.navigator),
-      window: collectWindow(iframeEl.contentWindow),
+      navigator: collectNavigator(iframeWindow.navigator),
+      window: collectWindow(iframeWindow),
+      apis: (() => {
+        const ctx = iframeWindow;
+        const desc = (obj, name) => {
+          const d = Object.getOwnPropertyDescriptor(obj, name);
+          if (!d) return null;
+          return {
+            own: true,
+            get: d.get ? d.get.toString().slice(0, 80) : null,
+            set: d.set ? d.set.toString().slice(0, 80) : null,
+            value: d.value,
+            configurable: d.configurable,
+            enumerable: d.enumerable,
+          };
+        };
+        const protoDesc = (proto, name) => {
+          const d = Object.getOwnPropertyDescriptor(proto, name);
+          if (!d) return null;
+          return {
+            own: false,
+            get: d.get ? d.get.toString().slice(0, 80) : null,
+            set: d.set ? d.set.toString().slice(0, 80) : null,
+            value: d.value,
+            configurable: d.configurable,
+            enumerable: d.enumerable,
+          };
+        };
+        return {
+          permissions_query: {
+            own: ctx.navigator.permissions ? desc(ctx.navigator.permissions, "query") : null,
+            prototype: protoDesc(ctx.Permissions.prototype, "query"),
+          },
+          enumerateDevices: {
+            own: ctx.navigator.mediaDevices ? desc(ctx.navigator.mediaDevices, "enumerateDevices") : null,
+            prototype: protoDesc(ctx.MediaDevices.prototype, "enumerateDevices"),
+          },
+          webgl_getParameter: typeof ctx.WebGLRenderingContext !== "undefined" ? {
+            own: desc(ctx.WebGLRenderingContext.prototype, "getParameter"),
+            native_string: ctx.WebGLRenderingContext.prototype.getParameter.toString().slice(0, 80),
+          } : null,
+          error_prepareStackTrace: {
+            own: desc(ctx.Error, "prepareStackTrace"),
+            value: ctx.Error.prepareStackTrace,
+          },
+        };
+      })(),
     };
     document.body.removeChild(iframeEl);
   } catch (e) {
@@ -149,23 +195,34 @@ BROWSER_CONSISTENCY_SCRIPT = """
   });
 
   const workerScript = `
-    self.postMessage(({
-      navigator: {
-        webdriver: navigator.webdriver,
-        typeof_webdriver: typeof navigator.webdriver,
-        userAgent: navigator.userAgent,
-        platform: navigator.platform,
-        language: navigator.language,
-        languages: Array.isArray(navigator.languages) ? [...navigator.languages] : navigator.languages,
-        hardwareConcurrency: navigator.hardwareConcurrency,
-      },
-    }));
-  `;
-
-  const sharedWorkerScript = `
-    self.onconnect = (e) => {
-      const port = e.ports[0];
-      port.postMessage(({
+    (function() {
+      const desc = (obj, name) => {
+        const d = Object.getOwnPropertyDescriptor(obj, name);
+        return d ? { own: true, toString: d.toString ? d.toString() : null } : null;
+      };
+      const protoDesc = (proto, name) => {
+        const d = Object.getOwnPropertyDescriptor(proto, name);
+        return d ? { own: false, toString: d.toString ? d.toString() : null } : null;
+      };
+      const probeAPIs = () => ({
+        permissions_query: {
+          own: navigator.permissions ? desc(navigator.permissions, "query") : null,
+          prototype: typeof navigator.permissions !== "undefined" && Permissions ? protoDesc(Permissions.prototype, "query") : null,
+        },
+        enumerateDevices: {
+          own: navigator.mediaDevices ? desc(navigator.mediaDevices, "enumerateDevices") : null,
+          prototype: typeof MediaDevices !== "undefined" ? protoDesc(MediaDevices.prototype, "enumerateDevices") : null,
+        },
+        webgl_getParameter: typeof WebGLRenderingContext !== "undefined" ? {
+          own: desc(WebGLRenderingContext.prototype, "getParameter"),
+          native_string: WebGLRenderingContext.prototype.getParameter.toString().slice(0, 80),
+        } : null,
+        error_prepareStackTrace: {
+          own: desc(Error, "prepareStackTrace"),
+          value: Error.prepareStackTrace,
+        },
+      });
+      self.postMessage(({
         navigator: {
           webdriver: navigator.webdriver,
           typeof_webdriver: typeof navigator.webdriver,
@@ -174,8 +231,65 @@ BROWSER_CONSISTENCY_SCRIPT = """
           language: navigator.language,
           languages: Array.isArray(navigator.languages) ? [...navigator.languages] : navigator.languages,
           hardwareConcurrency: navigator.hardwareConcurrency,
+          userAgentData: navigator.userAgentData ? {
+            brands: navigator.userAgentData.brands,
+            mobile: navigator.userAgentData.mobile,
+            platform: navigator.userAgentData.platform,
+          } : null,
         },
+        apis: probeAPIs(),
       }));
+    })();
+  `;
+
+  const sharedWorkerScript = `
+    self.onconnect = (e) => {
+      const port = e.ports[0];
+      (function() {
+        const desc = (obj, name) => {
+          const d = Object.getOwnPropertyDescriptor(obj, name);
+          return d ? { own: true, toString: d.toString ? d.toString() : null } : null;
+        };
+        const protoDesc = (proto, name) => {
+          const d = Object.getOwnPropertyDescriptor(proto, name);
+          return d ? { own: false, toString: d.toString ? d.toString() : null } : null;
+        };
+        const probeAPIs = () => ({
+          permissions_query: {
+            own: navigator.permissions ? desc(navigator.permissions, "query") : null,
+            prototype: typeof navigator.permissions !== "undefined" && Permissions ? protoDesc(Permissions.prototype, "query") : null,
+          },
+          enumerateDevices: {
+            own: navigator.mediaDevices ? desc(navigator.mediaDevices, "enumerateDevices") : null,
+            prototype: typeof MediaDevices !== "undefined" ? protoDesc(MediaDevices.prototype, "enumerateDevices") : null,
+          },
+          webgl_getParameter: typeof WebGLRenderingContext !== "undefined" ? {
+            own: desc(WebGLRenderingContext.prototype, "getParameter"),
+            native_string: WebGLRenderingContext.prototype.getParameter.toString().slice(0, 80),
+          } : null,
+          error_prepareStackTrace: {
+            own: desc(Error, "prepareStackTrace"),
+            value: Error.prepareStackTrace,
+          },
+        });
+        port.postMessage(({
+          navigator: {
+            webdriver: navigator.webdriver,
+            typeof_webdriver: typeof navigator.webdriver,
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            language: navigator.language,
+            languages: Array.isArray(navigator.languages) ? [...navigator.languages] : navigator.languages,
+            hardwareConcurrency: navigator.hardwareConcurrency,
+            userAgentData: navigator.userAgentData ? {
+              brands: navigator.userAgentData.brands,
+              mobile: navigator.userAgentData.mobile,
+              platform: navigator.userAgentData.platform,
+            } : null,
+          },
+          apis: probeAPIs(),
+        }));
+      })();
     };
   `;
 

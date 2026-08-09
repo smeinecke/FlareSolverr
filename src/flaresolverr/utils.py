@@ -510,6 +510,7 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
         # the comma-separated list so Window/Worker/SharedWorker stay coherent.
         options.add_argument(f"--stealth-navigator-languages={get_config_accept_language()}")
         options.add_argument("--stealth-viewport-size")
+        options.add_argument("--stealth-no-media-devices")
         logger.debug("Applied custom Chromium stealth flags.")
 
     return options

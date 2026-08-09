@@ -82,19 +82,50 @@ class TestBotChallenge(unittest.TestCase):
                 pass
         return None
 
+    def _assert_no_medium_or_higher_findings(self, summary, scored_artifacts):
+        """Semantic check: only info/weak findings are acceptable."""
+        self.assertEqual(summary.get("mediumFindings", 0), 0,
+                         f"Unexpected medium findings: {scored_artifacts}")
+        self.assertEqual(summary.get("strongFindings", 0), 0,
+                         f"Unexpected strong findings: {scored_artifacts}")
+        self.assertEqual(summary.get("hardFindings", 0), 0,
+                         f"Unexpected hard findings: {scored_artifacts}")
+
+    def _assert_summary_human(self, summary, scored_artifacts):
+        """Semantic check: the page's own verdict must classify the browser as human."""
+        self.assertEqual(summary.get("verdict"), "human",
+                         f"Challenge verdict was not 'human': {scored_artifacts}")
+        self.assertFalse(summary.get("botDetected"),
+                         f"Challenge reports botDetected=true: {scored_artifacts}")
+        self.assertIn(summary.get("risk", ""), ("low", "none"),
+                      f"Challenge risk is not low/none: {scored_artifacts}")
+
+    def _build_diagnostics(self, results):
+        """Return an opinionated diagnostics dict for failed test output."""
+        return {
+            "summary": results.get("summary"),
+            "scoredArtifacts": results.get("scoredArtifacts", []),
+            "failedTests": {
+                name: data for name, data in results.get("tests", {}).items()
+                if not data.get("passed", False)
+            },
+        }
+
+    def _print_diagnostics(self, diagnostics):
+        """Pretty-print human-readable diagnostics to stdout."""
+        print("\nBot challenge diagnostics:")
+        for name, value in diagnostics.items():
+            print(f"\n{name}:")
+            print(json.dumps(value, indent=2, default=str))
+
     def test_static_challenge_basic_stealth(self):
         """
         Test that FlareSolverr basic stealth measures work against static challenge.
 
-        Verifies critical stealth indicators via JSON output:
-        - hasBotUserAgent: passed (no bot patterns in UA)
-        - hasWebdriverTrue: passed (navigator.webdriver is false/undefined)
-        - hasWebdriverInFrameTrue: passed (no webdriver in iframe)
-        - isPlaywright: passed (no Playwright globals)
-
-        Note: Some detections like WebGL renderer (SwiftShader) and client hints
-        inconsistency are expected with headless Chrome and don't indicate failure
-        of basic stealth measures.
+        Verifies critical stealth indicators via JSON output and the overall
+        challenge verdict. Accepts only info/weak findings; a page-local
+        console.log wrapper is the expected info-level runtime-API integrity
+        finding.
         """
         static_url = f"{self.challenge_url}/static.html"
 
@@ -120,7 +151,6 @@ class TestBotChallenge(unittest.TestCase):
         solution = body.solution
         self.assertEqual(solution.status, 200)
 
-        # Extract and parse JSON results
         results = self._extract_challenge_results(solution.response)
         self.assertIsNotNone(results, "Failed to extract JSON results from page")
         self.assertIn("tests", results, "JSON results should contain 'tests' key")
@@ -142,17 +172,15 @@ class TestBotChallenge(unittest.TestCase):
                 self.assertTrue(test_result.get("passed", False),
                               f"{test_name} should pass - critical stealth failure")
 
-        # Log all failed tests for debugging
-        failed_tests = [(name, data) for name, data in results["tests"].items()
-                       if not data.get("passed", False)]
-        if failed_tests:
-            print(f"\nDetected bot indicators ({len(failed_tests)}):")
-            for name, data in failed_tests:
-                print(f"  - {name}: status={data.get('status')}, severity={data.get('severity')}, "
-                      f"countsAsIndicator={data.get('countsAsIndicator')}, value={data.get('value')}")
-                desc = data.get('description')
-                if desc:
-                    print(f"    description: {desc}")
+        summary = results["summary"]
+        scored_artifacts = results.get("scoredArtifacts", [])
+        diagnostics = self._build_diagnostics(results)
+
+        self._assert_no_medium_or_higher_findings(summary, scored_artifacts)
+        self._assert_summary_human(summary, scored_artifacts)
+
+        # Persist and print diagnostics if the test reached this point.
+        self._print_diagnostics(diagnostics)
 
     def test_interaction_challenge_form_submission(self):
         """
@@ -268,15 +296,11 @@ class TestBotChallenge(unittest.TestCase):
         for field in required_summary_fields:
             self.assertIn(field, summary, f"Summary should contain '{field}'")
 
-        diagnostics = {
-            "summary": summary,
-            "scoredArtifacts": results.get("scoredArtifacts", []),
-            "criticalInconclusive": [
-                finding
-                for finding in results.get("findings", [])
-                if finding.get("critical") and finding.get("status") == "inconclusive"
-            ],
-        }
+        scored_artifacts = results.get("scoredArtifacts", [])
+        diagnostics = self._build_diagnostics(results)
+
+        self._assert_no_medium_or_higher_findings(summary, scored_artifacts)
+        self._assert_summary_human(summary, scored_artifacts)
 
         # Persist full diagnostic JSON for post-run analysis.
         diag_path = os.environ.get("FLARESOLVERR_CHALLENGE_DIAG", "/tmp/flaresolverr_challenge_diag.json")
@@ -286,11 +310,7 @@ class TestBotChallenge(unittest.TestCase):
         except OSError:
             pass
 
-        if summary.get("verdict") != "human" or summary.get("botDetected"):
-            self.fail(
-                f"Challenge classified as automation. Diagnostics:\n"
-                f"{json.dumps(diagnostics, indent=2, default=str)}"
-            )
+        self._print_diagnostics(diagnostics)
 
 
 if __name__ == "__main__":

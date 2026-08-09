@@ -134,4 +134,5 @@ node_modules/
 .vscode/
 
 src/flaresolverr/chrome
+src/flaresolverr/chrome-old
 debug/*
