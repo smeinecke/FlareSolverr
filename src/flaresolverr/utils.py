@@ -45,7 +45,7 @@ from flaresolverr import undetected_chromedriver as uc  # type: ignore[import-un
 
 FLARESOLVERR_VERSION: str | None = None
 PLATFORM_VERSION: str | None = None
-CHROME_EXE_PATH: str | None = None
+CHROME_EXE_PATH: str | None = os.environ.get("CHROME_EXE_PATH") or None
 CHROME_MAJOR_VERSION: str | None = None
 CHROME_FULL_VERSION: str | None = None
 USER_AGENT: str | None = None

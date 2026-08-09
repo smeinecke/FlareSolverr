@@ -50,6 +50,8 @@ jobs:
           services:
             flaresolverr:
               build: .
+              environment:
+                - STEALTH_MODE=standard
               ports:
                 - "127.0.0.1:8191:8191"
               networks:

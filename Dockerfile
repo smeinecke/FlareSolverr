@@ -110,6 +110,10 @@ RUN mkdir -p /opt/chromium && \
         rm -rf /opt/chromium-dist; \
     fi
 
+# Use the custom-patched Chromium binary installed above instead of the
+# (possibly stale) binary bundled in the source tree.
+ENV CHROME_EXE_PATH=/usr/lib/chromium/chrome
+
 VOLUME /config
 
 COPY --from=python-deps --chown=flaresolverr:flaresolverr /app/.venv /app/.venv
