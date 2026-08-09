@@ -113,6 +113,8 @@ jobs:
               build: .
               ports:
                 - "127.0.0.1:8191:8191"
+              environment:
+                - STEALTH_MODE=standard
               networks:
                 - test-network
             proxy-http:
