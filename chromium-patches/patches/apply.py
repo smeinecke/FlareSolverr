@@ -698,35 +698,28 @@ class PatchApplier:
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 9: Forward stealth-navigator-languages switch to renderer
+        # Patch 9: Forward stealth switches to renderer processes
         # File: content/browser/renderer_host/render_process_host_impl.cc
+        # In Chromium 151 the command-line propagation uses the kSwitchNames array
+        # inside PropagateBrowserCommandLineToRenderer; we add our custom switches
+        # so they are copied to every renderer command line (with their values).
         # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 9: forward stealth-navigator-languages switch to renderer")
+        print("Patch 9: forward stealth switches to renderer process command line")
 
         self.patch(
             "content/browser/renderer_host/render_process_host_impl.cc",
-            "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
-            "    base::CommandLine* command_line) {\n"
-            "  // Forward custom stealth switches to renderer processes.\n"
-            "  const base::CommandLine& browser_cmd =\n"
-            "      *base::CommandLine::ForCurrentProcess();\n"
-            '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
-            '                          "preload-script"}) {\n'
-            "    if (browser_cmd.HasSwitch(sw))\n"
-            "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
-            "  }",
-            "void RenderProcessHostImpl::AppendRendererCommandLine(\n"
-            "    base::CommandLine* command_line) {\n"
-            "  // Forward custom stealth switches to renderer processes.\n"
-            "  const base::CommandLine& browser_cmd =\n"
-            "      *base::CommandLine::ForCurrentProcess();\n"
-            '  for (const char* sw : {"webgl-unmasked-vendor", "webgl-unmasked-renderer",\n'
-            '                          "preload-script", "stealth-navigator-languages",\n'
-            '                          "stealth-viewport-size"}) {\n'
-            "    if (browser_cmd.HasSwitch(sw))\n"
-            "      command_line->AppendSwitchASCII(sw, browser_cmd.GetSwitchValueASCII(sw));\n"
-            "  }",
-            "forward stealth-navigator-languages switch to renderer",
+            "      switches::kWebRtcMaxCaptureFramerate,",
+            (
+                "      // Forward custom stealth switches to renderer processes.\n"
+                '      "webgl-unmasked-vendor",\n'
+                '      "webgl-unmasked-renderer",\n'
+                '      "preload-script",\n'
+                '      "stealth-navigator-languages",\n'
+                '      "stealth-viewport-size",\n'
+                "\n"
+                "      switches::kWebRtcMaxCaptureFramerate,"
+            ),
+            "forward stealth switches to renderer process command line",
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
@@ -789,7 +782,7 @@ class PatchApplier:
         # missing (window.cdc_... || window.X), so removing the injection is
         # safe for chromedriver runtime operation.
         # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 10: remove chromedriver CDC (window.cdc_*) injection")
+        print("Patch 11: remove chromedriver CDC (window.cdc_*) injection")
 
         self.patch_regex(
             "chrome/test/chromedriver/chrome/devtools_client_impl.cc",
