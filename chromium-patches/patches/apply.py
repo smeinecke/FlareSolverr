@@ -723,14 +723,24 @@ class PatchApplier:
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 10: Set ICU default locale from --lang in every renderer process
-        # On Linux/Windows the renderer otherwise keeps the OS ICU default, so
-        # Intl.* defaults diverge from the patched navigator.language in
-        # headless or non-matching host locales.  ChromeOS already had this; we
-        # generalize it to all platforms where the browser passes --lang.
+        # Patch 10: Set ICU default locale from --stealth-navigator-languages in
+        # every renderer process
+        # The renderer's --lang switch is reset to the browser's application locale
+        # in RenderProcessHostImpl::AppendRendererCommandLine, so relying on --lang
+        # alone leaves Intl.* aligned with the OS locale in headless or non-matching
+        # host locales.  We use the first token of --stealth-navigator-languages
+        # (which matches the patched navigator.language) and fall back to --lang.
         # File: content/renderer/renderer_main.cc
         # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 10: set ICU default locale from --lang for all renderers")
+        print("Patch 10: set ICU default locale from stealth-navigator-languages for all renderers")
+
+        self.add_include(
+            "content/renderer/renderer_main.cc",
+            '#include "base/strings/string_split.h"',
+            after_patterns=[
+                '#include "base/i18n/rtl.h"',
+            ],
+        )
 
         self.patch(
             "content/renderer/renderer_main.cc",
@@ -752,11 +762,20 @@ class PatchApplier:
                 "#endif  // BUILDFLAG(IS_CHROMEOS)"
             ),
             (
-                "  // Set the ICU default locale from --lang in every renderer process.  This\n"
-                "  // keeps Intl.* defaults aligned with navigator.language in headless or\n"
-                "  // embedded environments where the renderer would otherwise inherit the OS\n"
-                "  // locale (e.g. a German host running with --accept-lang=en-US,en).\n"
-                "  if (command_line.HasSwitch(switches::kLang)) {\n"
+                "  // Set the ICU default locale from the stealth-navigator-languages switch\n"
+                "  // (or --lang as a fallback) in every renderer process. The renderer's\n"
+                "  // --lang switch is reset to the browser application locale in\n"
+                "  // RenderProcessHostImpl::AppendRendererCommandLine, so we use the first\n"
+                "  // token of --stealth-navigator-languages to match the patched\n"
+                "  // navigator.language.\n"
+                '  if (command_line.HasSwitch("stealth-navigator-languages")) {\n'
+                "    const std::string languages =\n"
+                '        command_line.GetSwitchValueASCII("stealth-navigator-languages");\n'
+                "    auto tokens = base::SplitString(\n"
+                '        languages, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);\n'
+                "    if (!tokens.empty())\n"
+                "      base::i18n::SetICUDefaultLocale(tokens.front());\n"
+                "  } else if (command_line.HasSwitch(switches::kLang)) {\n"
                 "    const std::string locale =\n"
                 "        command_line.GetSwitchValueASCII(switches::kLang);\n"
                 "    base::i18n::SetICUDefaultLocale(locale);\n"
@@ -768,7 +787,7 @@ class PatchApplier:
                 "  chromeos::system::EnableCoreSchedulingIfAvailable();\n"
                 "#endif  // BUILDFLAG(IS_CHROMEOS)"
             ),
-            "set ICU default locale from --lang in every renderer process",
+            "set ICU default locale from stealth-navigator-languages in every renderer process",
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
