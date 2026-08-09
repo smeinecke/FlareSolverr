@@ -33,7 +33,7 @@ compatibility workarounds because the binary is not under our control.
 | DedicatedWorker identity | Native / config | Same process/flags as main; no custom JS prelude | A/B | `--user-agent` and `--accept-lang` propagate. |
 | SharedWorker identity | Native / config | No custom JS wrapper | A/B | UA/languages should derive from common browser state. |
 | Permissions API | Native / config | Fallback JS overrides `navigator.permissions.query` for notifications; custom build uses no JS | B | Use Chromium profile / CDP permissions. No fabricated objects. |
-| `mediaDevices.enumerateDevices` | Native / JS shim | C++ patch `--stealth-no-media-devices` returns empty; `stealth.js` main-only shim for current binary | A/C | Prefer native empty list. The JS shim only affects the top frame and is a stop-gap until the custom build includes Patch 11. |
+| `mediaDevices.enumerateDevices` | Native | C++ patch `--stealth-no-media-devices` returns an empty list | A | No JS shim. Native empty list is less fingerprintable than any fake or real device objects. |
 | WebGL vendor / renderer | Native (Blink) | C++ patch `--webgl-unmasked-vendor/renderer` | A | All WebGL contexts read same command-line value. |
 | WebGPU adapter info | Not currently customized | Not patched | A | Should be coherent with WebGL if GPU identity is spoofed. |
 | screen / window / outer size | Config | `--window-size`, CDP `setDeviceMetricsOverride`; `outerWidth/outerHeight` JS shim removed | B | Native `outerWidth`/`outerHeight` values are now coherent with `--headless=new` and the chosen window size; the JS patch was removed after testing. |
@@ -69,7 +69,6 @@ Custom Chromium
 │
 └── stealth.js
     ├── `performance.now` bounded monotonic jitter (needed to defeat timing-resolution probes)
-    ├── `navigator.mediaDevices.enumerateDevices` main-frame empty-list shim (stop-gap until Patch 11 is in the custom build)
     └── `Error.prepareStackTrace` non-configurable guard
 ```
 
@@ -83,5 +82,5 @@ Custom Chromium
   workarounds for specific headless-shell behavior. Re-evaluate after each
   major Chromium headless refactor. The `outerWidth`/`outerHeight` JS shim was
   removed in this audit; confirm during the next full integration run.
-- The `mediaDevices.enumerateDevices` JS shim should be removed once a custom
-  build includes Patch 11 (`--stealth-no-media-devices`).
+- `mediaDevices.enumerateDevices` is now handled by the `--stealth-no-media-devices`
+  native patch (Patch 11). No JS fallback should be re-added.

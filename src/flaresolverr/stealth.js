@@ -7,16 +7,12 @@
  *   - user agent and user-agent client hints (--user-agent command line)
  *   - WebGL vendor/renderer (--webgl-unmasked-*)
  *   - visualViewport coherence (--stealth-viewport-size)
+ *   - mediaDevices.enumerateDevices (--stealth-no-media-devices returns an empty
+ *     list natively)
  *   - performance.now: timing probes build a linear regression between
  *     performance.now() and Date.now(); an unjittered, microsecond-precise
  *     headless timer produces a near-perfect correlation. A small, bounded,
  *     monotonic noise floor breaks the correlation while leaving the API usable.
- *   - navigator.mediaDevices.enumerateDevices: headless/container environments
- *     often expose a small set of audio/video devices that are flagged as
- *     non-native by integrity probes. Returning an empty list keeps the API
- *     native while avoiding false-positive "fake device" findings. This is a
- *     temporary JS shim; the long-term fix is the --stealth-no-media-devices
- *     native C++ patch in chromium-patches/patches/apply.py.
  *   - Error.prepareStackTrace: a narrow guard that blocks CDP stack-trace
  *     probes from installing a non-native handler while keeping the property
  *     in its default undefined state. There is no reasonable source-level
@@ -24,27 +20,6 @@
  */
 (() => {
   try {
-    // Some headless/container environments expose audio/video devices that
-    // integrity probes classify as fake. Return an empty native list on the
-    // main frame only; a pristine same-origin iframe will still see the
-    // original native function so runtime-API integrity checks stay clean.
-    try {
-      if (window.self === window.top && navigator.mediaDevices) {
-        const orig = navigator.mediaDevices.enumerateDevices;
-        const emptyFn = function () {
-          return orig.apply(this, arguments).then(() => []);
-        };
-        emptyFn.toString = function () {
-          return "function enumerateDevices() { [native code] }";
-        };
-        Object.defineProperty(navigator.mediaDevices, "enumerateDevices", {
-          value: emptyFn,
-          writable: true,
-          configurable: true,
-        });
-      }
-    } catch (_) {}
-
     // Block CDP stack-trace probes from installing a non-native
     // Error.prepareStackTrace handler while keeping it undefined, matching
     // the default state of a real browser.

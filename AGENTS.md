@@ -52,7 +52,7 @@ npm run build
 - `--stealth-navigator-languages` and `--stealth-viewport-size` custom switches are forwarded by `apply.py` to renderer processes.
 - `navigator.hardwareConcurrency` is kept at a plausible value via CPU affinity (`_limit_cpu_affinity`) rather than JS patching.
 - `performance.now()` is patched by `stealth.js` with a bounded, monotonic jitter to defeat timing-resolution probes (e.g. `deviceandbrowserinfo.com`).
-- `navigator.mediaDevices.enumerateDevices` is overridden by `stealth.js` in the top frame only to return an empty list, avoiding integrity-probe false positives for container/headless default devices. The native equivalent is Patch 11 in `chromium-patches/patches/apply.py` (`--stealth-no-media-devices`), which will remove the need for the JS shim once the custom build includes it.
+- `navigator.mediaDevices.enumerateDevices` is handled natively by the `--stealth-no-media-devices` C++ patch (Patch 11). No JS shim is used.
 
 ## External Checks
 
