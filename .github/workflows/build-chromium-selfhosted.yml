@@ -141,8 +141,11 @@ jobs:
       - name: Revert patched files
         run: |
           cd "${{ env.CHROMIUM_ROOT }}/src"
-          python3 ${{ github.workspace }}/chromium-patches/patches/apply.py --list-files \
-            | xargs --no-run-if-empty git checkout --
+          python3 ${{ github.workspace }}/chromium-patches/patches/apply.py --list-files > /tmp/patched_files.txt
+          # Top-level Chromium files
+          grep -v '^v8/' /tmp/patched_files.txt | xargs --no-run-if-empty git checkout --
+          # V8 is a submodule; revert its files inside the v8 repository
+          grep '^v8/' /tmp/patched_files.txt | sed 's|^v8/||' | xargs --no-run-if-empty git -C v8 checkout --
 
       - name: Apply patches
         run: |
