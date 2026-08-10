@@ -19,3 +19,8 @@ services:
       - REQUIRE_AUTH=false
     ports:
       - "127.0.0.1:1080:1080"
+
+  go-httpbin:
+    image: mccutchen/go-httpbin:latest
+    ports:
+      - "127.0.0.1:8080:8080"

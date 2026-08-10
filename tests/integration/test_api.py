@@ -36,6 +36,14 @@ def _proxy_reachable(proxy_url: str) -> bool:
         return False
 
 
+def _httpbin_reachable(httpbin_url: str) -> bool:
+    try:
+        response = requests.get(f"{httpbin_url}/get", timeout=2)
+        return response.status_code == 200
+    except (requests.RequestException, OSError):
+        return False
+
+
 class TestFlareSolverr(unittest.TestCase):
     # Proxy URLs for tests - can be overridden via env vars
     # *_check_url: host-side address used only to verify the proxy is up before testing
@@ -126,6 +134,7 @@ class TestFlareSolverr(unittest.TestCase):
                 if i == 29:
                     raise
                 time.sleep(1)
+        cls.httpbin_reachable = _httpbin_reachable(cls.httpbin_url)
 
     @classmethod
     def tearDownClass(cls):
@@ -806,6 +815,8 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual("Challenge not detected!", body.message)
 
     def test_v1_endpoint_request_post_no_cloudflare(self):
+        if not self.httpbin_reachable:
+            self.skipTest("httpbin is not reachable (start go-httpbin on 127.0.0.1:8080)")
         res = self._request("POST", "/v1", {"cmd": "request.post", "url": self.post_url, "postData": "param1=value1&param2=value2"})
         self.assertEqual(res.status_code, 200)
 
@@ -873,6 +884,8 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual("Challenge not detected!", body.message)
 
     def test_v1_endpoint_request_post_raw_json_no_cloudflare(self):
+        if not self.httpbin_reachable:
+            self.skipTest("httpbin is not reachable (start go-httpbin on 127.0.0.1:8080)")
         raw_body = '{"key": "value", "num": 42}'
         res = self._request(
             "POST",

@@ -26,6 +26,12 @@ PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/in
 
 Integration tests are marked `integration` and excluded by default (`addopts = "-m 'not integration'"`).
 
+For the full `tests/integration/test_api.py` suite, start `go-httpbin` on `127.0.0.1:8080`:
+
+```bash
+docker compose -f docker-compose.integration.yml up -d go-httpbin
+```
+
 The companion `bot-web-challenge` project uses:
 
 ```bash
