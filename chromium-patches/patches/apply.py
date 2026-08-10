@@ -643,6 +643,81 @@ class PatchApplier:
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 9b: Forward the new --stealth-performance-now-jitter switch to
+        # renderer processes. The switch is already grouped with the other stealth
+        # switches above, but adding it explicitly keeps the list complete.
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 9b: forward --stealth-performance-now-jitter to renderer process")
+
+        self.patch(
+            "content/browser/renderer_host/render_process_host_impl.cc",
+            '      "stealth-no-media-devices",\n',
+            '      "stealth-no-media-devices",\n'
+            '      "stealth-performance-now-jitter",\n',
+            "forward --stealth-performance-now-jitter switch to renderer process",
+        )
+
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 13: --stealth-performance-now-jitter native monotonic jitter
+        # The JavaScript shim accumulates jitter in tight loops (last + jitter) and
+        # only covers the main frame. This native Blink patch applies bounded,
+        # non-accumulating noise to Performance::now() in every execution context.
+        # File: third_party/blink/renderer/core/timing/performance.cc/h
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 13: --stealth-performance-now-jitter native Performance::now jitter")
+
+        self.add_include(
+            "third_party/blink/renderer/core/timing/performance.cc",
+            '#include "base/command_line.h"',
+            after_patterns=[
+                '#include "base/time/time.h"',
+                '#include "base/task/single_thread_task_runner.h"',
+            ],
+        )
+
+        self.add_include(
+            "third_party/blink/renderer/core/timing/performance.cc",
+            '#include "base/rand_util.h"',
+            after_patterns=[
+                '#include "base/command_line.h"',
+            ],
+        )
+
+        self.patch(
+            "third_party/blink/renderer/core/timing/performance.h",
+            "  bool cross_origin_isolated_capability_;\n",
+            "  bool cross_origin_isolated_capability_;\n"
+            "\n"
+            "  // Stealth: state for --stealth-performance-now-jitter.\n"
+            "  // Mutable because Performance::now() is const.\n"
+            "  mutable DOMHighResTimeStamp last_reported_time_ = 0.0;\n",
+            "add jitter state to Performance class",
+        )
+
+        self.patch(
+            "third_party/blink/renderer/core/timing/performance.cc",
+            "DOMHighResTimeStamp Performance::now() const {\n"
+            "  return MonotonicTimeToDOMHighResTimeStamp(base::TimeTicks::Now());\n"
+            "}",
+            "DOMHighResTimeStamp Performance::now() const {\n"
+            "  double raw = MonotonicTimeToDOMHighResTimeStamp(base::TimeTicks::Now());\n"
+            "  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
+            '          "stealth-performance-now-jitter")) {\n'
+            "    return raw;\n"
+            "  }\n"
+            "  // Add bounded, monotonic noise to defeat timing probes that correlate\n"
+            "  // performance.now() with Date.now(). The reported value always stays\n"
+            "  // ahead of raw time and never produces zero-difference samples (which\n"
+            "  // integrity probes flag as inconsistent timing resolution).\n"
+            "  constexpr double kMaxJitter = 2.5;\n"
+            "  last_reported_time_ = std::max(raw, last_reported_time_ +\n"
+            "                                   base::RandDouble() * kMaxJitter);\n"
+            "  return last_reported_time_;\n"
+            "}",
+            "add native Performance::now jitter",
+        )
+
+        # ──────────────────────────────────────────────────────────────────────────────
 
     def get_patched_files(self) -> list[str]:
         """Return the deduplicated list of files that are touched by patches."""

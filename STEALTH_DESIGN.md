@@ -43,7 +43,7 @@ compatibility workarounds because the binary is not under our control.
 | console method replacement | Fallback JS only | `stealth_fallback.js` wraps `console.log` | C | Low-value; keep only in fallback if necessary. |
 | `speechSynthesis` fake voices | Fallback JS only | `stealth_fallback.js` inserts a fake voice | C | Low-value; fallback only. |
 | `navigator.plugins` / `mimeTypes` | Fallback JS only | `stealth_fallback.js` fakes plugin/mime arrays | C | Low-value; fallback only. |
-| `performance.now` timing jitter | Removed after ablation | Previously a native Blink patch; reverted because disabling it produced no detector regression and it introduced call-frequency-dependent time inflation | D | Stock `Performance::now()` behavior is sufficient with the other native patches. |
+| `performance.now` timing jitter | Native (Blink) | C++ patch `--stealth-performance-now-jitter` adds monotonic noise in `Performance::now()` | A | Ablating it caused `hasInconsistentTimingResolution: true` and `isAutomatedWithCDP: true` on deviceandbrowserinfo.com. Kept; the current unbounded random walk causes call-frequency time inflation and should be capped in a future iteration. |
 | `Error.prepareStackTrace` guard | Removed after ablation | Previously a native V8 flag; reverted because stock V8 does not expose `Error.prepareStackTrace` and disabling the flag produced no regression | D | Do not re-add; the property is not present in stock Chromium 151. |
 | `Function.prototype.toString` / descriptor disguises | Remove | Not present in current `stealth.js` | D | Do not re-add. |
 | Worker / SharedWorker constructor wrappers | Remove from custom | Only `stealth_fallback.js` wraps `window.Worker` | C | Custom Chromium uses native state, no wrappers. |

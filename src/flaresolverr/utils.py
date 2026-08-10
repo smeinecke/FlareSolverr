@@ -511,6 +511,8 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
         options.add_argument(f"--stealth-navigator-languages={get_config_accept_language()}")
         options.add_argument("--stealth-viewport-size")
         options.add_argument("--stealth-no-media-devices")
+        # Native Performance::now jitter replaces the JS shim (Patch 13).
+        options.add_argument("--stealth-performance-now-jitter")
         logger.debug("Applied custom Chromium stealth flags.")
 
     return options
