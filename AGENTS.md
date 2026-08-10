@@ -63,13 +63,9 @@ npm run build
 
 ## External Checks
 
-With the current stealth configuration, `https://deviceandbrowserinfo.com/are_you_a_bot` reports:
+The `bot-web-challenge` integration tests (`test_bot_challenge.py`) pass with only a `weak` `outer-eq-inner` finding and an `info`-level `runtime-api:integrity` finding for a page-local `console.log` wrapper.
 
-```json
-{ "isBot": false, "details": { ... all false ... } }
-```
-
-The `bot-web-challenge` integration tests (`test_bot_challenge.py`) pass with only an `info`-level `runtime-api:integrity` finding for a page-local `console.log` wrapper.
+`https://deviceandbrowserinfo.com/are_you_a_bot` has recently started reporting `isAutomatedWithCDP: true` for this environment; the same signal appears when running the previous custom build (with all native patches enabled) and stock Chrome, so it is not caused by the current patch configuration.
 
 Additional integration tests:
 
