@@ -43,8 +43,8 @@ compatibility workarounds because the binary is not under our control.
 | console method replacement | Fallback JS only | `stealth_fallback.js` wraps `console.log` | C | Low-value; keep only in fallback if necessary. |
 | `speechSynthesis` fake voices | Fallback JS only | `stealth_fallback.js` inserts a fake voice | C | Low-value; fallback only. |
 | `navigator.plugins` / `mimeTypes` | Fallback JS only | `stealth_fallback.js` fakes plugin/mime arrays | C | Low-value; fallback only. |
-| `performance.now` timing jitter | Native (Blink) | C++ patch `--stealth-performance-now-jitter` adds bounded, non-accumulating monotonic noise in `Performance::now()` | A | Defeats timing-resolution probes in all execution contexts (Window, Workers, iframes) without JS function-source disguises. |
-| `Error.prepareStackTrace` guard | Native (V8) | V8 flag `--stealth-error-prepare-stack-trace` installs a non-writable, undefined data property on `Error` during context bootstrap | A | Blocks stack-trace probes in all realms; no JS function-source disguises. |
+| `performance.now` timing jitter | Removed after ablation | Previously a native Blink patch; reverted because disabling it produced no detector regression and it introduced call-frequency-dependent time inflation | D | Stock `Performance::now()` behavior is sufficient with the other native patches. |
+| `Error.prepareStackTrace` guard | Removed after ablation | Previously a native V8 flag; reverted because stock V8 does not expose `Error.prepareStackTrace` and disabling the flag produced no regression | D | Do not re-add; the property is not present in stock Chromium 151. |
 | `Function.prototype.toString` / descriptor disguises | Remove | Not present in current `stealth.js` | D | Do not re-add. |
 | Worker / SharedWorker constructor wrappers | Remove from custom | Only `stealth_fallback.js` wraps `window.Worker` | C | Custom Chromium uses native state, no wrappers. |
 

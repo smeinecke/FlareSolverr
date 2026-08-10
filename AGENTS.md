@@ -57,8 +57,8 @@ npm run build
 - `--user-agent` command-line switch is used instead of CDP `Emulation.setUserAgentOverride` so the UA is consistent across main, dedicated worker and shared worker contexts.
 - `--stealth-navigator-languages` and `--stealth-viewport-size` custom switches are forwarded by `apply.py` to renderer processes.
 - `navigator.hardwareConcurrency` is kept at a plausible value via CPU affinity (`_limit_cpu_affinity`) rather than JS patching.
-- `performance.now()` is handled natively by the `--stealth-performance-now-jitter` C++ patch (Patch 13). No JS shim is used.
-- `Error.prepareStackTrace` is handled natively by the `--stealth-error-prepare-stack-trace` V8 flag (Patch 14). No JS shim is used.
+- `performance.now()` uses stock Chromium behavior; the native jitter patch was removed after ablation.
+- `Error.prepareStackTrace` uses stock V8 behavior; the non-writable property patch was removed after ablation.
 - `navigator.mediaDevices.enumerateDevices` is handled natively by the `--stealth-no-media-devices` C++ patch (Patch 11). No JS shim is used.
 
 ## External Checks
