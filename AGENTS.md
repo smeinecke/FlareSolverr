@@ -57,7 +57,7 @@ npm run build
 - `--user-agent` command-line switch is used instead of CDP `Emulation.setUserAgentOverride` so the UA is consistent across main, dedicated worker and shared worker contexts.
 - `--stealth-navigator-languages` and `--stealth-viewport-size` custom switches are forwarded by `apply.py` to renderer processes.
 - `navigator.hardwareConcurrency` is kept at a plausible value via CPU affinity (`_limit_cpu_affinity`) rather than JS patching.
-- `performance.now()` is handled natively by the `--stealth-performance-now-jitter` C++ patch (Patch 13). No JS shim is used.
+- `performance.now()` is handled natively by the `--stealth-performance-now-jitter` C++ patch (Patch 13). The reported value is kept within a 0.5 ms lead of Chromium's clamped monotonic clock while remaining non-decreasing. No JS shim is used.
 - `Error.prepareStackTrace` uses stock V8 behavior; the non-writable property patch was removed after ablation.
 - `navigator.mediaDevices.enumerateDevices` is handled natively by the `--stealth-no-media-devices` C++ patch (Patch 11). No JS shim is used.
 
@@ -65,13 +65,16 @@ npm run build
 
 The `bot-web-challenge` integration tests (`test_bot_challenge.py`) pass with only a `weak` `outer-eq-inner` finding and an `info`-level `runtime-api:integrity` finding for a page-local `console.log` wrapper.
 
-`https://deviceandbrowserinfo.com/are_you_a_bot` has recently started reporting `isAutomatedWithCDP: true` for this environment; the same signal appears when running the previous custom build (with all native patches enabled) and stock Chrome, so it is not caused by the current patch configuration.
+`https://deviceandbrowserinfo.com/are_you_a_bot` has recently started reporting `isAutomatedWithCDP: true` and `hasInconsistentTimingResolution: true` for this environment; both signals also appear with the previous unbounded-jitter custom build and with stock Chrome, so they are not regressions from the current patch configuration.
 
 Additional integration tests:
 
 ```bash
 # Event.isTrusted regression and cross-realm browser consistency
 PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/integration/test_event_istrusted.py tests/integration/test_browser_consistency.py -m integration -s
+
+# Performance::now bounded timing-jitter regression across main/iframe/DedicatedWorker/SharedWorker
+PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/integration/test_performance_now_jitter.py -m integration -s
 ```
 
 The consistency diagnostic lives in `src/flaresolverr/diagnostics.py` and is
