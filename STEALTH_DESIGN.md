@@ -34,8 +34,8 @@ compatibility workarounds because the binary is not under our control.
 | SharedWorker identity | Native / config | No custom JS wrapper | A/B | UA/languages should derive from common browser state. |
 | Permissions API | Native / config | Fallback JS overrides `navigator.permissions.query` for notifications; custom build uses no JS | B | Use Chromium profile / CDP permissions. No fabricated objects. |
 | `mediaDevices.enumerateDevices` | Native | C++ patch `--stealth-no-media-devices` returns an empty list | A | No JS shim. Native empty list is less fingerprintable than any fake or real device objects. |
-| WebGL vendor / renderer | Native (Blink) | C++ patch `--webgl-unmasked-vendor/renderer` | A | All WebGL contexts read same command-line value. |
-| WebGPU adapter info | Not currently customized | Not patched | A | Should be coherent with WebGL if GPU identity is spoofed. |
+| WebGL vendor / renderer | Native (Blink) | C++ patch `--webgl-unmasked-vendor/renderer` | A | All WebGL contexts read same command-line value. In `--headless=new` the GPU process uses `--use-gl=disabled`, so WebGL is unavailable and the spoof is dormant. With a real display (`HEADLESS=false`) the backend is the host GPU (NVIDIA on the test device) while WebGL still reports the spoofed Intel string — a latent incoherence. |
+| WebGPU adapter info | Not currently customized | Not patched | A | WebGPU is disabled in `--headless=new`. With a real display `navigator.gpu` is present but `requestAdapter()` returned no adapter in the test environment, so no WebGPU identity is currently exposable. If an adapter becomes available it must be coherent with the WebGL spoof or the spoof must not be used. |
 | screen / window / outer size | Config | `--window-size`, CDP `setDeviceMetricsOverride`; `outerWidth/outerHeight` JS shim removed | B | Native `outerWidth`/`outerHeight` values are now coherent with `--headless=new` and the chosen window size; the JS patch was removed after testing. |
 | visualViewport | Native (Blink) | C++ patch `--stealth-viewport-size` | B/A | Prevents `visualViewport` vs `innerWidth/innerHeight` mismatch in headless. May be removable if `--window-size` / CDP metrics are sufficient; under evaluation. |
 | ChromeDriver CDC artifacts | Native (ChromeDriver) | C++ patch removes `cdc_*` alias injection from chromedriver | A | Prevent marker creation, not page-side cleanup. |
@@ -68,15 +68,33 @@ Custom Chromium
 │   └── other session parameters
 │
 └── stealth.js
-    (empty for custom Chromium — all defences are now native)
+    (empty for custom Chromium — all defences are now native; the empty CDP
+    injection could be removed, but the file is kept as a placeholder for any
+    future JS-only defence that cannot be moved to the native layer immediately.)
 ```
+
+## GPU architecture comparison
+
+Collected with `tests/integration/test_gpu_architecture.py` on the local test
+host (NVIDIA GeForce RTX 2080, driver 610.57.04).
+
+| Configuration | Actual GL backend | WebGL `UNMASKED_VENDOR/RENDERER` | WebGPU | Coherence |
+|---------------|-------------------|----------------------------------|--------|-----------|
+| Custom build, `HEADLESS=true` (`--headless=new`) | `gl=disabled` (GPU process `--use-gl=disabled`) | No WebGL context; spoof not exercised | `navigator.gpu` present, `requestAdapter()` returns no adapter; feature status `disabled_off` | Coherent: all graphics disabled |
+| Custom build, `HEADLESS=false` | `ANGLE (NVIDIA ... OpenGL 4.5)` | `Intel Inc.` / `Intel(R) Iris(TM) Graphics 6100` (both WebGL1 and WebGL2) | `navigator.gpu` present, `requestAdapter()` returns no adapter | Incoherent: WebGL claims Intel while the GPU is NVIDIA; no WebGPU adapter exposed |
+| Stock Chrome 151.0.7922.108, `HEADLESS=true` | `gl=disabled` | No WebGL context | Same disabled state | Coherent: all graphics disabled |
+| Stock Chrome 151.0.7922.108, `HEADLESS=false` | `ANGLE (NVIDIA ... OpenGL 4.5)` | `Google Inc. (NVIDIA Corporation)` / `ANGLE (NVIDIA ...)` | `navigator.gpu` present, `requestAdapter()` returns no adapter | Coherent: WebGL matches the actual GPU; no WebGPU adapter exposed |
 
 ## Upgrade maintenance notes
 
 - The `[RuntimeEnabled=AutomationControlled]` webdriver gate depends on Blink
   IDL runtime features. If upstream moves the file, update `apply.py`.
-- GPU identity should move deeper into ANGLE / Skia / Dawn as the spoofing
-  scope grows; avoid duplicating WebGL and WebGPU values.
+- GPU identity is currently coherent in `--headless=new` because the GPU
+  process is disabled. The `--use-gl=swiftshader` launch flag is misleading in
+  this mode: the actual GPU process command line becomes `--use-gl=disabled`.
+  If the custom build is later run with a real display, the WebGL spoof will
+  contradict the actual GPU (e.g. NVIDIA on the test device) and must be
+  redesigned or removed.
 - Headless `outerWidth` / `outerHeight` / `visualViewport` patches are
   workarounds for specific headless-shell behavior. Re-evaluate after each
   major Chromium headless refactor. The `outerWidth`/`outerHeight` JS shim was

@@ -60,6 +60,7 @@ npm run build
 - `performance.now()` uses stock Chromium behavior. The native timing jitter patch (Patch 13) was removed after ablation showed no reproducible difference from stock Chrome on the external timing signal and no internal regression.
 - `Error.prepareStackTrace` uses stock V8 behavior; the non-writable property patch was removed after ablation.
 - `navigator.mediaDevices.enumerateDevices` is handled natively by the `--stealth-no-media-devices` C++ patch (Patch 11). No JS shim is used.
+- GPU / graphics identity is collected by `tests/integration/test_gpu_architecture.py` using CDP `SystemInfo.getInfo` and cross-realm page probes. In `--headless=new` the actual GL backend is `disabled` and WebGL/WebGPU are unavailable, keeping the WebGL spoof dormant and internally coherent. With a real display the backend is the host GPU, while `UNMASKED_VENDOR/RENDERER` are still spoofed to Intel, creating a latent incoherence.
 
 ## External Checks
 
@@ -72,6 +73,9 @@ Additional integration tests:
 ```bash
 # Event.isTrusted regression and cross-realm browser consistency
 PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/integration/test_event_istrusted.py tests/integration/test_browser_consistency.py -m integration -s
+
+# GPU / graphics identity diagnostic (custom build; compare with stock via CHROME_EXE_PATH / GPU_DIAG_VARIANT=stock)
+PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/integration/test_gpu_architecture.py -m integration -s
 ```
 
 The consistency diagnostic lives in `src/flaresolverr/diagnostics.py` and is
@@ -92,7 +96,7 @@ Remaining native patches in `chromium-patches/patches/apply.py` and their status
 | Patch | Signal | Justification | Runtime ablatable? | Notes |
 |-------|--------|---------------|--------------------|-------|
 | 2 | `navigator.webdriver` absent | Strong bot-detection signal; stock headless exposes `navigator.webdriver = true` | No (IDL annotation) | Required. Absence is verified by critical checks. |
-| 3 | WebGL vendor/renderer | Headless/container GPU strings (`Google SwiftShader`, `llvmpipe`) are detectable | No (C++ switch read) | Required for WebGL `UNMASKED_VENDOR/RENDERER`. |
+| 3 | WebGL vendor/renderer | Headless/container GPU strings (`Google SwiftShader`, `llvmpipe`) are detectable | No (C++ switch read) | Required for WebGL `UNMASKED_VENDOR/RENDERER`. Dormant in `--headless=new` (GPU process disabled); with a real display the WebGL string does not match the actual host GPU, creating a latent incoherence. |
 | 6 | `HeadlessChrome` → `Chrome` in UA | `HeadlessChrome` token in `navigator.userAgent` is a strong signal | No (constant string) | Required unless using non-headless mode. |
 | 7 | `visualViewport` matches `innerWidth/Height` | Headless can expose visual/layout viewport mismatch | Yes (`--stealth-viewport-size`) | Ablate by not passing the switch. |
 | 8/10 | `navigator.languages` / ICU locale | Headless may return `[]` or OS-only locale, mismatching `Accept-Language` and `Intl` | Yes (`--stealth-navigator-languages`) | Ablate by not passing the switch; watch `navigator.languages` and `Intl` consistency. |
@@ -101,6 +105,46 @@ Remaining native patches in `chromium-patches/patches/apply.py` and their status
 | 12 | Remove ChromeDriver CDC alias | `window.cdc_*` is a well-known automation marker | No (chromedriver source patch) | Required while any ChromeDriver path is used. |
 
 Patches already removed: 1 (trusted synthetic events), 13 (`performance.now` jitter), 14 (`Error.prepareStackTrace` guard), plus the switch-forwarding Patch 9b for Patch 13.
+
+## Audit Findings (graphics, locale, viewport)
+
+### Graphics / GPU identity
+
+Run `tests/integration/test_gpu_architecture.py` to collect the data saved to
+`FLARESOLVERR_GPU_DIAG` (default `/tmp/gpu_architecture_<variant>.json`).
+
+- **Headless (`--headless=new`) custom build**: actual GL backend is
+  `gl=disabled` (`GPU process --use-gl=disabled`); `webgl` and `webgpu` feature
+  status are `disabled_off`. WebGL contexts cannot be created, so the
+  `--webgl-unmasked-*` spoof is dormant and the graphics stack is internally
+  coherent.
+- **Headless stock Chrome 151.0.7922.108**: same disabled GPU state;
+  `navigator.webdriver` is `false` (not `undefined/null` as in custom) and
+  `enumerateDevices` returns 3 default devices unless the fallback JS is active.
+- **Headed custom build (`HEADLESS=false`) on the test device**: the actual
+  backend is the host GPU (`ANGLE (NVIDIA Corporation, NVIDIA GeForce
+  RTX 2080/PCIe/SSE2, OpenGL 4.5.0 NVIDIA 610.57.04)`), while `WebGL
+  UNMASKED_VENDOR/RENDERER` are still spoofed to `Intel Inc.` / `Intel(R) Iris(TM)
+  Graphics 6100`. This is a latent cross-API incoherence. `navigator.gpu` is
+  present but `requestAdapter()` returns no adapter in the test environment, so
+  no WebGPU identity is currently exposable.
+
+### Locale / language
+
+- Custom build with `--stealth-navigator-languages=en-US,en` keeps
+  `navigator.languages`, `navigator.language`, `Intl.DateTimeFormat`, and worker
+  contexts at `en-US` consistently.
+- Stock headless shows `de-DE,de` in the DedicatedWorker while main/iframe report
+  `en-US,en`, demonstrating a cross-realm language inconsistency that the custom
+  patch fixes.
+
+### Viewport / screen
+
+- Custom headless: `outerWidth/Height = 1920/1080`, `innerWidth/Height =
+  1920/1080`, `visualViewport = 1920/1080`, `screen = 1920/1080`.
+- Stock headless: `screen = 800/600`, `inner = 1920/993`, `outer = 1920/1080`,
+  `visualViewport` matches `inner`. The custom CDP/flag configuration keeps a
+  more consistent desktop-like viewport.
 
 ## Stealth Design
 

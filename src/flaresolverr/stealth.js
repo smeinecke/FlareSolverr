@@ -8,7 +8,6 @@
  *   - WebGL vendor/renderer (--webgl-unmasked-*)
  *   - visualViewport coherence (--stealth-viewport-size)
  *   - mediaDevices.enumerateDevices (--stealth-no-media-devices)
- *   - performance.now jitter (--stealth-performance-now-jitter)
  *
  * This file is intentionally empty for custom Chromium. It is still loaded via
  * CDP so that the injection path exists, but it performs no page-side
