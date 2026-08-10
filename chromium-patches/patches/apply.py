@@ -715,7 +715,7 @@ class PatchApplier:
             "  // underlying clock, so repeated calls cannot inflate elapsed time beyond\n"
             "  // that bound.  Monotonicity is preserved by only increasing the lead\n"
             "  // while the underlying clock catches up.\n"
-            "  constexpr double kMaxPerformanceNowJitterMs = 2.5;\n"
+            "  constexpr double kMaxPerformanceNowJitterMs = 0.5;\n"
             "\n"
             "  // Lead is how far ahead the last reported value was compared to the\n"
             "  // current raw value.  It is bounded to [0, kMaxPerformanceNowJitterMs].\n"

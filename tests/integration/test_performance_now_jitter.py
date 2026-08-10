@@ -41,7 +41,7 @@ PERFORMANCE_NOW_SEMANTICS_SCRIPT = """
 (() => {
   const done = arguments[arguments.length - 1];
 
-  const MAX_JITTER = 2.5;  // ms, must match Patch 13 kMaxPerformanceNowJitterMs
+  const MAX_JITTER = 0.5;  // ms, must match Patch 13 kMaxPerformanceNowJitterMs
   const TIGHT_LOOP_COUNT = 1000;
   const REAL_DELAY_MS = 200;
 
@@ -122,7 +122,7 @@ PERFORMANCE_NOW_SEMANTICS_SCRIPT = """
   const blobUrl = (script) => URL.createObjectURL(new Blob([script], { type: "application/javascript" }));
 
   const dedicatedScript = `
-    const MAX_JITTER = 2.5;
+    const MAX_JITTER = 0.5;
     const TIGHT_LOOP_COUNT = 1000;
     const REAL_DELAY_MS = 200;
 
@@ -168,7 +168,7 @@ PERFORMANCE_NOW_SEMANTICS_SCRIPT = """
   const sharedScript = `
     self.onconnect = (e) => {
       const port = e.ports[0];
-      const MAX_JITTER = 2.5;
+      const MAX_JITTER = 0.5;
       const TIGHT_LOOP_COUNT = 1000;
       const REAL_DELAY_MS = 200;
 
