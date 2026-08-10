@@ -20,7 +20,7 @@ import html as html_module
 import json
 
 # Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 try:
     from flaresolverr.dtos import V1ResponseBase, STATUS_OK
@@ -29,7 +29,7 @@ except ImportError as e:
     # Allow test collection to work even if flaresolverr isn't installed
     V1ResponseBase = dict
     STATUS_OK = "ok"
-    utils = type('utils', (), {'get_flaresolverr_version': lambda: 'test'})()
+    utils = type("utils", (), {"get_flaresolverr_version": lambda: "test"})()
 
 pytestmark = pytest.mark.integration
 
@@ -73,7 +73,7 @@ class TestBotChallenge(unittest.TestCase):
         """Extract JSON results from challenge page HTML output."""
 
         # Find JSON in <pre><code> block from showJSONOutput()
-        match = re.search(r'<pre[^>]*><code[^>]*>(.*?)</code></pre>', html, re.DOTALL)
+        match = re.search(r"<pre[^>]*><code[^>]*>(.*?)</code></pre>", html, re.DOTALL)
         if match:
             json_str = html_module.unescape(match.group(1))
             try:
@@ -84,31 +84,22 @@ class TestBotChallenge(unittest.TestCase):
 
     def _assert_no_medium_or_higher_findings(self, summary, scored_artifacts):
         """Semantic check: only info/weak findings are acceptable."""
-        self.assertEqual(summary.get("mediumFindings", 0), 0,
-                         f"Unexpected medium findings: {scored_artifacts}")
-        self.assertEqual(summary.get("strongFindings", 0), 0,
-                         f"Unexpected strong findings: {scored_artifacts}")
-        self.assertEqual(summary.get("hardFindings", 0), 0,
-                         f"Unexpected hard findings: {scored_artifacts}")
+        self.assertEqual(summary.get("mediumFindings", 0), 0, f"Unexpected medium findings: {scored_artifacts}")
+        self.assertEqual(summary.get("strongFindings", 0), 0, f"Unexpected strong findings: {scored_artifacts}")
+        self.assertEqual(summary.get("hardFindings", 0), 0, f"Unexpected hard findings: {scored_artifacts}")
 
     def _assert_summary_human(self, summary, scored_artifacts):
         """Semantic check: the page's own verdict must classify the browser as human."""
-        self.assertEqual(summary.get("verdict"), "human",
-                         f"Challenge verdict was not 'human': {scored_artifacts}")
-        self.assertFalse(summary.get("botDetected"),
-                         f"Challenge reports botDetected=true: {scored_artifacts}")
-        self.assertIn(summary.get("risk", ""), ("low", "none"),
-                      f"Challenge risk is not low/none: {scored_artifacts}")
+        self.assertEqual(summary.get("verdict"), "human", f"Challenge verdict was not 'human': {scored_artifacts}")
+        self.assertFalse(summary.get("botDetected"), f"Challenge reports botDetected=true: {scored_artifacts}")
+        self.assertIn(summary.get("risk", ""), ("low", "none"), f"Challenge risk is not low/none: {scored_artifacts}")
 
     def _build_diagnostics(self, results):
         """Return an opinionated diagnostics dict for failed test output."""
         return {
             "summary": results.get("summary"),
             "scoredArtifacts": results.get("scoredArtifacts", []),
-            "failedTests": {
-                name: data for name, data in results.get("tests", {}).items()
-                if not data.get("passed", False)
-            },
+            "failedTests": {name: data for name, data in results.get("tests", {}).items() if not data.get("passed", False)},
         }
 
     def _print_diagnostics(self, diagnostics):
@@ -141,7 +132,7 @@ class TestBotChallenge(unittest.TestCase):
                     {"type": "click", "selector": "//button[@onclick='showJSONOutput()']"},
                     {"type": "wait_for", "selector": "//pre/code", "timeout": 5000},
                 ],
-            }
+            },
         )
         self.assertEqual(res.status_code, 200)
 
@@ -166,11 +157,9 @@ class TestBotChallenge(unittest.TestCase):
 
         for test_name in critical_tests:
             with self.subTest(check=test_name):
-                self.assertIn(test_name, results["tests"],
-                            f"{test_name} should be present in test results")
+                self.assertIn(test_name, results["tests"], f"{test_name} should be present in test results")
                 test_result = results["tests"][test_name]
-                self.assertTrue(test_result.get("passed", False),
-                              f"{test_name} should pass - critical stealth failure")
+                self.assertTrue(test_result.get("passed", False), f"{test_name} should pass - critical stealth failure")
 
         summary = results["summary"]
         scored_artifacts = results.get("scoredArtifacts", [])
@@ -237,12 +226,10 @@ class TestBotChallenge(unittest.TestCase):
         ]
 
         for test_name in interaction_tests:
-            self.assertIn(test_name, results["tests"],
-                        f"{test_name} should be present in interaction results")
+            self.assertIn(test_name, results["tests"], f"{test_name} should be present in interaction results")
 
         # Log all failed tests for analysis
-        failed_tests = [name for name, data in results["tests"].items()
-                       if not data.get("passed", False)]
+        failed_tests = [name for name, data in results["tests"].items() if not data.get("passed", False)]
         if failed_tests:
             print(f"\nDetected interaction bot indicators: {failed_tests}")
 
@@ -266,7 +253,7 @@ class TestBotChallenge(unittest.TestCase):
                     {"type": "click", "selector": "//button[@onclick='showJSONOutput()']"},
                     {"type": "wait_for", "selector": "//pre/code", "timeout": 5000},
                 ],
-            }
+            },
         )
         self.assertEqual(res.status_code, 200)
 
@@ -286,12 +273,26 @@ class TestBotChallenge(unittest.TestCase):
         # Verify summary structure (current challenge schema)
         summary = results["summary"]
         required_summary_fields = [
-            "totalTests", "passed", "finding", "inconclusive",
-            "infoFindings", "weakFindings", "mediumFindings", "strongFindings",
-            "hardFindings", "score", "verdict", "botDetected", "suspicious",
-            "coverage", "criticalChecksTotal", "criticalChecksCompleted",
-            "criticalChecksInconclusive", "uniqueEvidenceCount",
-            "independentCategoryCount", "verdictRule",
+            "totalTests",
+            "passed",
+            "finding",
+            "inconclusive",
+            "infoFindings",
+            "weakFindings",
+            "mediumFindings",
+            "strongFindings",
+            "hardFindings",
+            "score",
+            "verdict",
+            "botDetected",
+            "suspicious",
+            "coverage",
+            "criticalChecksTotal",
+            "criticalChecksCompleted",
+            "criticalChecksInconclusive",
+            "uniqueEvidenceCount",
+            "independentCategoryCount",
+            "verdictRule",
         ]
         for field in required_summary_fields:
             self.assertIn(field, summary, f"Summary should contain '{field}'")
@@ -307,6 +308,13 @@ class TestBotChallenge(unittest.TestCase):
         try:
             with open(diag_path, "w") as f:
                 json.dump(diagnostics, f, indent=2, default=str)
+        except OSError:
+            pass
+
+        full_path = os.environ.get("FLARESOLVERR_CHALLENGE_FULL", "/tmp/flaresolverr_challenge_full.json")
+        try:
+            with open(full_path, "w") as f:
+                json.dump(results, f, indent=2, default=str)
         except OSError:
             pass
 
