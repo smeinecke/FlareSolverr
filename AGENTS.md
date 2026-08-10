@@ -79,6 +79,29 @@ invoked by `diagnostics.collect_browser_consistency(driver, page_url=...)`.
 It should be run against an http/https origin (not `data:`) so that
 Worker/SharedWorker construction and `navigator.userAgentData` are available.
 
+## Patch Justification Audit
+
+Last full no-Patch-13 bot-web-challenge baseline saved by `test_bot_challenge.py` to
+`FLARESOLVERR_CHALLENGE_FULL` (e.g. `/tmp/baseline/bot_challenge_full_no_p13.json`)
+when run against the current custom Chromium build. Verdict: `human`, risk `low`,
+zero medium/strong/hard findings, `timing:integrity` passed,
+`hasCrossRealmInconsistency` passed, `hasSyntheticEventTrustedInvariant` passed.
+
+Remaining native patches in `chromium-patches/patches/apply.py` and their status:
+
+| Patch | Signal | Justification | Runtime ablatable? | Notes |
+|-------|--------|---------------|--------------------|-------|
+| 2 | `navigator.webdriver` absent | Strong bot-detection signal; stock headless exposes `navigator.webdriver = true` | No (IDL annotation) | Required. Absence is verified by critical checks. |
+| 3 | WebGL vendor/renderer | Headless/container GPU strings (`Google SwiftShader`, `llvmpipe`) are detectable | No (C++ switch read) | Required for WebGL `UNMASKED_VENDOR/RENDERER`. |
+| 6 | `HeadlessChrome` → `Chrome` in UA | `HeadlessChrome` token in `navigator.userAgent` is a strong signal | No (constant string) | Required unless using non-headless mode. |
+| 7 | `visualViewport` matches `innerWidth/Height` | Headless can expose visual/layout viewport mismatch | Yes (`--stealth-viewport-size`) | Ablate by not passing the switch. |
+| 8/10 | `navigator.languages` / ICU locale | Headless may return `[]` or OS-only locale, mismatching `Accept-Language` and `Intl` | Yes (`--stealth-navigator-languages`) | Ablate by not passing the switch; watch `navigator.languages` and `Intl` consistency. |
+| 9 | Forward stealth switches to renderers | Required for any switch-based patch to reach workers/iframes | No (mechanical) | Required infrastructure. |
+| 11 | `enumerateDevices()` returns empty | Headless may expose default/fake media devices | Yes (`--stealth-no-media-devices`) | Ablate by not passing the switch; watch `hasInconsistentMediaDevices`. |
+| 12 | Remove ChromeDriver CDC alias | `window.cdc_*` is a well-known automation marker | No (chromedriver source patch) | Required while any ChromeDriver path is used. |
+
+Patches already removed: 1 (trusted synthetic events), 13 (`performance.now` jitter), 14 (`Error.prepareStackTrace` guard), plus the switch-forwarding Patch 9b for Patch 13.
+
 ## Stealth Design
 
 See `STEALTH_DESIGN.md` for the full ownership inventory of every stealth
