@@ -690,7 +690,6 @@ class PatchApplier:
             "\n"
             "  // Stealth: state for --stealth-performance-now-jitter.\n"
             "  // Mutable because Performance::now() is const.\n"
-            "  mutable DOMHighResTimeStamp last_raw_time_ = 0.0;\n"
             "  mutable DOMHighResTimeStamp last_reported_time_ = 0.0;\n",
             "add jitter state to Performance class",
         )
@@ -706,17 +705,13 @@ class PatchApplier:
             '          "stealth-performance-now-jitter")) {\n'
             "    return raw;\n"
             "  }\n"
-            "  // Bounded, non-accumulating monotonic noise. The reported value is\n"
-            "  // always within [raw, raw + kMaxJitter] and does not advance in tight\n"
-            "  // loops because a new offset is only drawn when raw time increases.\n"
+            "  // Add bounded, monotonic noise to defeat timing probes that correlate\n"
+            "  // performance.now() with Date.now(). The reported value always stays\n"
+            "  // ahead of raw time and never produces zero-difference samples (which\n"
+            "  // integrity probes flag as inconsistent timing resolution).\n"
             "  constexpr double kMaxJitter = 2.5;\n"
-            "  if (raw > last_raw_time_) {\n"
-            "    last_raw_time_ = raw;\n"
-            "    double candidate = raw + base::RandDouble() * kMaxJitter;\n"
-            "    if (candidate > last_reported_time_) {\n"
-            "      last_reported_time_ = candidate;\n"
-            "    }\n"
-            "  }\n"
+            "  last_reported_time_ = std::max(raw, last_reported_time_ +\n"
+            "                                   base::RandDouble() * kMaxJitter);\n"
             "  return last_reported_time_;\n"
             "}",
             "add native Performance::now jitter",
