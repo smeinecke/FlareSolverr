@@ -658,13 +658,16 @@ class PatchApplier:
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 13: --stealth-performance-now-jitter native monotonic jitter
-        # The JavaScript shim accumulates jitter in tight loops (last + jitter) and
-        # only covers the main frame. This native Blink patch applies bounded,
-        # non-accumulating noise to Performance::now() in every execution context.
+        # Patch 13: --stealth-performance-now-jitter native bounded timing jitter
+        # The previous implementation used an unbounded random walk, which allowed
+        # repeated calls to performance.now() to inflate reported time by ~1.3 s
+        # while only ~0.15 s of real time elapsed. The new implementation keeps the
+        # reported value within a small fixed lead of Chromium's clamped monotonic
+        # clock while preserving monotonicity.  It is applied in every execution
+        # context (Window, iframe, DedicatedWorker, SharedWorker).
         # File: third_party/blink/renderer/core/timing/performance.cc/h
         # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 13: --stealth-performance-now-jitter native Performance::now jitter")
+        print("Patch 13: --stealth-performance-now-jitter native bounded Performance::now jitter")
 
         self.add_include(
             "third_party/blink/renderer/core/timing/performance.cc",
@@ -688,7 +691,7 @@ class PatchApplier:
             "  bool cross_origin_isolated_capability_;\n",
             "  bool cross_origin_isolated_capability_;\n"
             "\n"
-            "  // Stealth: state for --stealth-performance-now-jitter.\n"
+            "  // Stealth: bounded jitter state for --stealth-performance-now-jitter.\n"
             "  // Mutable because Performance::now() is const.\n"
             "  mutable DOMHighResTimeStamp last_reported_time_ = 0.0;\n",
             "add jitter state to Performance class",
@@ -700,21 +703,33 @@ class PatchApplier:
             "  return MonotonicTimeToDOMHighResTimeStamp(base::TimeTicks::Now());\n"
             "}",
             "DOMHighResTimeStamp Performance::now() const {\n"
+            "  // Raw clamped monotonic time (ms) since the Performance time origin.\n"
             "  double raw = MonotonicTimeToDOMHighResTimeStamp(base::TimeTicks::Now());\n"
             "  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(\n"
             '          "stealth-performance-now-jitter")) {\n'
             "    return raw;\n"
             "  }\n"
-            "  // Add bounded, monotonic noise to defeat timing probes that correlate\n"
-            "  // performance.now() with Date.now(). The reported value always stays\n"
-            "  // ahead of raw time and never produces zero-difference samples (which\n"
-            "  // integrity probes flag as inconsistent timing resolution).\n"
-            "  constexpr double kMaxJitter = 2.5;\n"
-            "  last_reported_time_ = std::max(raw, last_reported_time_ +\n"
-            "                                   base::RandDouble() * kMaxJitter);\n"
+            "\n"
+            "  // Apply a bounded, monotonic jitter to the clamped monotonic timestamp.\n"
+            "  // The reported time is always kept within a small fixed lead of the\n"
+            "  // underlying clock, so repeated calls cannot inflate elapsed time beyond\n"
+            "  // that bound.  Monotonicity is preserved by only increasing the lead\n"
+            "  // while the underlying clock catches up.\n"
+            "  constexpr double kMaxPerformanceNowJitterMs = 0.5;\n"
+            "\n"
+            "  // Lead is how far ahead the last reported value was compared to the\n"
+            "  // current raw value.  It is bounded to [0, kMaxPerformanceNowJitterMs].\n"
+            "  double lead = last_reported_time_ - raw;\n"
+            "  if (lead < 0.0) {\n"
+            "    lead = 0.0;\n"
+            "  }\n"
+            "  lead = std::min(kMaxPerformanceNowJitterMs,\n"
+            "                  lead + base::RandDouble() * kMaxPerformanceNowJitterMs);\n"
+            "\n"
+            "  last_reported_time_ = raw + lead;\n"
             "  return last_reported_time_;\n"
             "}",
-            "add native Performance::now jitter",
+            "add bounded Performance::now jitter",
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
