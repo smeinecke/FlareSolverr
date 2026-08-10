@@ -238,85 +238,6 @@ class PatchApplier:
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 3: WebGL vendor/renderer command-line override
-        # Chrome 112+ uses WebGLDebugRendererInfo enum values instead of GL_UNMASKED_*.
-        # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 3: --webgl-unmasked-vendor / --webgl-unmasked-renderer")
-
-        self.add_include(
-            "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc",
-            '#include "base/command_line.h"',
-            after_patterns=[
-                '#include "base/feature_list.h"',
-                '#include "base/notimplemented.h"',
-                '#include "base/trace_event/trace_event.h"',
-                '#include "base/atomic_sequence_num.h"',
-                '#include "base/check.h"',
-                '#include "base/check_op.h"',
-                '#include "base/notreached.h"',
-            ],
-        )
-
-        # Chrome 112+: UNMASKED uses WebGLDebugRendererInfo enum + ContextGL()->GetString()
-        self.patch(
-            "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc",
-            "    case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:\n"
-            "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
-            "        return WebGLAny(script_state,\n"
-            "                        String(ContextGL()->GetString(GL_RENDERER)));\n"
-            "      }\n"
-            "      SynthesizeGLError(\n"
-            '          GL_INVALID_ENUM, "getParameter",\n'
-            '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-            "      return ScriptValue::CreateNull(script_state->GetIsolate());\n"
-            "    case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:\n"
-            "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
-            "        return WebGLAny(script_state,\n"
-            "                        String(ContextGL()->GetString(GL_VENDOR)));\n"
-            "      }\n"
-            "      SynthesizeGLError(\n"
-            '          GL_INVALID_ENUM, "getParameter",\n'
-            '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-            "      return ScriptValue::CreateNull(script_state->GetIsolate());",
-            (
-                "    case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:\n"
-                "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
-                '        if (base::CommandLine::ForCurrentProcess()->HasSwitch("webgl-unmasked-renderer")) {\n'
-                "          return WebGLAny(script_state, String(base::CommandLine::ForCurrentProcess()\n"
-                '                                                   ->GetSwitchValueASCII("webgl-unmasked-renderer")));\n'
-                "        }\n"
-                "        return WebGLAny(script_state,\n"
-                "                        String(ContextGL()->GetString(GL_RENDERER)));\n"
-                "      }\n"
-                "      SynthesizeGLError(\n"
-                '          GL_INVALID_ENUM, "getParameter",\n'
-                '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-                "      return ScriptValue::CreateNull(script_state->GetIsolate());\n"
-                "    case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:\n"
-                "      if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {\n"
-                '        if (base::CommandLine::ForCurrentProcess()->HasSwitch("webgl-unmasked-vendor")) {\n'
-                "          return WebGLAny(script_state, String(base::CommandLine::ForCurrentProcess()\n"
-                '                                                   ->GetSwitchValueASCII("webgl-unmasked-vendor")));\n'
-                "        }\n"
-                "        return WebGLAny(script_state,\n"
-                "                        String(ContextGL()->GetString(GL_VENDOR)));\n"
-                "      }\n"
-                "      SynthesizeGLError(\n"
-                '          GL_INVALID_ENUM, "getParameter",\n'
-                '          "invalid parameter name, WEBGL_debug_renderer_info not enabled");\n'
-                "      return ScriptValue::CreateNull(script_state->GetIsolate());"
-            ),
-            "intercept UNMASKED_VENDOR/RENDERER (Chrome 112+ enum style)",
-            fallbacks=[
-                # Older Chrome uses GL_UNMASKED_* integer constants directly
-                "    case GL_UNMASKED_VENDOR_WEBGL:\n"
-                '      return WebGLAny(script_state, String("WebKit"));\n'
-                "    case GL_UNMASKED_RENDERER_WEBGL:\n"
-                '      return WebGLAny(script_state, String("WebKit"));',
-            ],
-        )
-
-        # ──────────────────────────────────────────────────────────────────────────────
         # Patch 6: Remove "HeadlessChrome" product name token from UA string and
         # userAgentData brand lists - replace with plain "Chrome" so headless mode
         # is indistinguishable from a normal browser UA.
@@ -504,8 +425,6 @@ class PatchApplier:
             "      switches::kWebRtcMaxCaptureFramerate,",
             (
                 "      // Forward custom stealth switches to renderer processes.\n"
-                '      "webgl-unmasked-vendor",\n'
-                '      "webgl-unmasked-renderer",\n'
                 '      "stealth-navigator-languages",\n'
                 '      "stealth-viewport-size",\n'
                 '      "stealth-no-media-devices",\n'

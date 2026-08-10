@@ -5,9 +5,10 @@
  *   - navigator.webdriver (--disable-blink-features=AutomationControlled)
  *   - navigator.languages / language (--stealth-navigator-languages)
  *   - user agent and user-agent client hints (--user-agent command line)
- *   - WebGL vendor/renderer (--webgl-unmasked-*)
  *   - visualViewport coherence (--stealth-viewport-size)
  *   - mediaDevices.enumerateDevices (--stealth-no-media-devices)
+ *   - WebGL vendor/renderer is intentionally not spoofed; it exposes the
+ *     natural ANGLE/GPU identity for internal consistency.
  *
  * This file is intentionally empty for custom Chromium. It is still loaded via
  * CDP so that the injection path exists, but it performs no page-side

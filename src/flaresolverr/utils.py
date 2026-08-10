@@ -463,12 +463,10 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
     if platform.machine().startswith(("arm", "aarch")):
         options.add_argument("--disable-gpu-sandbox")
 
-    if get_config_headless() and os.name != "nt":
-        # Force SwiftShader (software GL) so the GPU process doesn't try to
-        # open a real GL context and crash with a CHECK failure when no GPU is
-        # available (e.g. CI, Docker, headless servers).  WebGL still works via
-        # SwiftShader; --webgl-unmasked-* flags still override the fingerprint.
-        options.add_argument("--use-gl=swiftshader")
+    # In --headless=new / ozone-platform=headless the GPU process is disabled
+    # regardless of --use-gl, so no GL context is opened. The old
+    # --use-gl=swiftshader flag is stale; omit it to keep the command line
+    # honest and avoid the false impression that SwiftShader is the backend.
 
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
@@ -503,8 +501,8 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
         # C++ flags; no JavaScript replacement needed.
         # --enable-trusted-synthetic-events was removed: synthetic events must
         # not be reported as trusted globally.
-        options.add_argument("--webgl-unmasked-vendor=Intel Inc.")
-        options.add_argument("--webgl-unmasked-renderer=Intel(R) Iris(TM) Graphics 6100")
+        # The WebGL vendor/renderer spoof (Patch 3) has been removed as an
+        # ablation; the natural ANGLE/GPU identity is exposed instead.
         # The value of this switch is the underlying navigator.languages state
         # consumed by all execution contexts. The C++ patch in apply.py parses
         # the comma-separated list so Window/Worker/SharedWorker stay coherent.
@@ -733,12 +731,10 @@ def _maybe_apply_stealth(driver: WebDriver, effective_stealth_mode: str) -> None
 
     try:
         if _is_custom_chromium():
-            # Native Chromium handles WebGL, languages and identity flags.
-            # CDP/Page.addScriptToEvaluateOnNewDocument applies a minimal stealth.js
-            # for remaining timing/stack-trace probes; it does NOT patch
-            # Navigator.prototype.languages so getter-tampering detections are avoided.
-            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": _load_stealth_script(fallback=False)})
-            logger.info("Applied custom Chromium stealth (C++ flags + CDP stealth.js, mode=%s).", effective_stealth_mode)
+            # Native Chromium handles WebGL, languages, identity and timing signals.
+            # No JavaScript injection is used for the custom build; the empty
+            # stealth.js was removed from the CDP injection path.
+            logger.info("Custom Chromium stealth flags active (mode=%s).", effective_stealth_mode)
         else:
             _apply_stealth_patches(driver, effective_stealth_mode)
             logger.info("Applied CDP stealth patches (fallback mode=%s).", effective_stealth_mode)
