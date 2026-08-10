@@ -9,10 +9,14 @@
  *   - visualViewport coherence (--stealth-viewport-size)
  *   - mediaDevices.enumerateDevices (--stealth-no-media-devices returns an empty
  *     list natively)
+ *
+ * Two remaining JS-only defences are still injected via CDP:
  *   - performance.now: timing probes build a linear regression between
  *     performance.now() and Date.now(); an unjittered, microsecond-precise
  *     headless timer produces a near-perfect correlation. A small, bounded,
  *     monotonic noise floor breaks the correlation while leaving the API usable.
+ *     The current implementation accumulates jitter across calls; a native
+ *     Chromium/V8 patch is the long-term replacement.
  *   - Error.prepareStackTrace: a narrow guard that blocks CDP stack-trace
  *     probes from installing a non-native handler while keeping the property
  *     in its default undefined state. There is no reasonable source-level

@@ -733,10 +733,10 @@ def _maybe_apply_stealth(driver: WebDriver, effective_stealth_mode: str) -> None
 
     try:
         if _is_custom_chromium():
-            # C++ flags handle WebGL, languages, isTrusted at binary level.
-            # Inject stealth.js (not stealth_fallback.js) via CDP - stealth.js does NOT
-            # patch Navigator.prototype.languages so getter-tampering detections
-            # (languagesProtoGetterPatched) are avoided.
+            # Native Chromium handles WebGL, languages and identity flags.
+            # CDP/Page.addScriptToEvaluateOnNewDocument applies a minimal stealth.js
+            # for remaining timing/stack-trace probes; it does NOT patch
+            # Navigator.prototype.languages so getter-tampering detections are avoided.
             driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": _load_stealth_script(fallback=False)})
             logger.info("Applied custom Chromium stealth (C++ flags + CDP stealth.js, mode=%s).", effective_stealth_mode)
         else:
