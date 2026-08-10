@@ -734,13 +734,28 @@ class PatchApplier:
         # ──────────────────────────────────────────────────────────────────────────────
         print("Patch 14: --stealth-error-prepare-stack-trace V8 guard")
 
-        self.patch_regex(
+        # The macro for stack_trace_limit changed from DEFINE_INT to DEFINE_SMI
+        # between V8 rollups. Try both; only one will be present.
+        self.patch(
             "v8/src/flags/flag-definitions.h",
-            r'(DEFINE_(?:INT|SMI)\(stack_trace_limit, 10, "number of stack frames to capture"\)\n)',
-            r'\1DEFINE_BOOL(stealth_error_prepare_stack_trace, false,\n'
-            r'            "make Error.prepareStackTrace a non-writable undefined "\n'
-            r'            "data property to block stack-trace probes")\n',
-            "add stealth_error_prepare_stack_trace V8 flag",
+            'DEFINE_SMI(stack_trace_limit, 10, "number of stack frames to capture")\n',
+            'DEFINE_SMI(stack_trace_limit, 10, "number of stack frames to capture")\n'
+            'DEFINE_BOOL(stealth_error_prepare_stack_trace, false,\n'
+            '            "make Error.prepareStackTrace a non-writable undefined "\n'
+            '            "data property to block stack-trace probes")\n',
+            "add stealth_error_prepare_stack_trace V8 flag (DEFINE_SMI variant)",
+            required=False,
+        )
+
+        self.patch(
+            "v8/src/flags/flag-definitions.h",
+            'DEFINE_INT(stack_trace_limit, 10, "number of stack frames to capture")\n',
+            'DEFINE_INT(stack_trace_limit, 10, "number of stack frames to capture")\n'
+            'DEFINE_BOOL(stealth_error_prepare_stack_trace, false,\n'
+            '            "make Error.prepareStackTrace a non-writable undefined "\n'
+            '            "data property to block stack-trace probes")\n',
+            "add stealth_error_prepare_stack_trace V8 flag (DEFINE_INT variant)",
+            required=False,
         )
 
         self.patch(
