@@ -29,8 +29,8 @@ dependencies = [
     "packaging==26.3",
     "pefile==2024.8.26; platform_system == 'Windows'",
     "prometheus-client==0.26.0",
-    "requests==2.33.0",
-    "selenium==4.46.0",
+    "requests==2.34.2",
+    "selenium==4.47.0",
     "tomli>=1.1.0; python_version < '3.11'",
     "waitress==3.0.2",
     "websockets==17.0.1",
@@ -39,7 +39,7 @@ dependencies = [
 
 [project.optional-dependencies]
 build = [
-    "pyinstaller==6.21.0",
+    "pyinstaller==6.22.1",
 ]
 test = [
     "WebTest==3.0.7",
@@ -50,7 +50,7 @@ test = [
 dev = [
     "bandit>=1.9.2",
     "pre-commit>=4.6.1",
-    "pyinstaller==6.21.0",
+    "pyinstaller==6.22.1",
     "pyright==1.1.411",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
