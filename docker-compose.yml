@@ -17,7 +17,7 @@ services:
       - AGENT_CHECK_HOST=${AGENT_CHECK_HOST:-127.0.0.1}
       - TZ=Europe/London
     ports:
-      - "${PORT:-8191}:8191"
+      - "${PORT_BIND:-127.0.0.1}:${PORT:-8191}:8191"
     volumes:
       - /var/lib/flaresolver:/config
     restart: unless-stopped
