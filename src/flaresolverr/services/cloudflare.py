@@ -14,9 +14,8 @@ from selenium.webdriver.support.expected_conditions import presence_of_element_l
 from selenium.webdriver.support.wait import WebDriverWait
 
 from flaresolverr.services.base import ChallengeService, _wait_for_redirect
-from flaresolverr.utils import _human_like_click, _random_delay
+from flaresolverr.utils import _human_like_click, _random_delay, get_config_browser_wait_timeout
 
-SHORT_TIMEOUT = 1
 HARD_BLOCK_TEXT = "Incompatible browser extension or network configuration"
 
 CLOUDFLARE_TITLES = [
@@ -66,6 +65,7 @@ class CloudflareService(ChallengeService):
         html_element = self._get_html_element(driver)
         if html_element is None:
             return
+        browser_wait_timeout = get_config_browser_wait_timeout()
         attempt = 0
         last_verify_click_ts = 0.0
         click_cooldown_seconds = 10.0
@@ -75,10 +75,10 @@ class CloudflareService(ChallengeService):
             try:
                 for title in CLOUDFLARE_TITLES:
                     logger.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
-                    WebDriverWait(driver, SHORT_TIMEOUT).until_not(title_is(title))
+                    WebDriverWait(driver, browser_wait_timeout).until_not(title_is(title))
                 for selector in CLOUDFLARE_SELECTORS:
                     logger.debug("Waiting for selector (attempt " + str(attempt) + "): " + selector)
-                    WebDriverWait(driver, SHORT_TIMEOUT).until_not(presence_of_element_located((By.CSS_SELECTOR, selector)))
+                    WebDriverWait(driver, browser_wait_timeout).until_not(presence_of_element_located((By.CSS_SELECTOR, selector)))
                 break
             except TimeoutException:
                 logger.debug("Timeout waiting for selector")
@@ -103,7 +103,7 @@ class CloudflareService(ChallengeService):
                 if html_element is None:
                     continue
 
-        _wait_for_redirect(driver, html_element, SHORT_TIMEOUT)
+        _wait_for_redirect(driver, html_element, browser_wait_timeout)
 
     def _should_attempt_verify_click(self, driver: WebDriver) -> bool:
         try:

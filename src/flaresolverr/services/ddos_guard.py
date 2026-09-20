@@ -10,8 +10,7 @@ from selenium.webdriver.support.expected_conditions import title_is
 from selenium.webdriver.support.wait import WebDriverWait
 
 from flaresolverr.services.base import ChallengeService, _wait_for_redirect
-
-SHORT_TIMEOUT = 1
+from flaresolverr.utils import get_config_browser_wait_timeout
 
 DDOS_GUARD_TITLES = [
     "DDoS-Guard",
@@ -37,6 +36,7 @@ class DDoSGuardService(ChallengeService):
         html_element = self._get_html_element(driver)
         if html_element is None:
             return
+        browser_wait_timeout = get_config_browser_wait_timeout()
         attempt = 0
 
         while True:
@@ -44,7 +44,7 @@ class DDoSGuardService(ChallengeService):
             try:
                 for title in DDOS_GUARD_TITLES:
                     logger.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
-                    WebDriverWait(driver, SHORT_TIMEOUT).until_not(title_is(title))
+                    WebDriverWait(driver, browser_wait_timeout).until_not(title_is(title))
                 break
             except TimeoutException:
                 logger.debug("Timeout waiting for selector")
@@ -52,4 +52,4 @@ class DDoSGuardService(ChallengeService):
                 if html_element is None:
                     continue
 
-        _wait_for_redirect(driver, html_element, SHORT_TIMEOUT)
+        _wait_for_redirect(driver, html_element, browser_wait_timeout)

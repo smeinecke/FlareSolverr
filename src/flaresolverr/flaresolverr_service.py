@@ -103,7 +103,6 @@ BLOCK_MEDIA_URL_PATTERNS = [
     "*.EOT",
 ]
 
-SHORT_TIMEOUT = 1
 SESSIONS_STORAGE = SessionsStorage()
 _NET_ERROR_CODE_RE = re.compile(r"\bERR_[A-Z0-9_]+\b")
 _MAX_PARALLEL_REQUESTS = utils.get_config_max_parallel_requests()

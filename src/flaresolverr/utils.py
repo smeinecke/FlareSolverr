@@ -124,6 +124,10 @@ def get_config_disable_media() -> bool:
     return os.environ.get("DISABLE_MEDIA", "false").lower() == "true"
 
 
+def get_config_browser_wait_timeout() -> int:
+    return int(os.environ.get("BROWSER_WAIT_TIMEOUT", "1"))
+
+
 def get_config_js_injection_enabled() -> bool:
     """Master switch for JavaScript injection features (issue #38).
 
