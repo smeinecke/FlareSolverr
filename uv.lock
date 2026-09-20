@@ -479,7 +479,7 @@ requires-dist = [
     { name = "waitress", specifier = "==3.0.2" },
     { name = "websockets", specifier = "==17.1" },
     { name = "webtest", marker = "extra == 'test'", specifier = "==3.0.7" },
-    { name = "xvfbwrapper", marker = "sys_platform != 'win32'", specifier = "==0.2.29" },
+    { name = "xvfbwrapper", marker = "sys_platform != 'win32'", specifier = "==0.2.34" },
 ]
 provides-extras = ["build", "test"]
 
@@ -1416,9 +1416,9 @@ wheels = [
 
 [[package]]
 name = "xvfbwrapper"
-version = "0.2.29"
+version = "0.2.34"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6f/b8/ff7f535ce45dd1cb1c871cb01d6e7df5d31acba58a399c732528722008f4/xvfbwrapper-0.2.29.tar.gz", hash = "sha256:5fca91867376eee6c324bdfdc6d58ee45fa6296bb6ce98815614089342418243", size = 12853, upload-time = "2026-07-23T23:06:11.195Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/f6/4782325f5535ce528d8dbf590d1e37a909009c06c3971acbc4b8ec1c980f/xvfbwrapper-0.2.34.tar.gz", hash = "sha256:e7f195f30f0ab4e39c5a66e19e0d0bfee0ce5afb3f49e0ae4e5a491a8417db2a", size = 13264, upload-time = "2026-09-15T20:13:25.649Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/b1/fce88472306a62a35655c2bc64f22921313022e8b4f8534c2b61ff135a43/xvfbwrapper-0.2.29-py3-none-any.whl", hash = "sha256:6c4f411fdb10ee6e1ec7a5c69b67bc8d9720cfb294de0ffa45721bc8ba1cdd6b", size = 7086, upload-time = "2026-07-23T23:06:10.178Z" },
+    { url = "https://files.pythonhosted.org/packages/96/4a/9e0506f0b12aa46aae095743aec3c5aa02e34a77edc065e05818f3a2d021/xvfbwrapper-0.2.34-py3-none-any.whl", hash = "sha256:6ffae9584be524fde0e7f7b1e70d1d68e69cc5291074adef69bdf634c23ddf37", size = 7547, upload-time = "2026-09-15T20:13:24.747Z" },
 ]
