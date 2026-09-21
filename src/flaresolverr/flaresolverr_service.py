@@ -12,7 +12,7 @@ import time
 from datetime import timedelta
 from html import escape
 from typing import Any, cast
-from urllib.parse import parse_qsl, quote, urlparse
+from urllib.parse import parse_qsl, quote, urljoin, urlparse
 
 from func_timeout import FunctionTimedOut, func_timeout
 from selenium.common import UnexpectedAlertPresentException
@@ -339,6 +339,8 @@ def _controller_v1_handler(req: V1RequestBase) -> V1ResponseBase:
         res = _cmd_sessions_clear(req)
     elif req.cmd == "sessions.cdp":
         res = _cmd_sessions_cdp(req)
+    elif req.cmd == "sessions.fetch":
+        res = _cmd_sessions_fetch(req)
     elif req.cmd == "request.get":
         res = _cmd_request_get(req)
     elif req.cmd == "request.post":
@@ -768,6 +770,108 @@ def _cmd_sessions_cdp(req: V1RequestBase) -> V1ResponseBase:
         session.lock.release()
 
 
+def _cmd_sessions_fetch(req: V1RequestBase) -> V1ResponseBase:
+    """Same-origin fetch() executed in the session's current page context.
+
+    Unlike request.post there is no navigation: the request runs with the
+    page's real origin, cookies and request metadata. A challenged endpoint
+    returns the challenge HTML as the body (challenged=true) — the client
+    cannot execute the interstitial, this command only preserves honest
+    request context and response semantics.
+    """
+    session_id = req.session
+    if session_id is None:
+        raise RuntimeError("Request parameter 'session' is mandatory in 'sessions.fetch' command.")
+    if req.url is None:
+        raise RuntimeError("Request parameter 'url' is mandatory in 'sessions.fetch' command.")
+
+    session = _get_session_locked(session_id)
+    try:
+        driver = session.driver
+        current_url = driver.current_url or ""
+        fetch_url = urljoin(current_url, req.url)
+        current_origin = urlparse(current_url)
+        fetch_origin = urlparse(fetch_url)
+        if (fetch_origin.scheme, fetch_origin.netloc) != (current_origin.scheme, current_origin.netloc):
+            raise RuntimeError(f"'sessions.fetch' only supports same-origin URLs (page origin: {current_origin.scheme}://{current_origin.netloc}).")
+
+        method = (req.method or "GET").upper()
+        if method in ("GET", "HEAD") and req.body is not None:
+            raise RuntimeError(f"Cannot send a body with {method} in 'sessions.fetch'.")
+
+        headers_dict: dict[str, str] = {}
+        for header in req.headers or []:
+            if isinstance(header, dict) and "name" in header and "value" in header:
+                headers_dict[str(header["name"])] = str(header["value"])
+            elif isinstance(header, str) and ":" in header:
+                name, value = header.split(":", 1)
+                headers_dict[name.strip()] = value.strip()
+
+        timeout_ms = int(req.timeoutMs) if req.timeoutMs else 30000
+        logger.debug(f"sessions.fetch (session_id={session_id}, {method} {fetch_url})")
+
+        fetch_result = driver.execute_script(
+            """
+            var url = arguments[0], method = arguments[1], headers = arguments[2], body = arguments[3], timeoutMs = arguments[4];
+            var controller = new AbortController();
+            var timer = setTimeout(function() { controller.abort(); }, timeoutMs);
+            var opts = {method: method, headers: headers, credentials: 'include', signal: controller.signal};
+            if (body !== null && method !== 'GET' && method !== 'HEAD') { opts.body = body; }
+            return fetch(url, opts).then(function(r) {
+                return r.text().then(function(t) {
+                    clearTimeout(timer);
+                    var h = {};
+                    r.headers.forEach(function(v, k) { h[k] = v; });
+                    return {status: r.status, statusText: r.statusText, headers: h, body: t, redirected: r.redirected, url: r.url};
+                });
+            }).catch(function(e) {
+                clearTimeout(timer);
+                return {error: e.toString()};
+            });
+            """,
+            fetch_url,
+            method,
+            headers_dict,
+            req.body,
+            timeout_ms,
+        )
+        if not isinstance(fetch_result, dict):
+            raise TypeError("sessions.fetch returned an unexpected result.")
+        if fetch_result.get("error"):
+            raise RuntimeError(f"sessions.fetch failed: {fetch_result['error']}")
+
+        body = fetch_result.get("body") or ""
+        resp_headers = fetch_result.get("headers") or {}
+        challenged = utils._header_lookup(resp_headers, "cf-mitigated") == "challenge" or _looks_like_challenge_html(body)
+        if challenged:
+            logger.warning("sessions.fetch response is a Cloudflare challenge, not the application response.")
+
+        result = ChallengeResolutionResultT({})
+        result.url = driver.current_url
+        result.status = fetch_result.get("status")
+        result.headers = resp_headers
+        result.response = body
+        result.challenged = challenged
+        result.evalResult = {
+            "status": fetch_result.get("status"),
+            "statusText": fetch_result.get("statusText"),
+            "headers": resp_headers,
+            "body": body,
+            "redirected": fetch_result.get("redirected"),
+            "url": fetch_result.get("url"),
+            "challenged": challenged,
+        }
+        result.cookies = _safe_driver_call(driver.get_cookies, [])
+
+        res = V1ResponseBase({})
+        res.status = STATUS_OK
+        res.message = "Fetch executed successfully."
+        res.solution = result
+        return res
+    finally:
+        session.lock.release()
+
+
 def _get_session_driver(session_id: str, req: V1RequestBase, req_stealth_mode: str | None) -> tuple[Any, bool]:
     """Retrieve or create a session and return it along with the lock state."""
     ttl = timedelta(minutes=req.session_ttl_minutes) if req.session_ttl_minutes is not None else None
@@ -838,15 +942,31 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             detected = getattr(driver, "_flaresolverr_detected_service", None)
         except Exception:  # noqa: BLE001
             logger.debug("Could not read detected service from driver after timeout")
-        if detected is not None:
-            svc = SERVICE_MANAGER.get_service(detected)
-            if svc is not None and driver is not None:
+        details: dict[str, Any] | None = None
+        if driver is not None:
+            if detected is not None:
+                svc = SERVICE_MANAGER.get_service(detected)
+                if svc is not None:
+                    try:
+                        details = svc.get_debug_info(driver)
+                    except Exception:  # noqa: BLE001
+                        details = None
+            if details is None:
                 try:
-                    debug_info = svc.get_debug_info(driver)
+                    details = utils.collect_failure_evidence(driver)
                 except Exception:  # noqa: BLE001
-                    debug_info = None
-                if debug_info is not None:
-                    raise ChallengeError(msg, details=debug_info)
+                    details = None
+            if details is not None:
+                details["failureKind"] = _classify_failure(driver, detected, details)
+                details["request"] = {
+                    "cmd": req.cmd,
+                    "method": method,
+                    "url": req.url,
+                    "hasPostData": req.postData is not None or req.postDataRaw is not None,
+                    "postDataContentType": req.postDataContentType,
+                }
+                details["session"] = session.session_id if session is not None else None
+                raise ChallengeError(msg, details=details)
         raise RuntimeError(msg)
     except Exception as e:  # noqa: BLE001
         raise RuntimeError("Error solving the challenge. " + str(e).replace("\n", "\\n"))
@@ -867,6 +987,29 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             # Clean up any leaked temp dirs (e.g. if get_webdriver failed
             # after creating the proxy extension temp dir)
             utils._cleanup_orphaned_temp_dirs()
+
+
+def _classify_failure(driver: WebDriver, detected_service: str | None, evidence: dict[str, Any]) -> str:
+    """Classify a request failure into a coarse category for diagnostics.
+
+    Categories: browser_crash (driver unresponsive), nav_error (Chrome net
+    error or failed document load), challenge_denied (the last document
+    response carried cf-mitigated: challenge), challenge_timeout (a challenge
+    was detected and is still present), solver_timeout (anything else).
+    """
+    try:
+        driver.execute_script("return 1")
+    except Exception:  # noqa: BLE001
+        return "browser_crash"
+
+    response = evidence.get("response") or {}
+    if response.get("navError") or (evidence.get("currentUrl") or "").startswith("chrome-error://"):
+        return "nav_error"
+    if response.get("cfMitigated") == "challenge":
+        return "challenge_denied"
+    if detected_service is not None:
+        return "challenge_timeout"
+    return "solver_timeout"
 
 
 def _resolve_request_stealth_mode(req: V1RequestBase) -> str | None:
@@ -1210,6 +1353,18 @@ def _build_challenge_result(
     challenge_res.turnstile_token = turnstile_token
     challenge_res.status = 200  # todo: fix, selenium not provides this info
 
+    # postDataRaw stores the real XHR result in window globals; read it before
+    # any further navigation wipes the context.
+    raw_post: dict[str, Any] | None = None
+    if req.postDataRaw is not None:
+        raw_post = utils.retry_driver_read(
+            lambda: driver.execute_script(
+                "return {status: window.__flaresolverr_raw_post_status || null, headers: window.__flaresolverr_raw_post_headers || null, body: window.__flaresolverr_raw_post_body || null};"
+            )
+        )
+        if isinstance(raw_post, dict) and raw_post.get("status") is not None:
+            challenge_res.status = raw_post["status"]
+
     if not req.returnOnlyCookies:
         challenge_res.headers = {}  # todo: fix, selenium not provides this info
 
@@ -1230,6 +1385,15 @@ def _build_challenge_result(
             challenge_res.isBinary = is_binary
             if download_headers:
                 challenge_res.headers = download_headers
+        elif isinstance(raw_post, dict) and raw_post.get("body") is not None:
+            logger.debug("_build_challenge_result: reading raw POST result from window globals")
+            challenge_res.response = raw_post["body"]
+            raw_headers = _parse_raw_headers(raw_post.get("headers"))
+            if raw_headers:
+                challenge_res.headers = raw_headers
+            if utils._header_lookup(raw_headers, "cf-mitigated") == "challenge" or _looks_like_challenge_html(challenge_res.response):
+                logger.warning("Raw POST response is a Cloudflare challenge, not the application response.")
+                challenge_res.challenged = True
         else:
             logger.debug("_build_challenge_result: reading page_source")
             challenge_res.response = utils.retry_driver_read(lambda: driver.page_source)
@@ -1245,6 +1409,25 @@ def _build_challenge_result(
         challenge_res.har = utils.performance_logs_to_har(har_entries)
 
     return challenge_res
+
+
+def _parse_raw_headers(raw_headers: Any) -> dict[str, str]:
+    """Parse an XMLHttpRequest.getAllResponseHeaders() block into a dict."""
+    parsed: dict[str, str] = {}
+    if not isinstance(raw_headers, str):
+        return parsed
+    for line in raw_headers.splitlines():
+        name, sep, value = line.partition(":")
+        if sep and name.strip():
+            parsed[name.strip()] = value.strip()
+    return parsed
+
+
+def _looks_like_challenge_html(body: Any) -> bool:
+    """Heuristic: does a response body contain a Cloudflare challenge page?"""
+    if not isinstance(body, str):
+        return False
+    return "_cf_chl_opt" in body or "cf-challenge" in body or "Just a moment" in body
 
 
 def _remove_js_injection(driver: WebDriver, identifiers: list[str]) -> None:
@@ -1317,12 +1500,15 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
     res.status = STATUS_OK
     res.message = ""
 
-    if req.recordHar:
-        # Drain any stale performance log entries so the captured HAR contains
-        # only this request's traffic. driver.get_log() is destructive, so this
-        # also prevents leftover entries from prior commands on the same session
-        # from appearing in the result.
+    # Drain any stale performance log entries so failure-evidence and HAR
+    # capture only cover this request's traffic. driver.get_log() is
+    # destructive, so this also prevents leftover entries from prior commands
+    # on the same session from accumulating. Best-effort: backends or test
+    # doubles without performance logs must not fail the request.
+    try:
         utils.get_performance_log(driver)
+    except Exception:  # noqa: BLE001
+        logger.debug("Performance log drain skipped (backend has no performance log)")
 
     _configure_blocked_media(req, driver)
     _set_custom_headers(req, driver)
@@ -1432,8 +1618,10 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
     headers_json = json.dumps(headers_dict)
 
     # Navigate to the target URL first to establish the correct origin,
-    # then perform the raw POST via asynchronous XHR and replace the document
-    # content so driver.current_url stays correct.
+    # then perform the raw POST via asynchronous XHR. The response is kept in
+    # window globals (status, headers, body) instead of being written into the
+    # document, so the application page state is preserved and the real HTTP
+    # status is available for the result.
     driver.get(target_url)
 
     script = f"""
@@ -1447,10 +1635,9 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
             }}
         }}
         xhr.onload = function() {{
-            document.open();
-            document.write(xhr.responseText);
-            document.close();
             window.__flaresolverr_raw_post_status = xhr.status;
+            window.__flaresolverr_raw_post_headers = xhr.getAllResponseHeaders();
+            window.__flaresolverr_raw_post_body = xhr.responseText;
             window.__flaresolverr_raw_post_done = true;
         }};
         xhr.onerror = function() {{

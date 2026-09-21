@@ -14,6 +14,9 @@ class ChallengeResolutionResultT:
     screenshot: str | None = None
     turnstile_token: str | None = None
     isBinary: bool | None = None
+    # True when the captured response is a challenge page, not the target's
+    # application response (postDataRaw / sessions.fetch).
+    challenged: bool | None = None
     # Session interaction results
     evalResult: Any | None = None
     networkLogs: list[dict[str, Any]] | None = None
@@ -84,6 +87,10 @@ class V1RequestBase:
     enabledServices: list[str] | None = None  # Optional per-request/session enabled challenge services
     # CDP command execution (sessions.cdp)
     cdp: dict[str, Any] | None = None
+    # Same-origin fetch (sessions.fetch)
+    method: str | None = None  # HTTP method for sessions.fetch (default GET)
+    body: str | None = None  # Request body for sessions.fetch
+    timeoutMs: int | None = None  # fetch() timeout for sessions.fetch (default 30000)
     # JavaScript injection (issue #38).
     # NOTE: Raw JS execution is already supported via:
     #   - sessions.eval command (driver.execute_script)
@@ -129,6 +136,9 @@ class V1RequestBase:
             "captchaSolver",
             "enabledServices",
             "cdp",
+            "method",
+            "body",
+            "timeoutMs",
             "scriptInject",
         }
         for key, value in _dict.items():

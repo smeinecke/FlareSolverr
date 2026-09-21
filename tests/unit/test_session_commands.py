@@ -391,3 +391,93 @@ class TestSessionsCdp:
         req = V1RequestBase({"cmd": "sessions.cdp", "session": "s1", "cdp": {"cmd": "Bad.command"}})
         with pytest.raises(Exception, match="Error executing CDP command"):
             svc._cmd_sessions_cdp(req)
+
+
+class TestSessionsFetch:
+    def _fetch_driver(self, fetch_result=None, current_url="https://example.com/app"):
+        driver = _make_session_driver()
+        driver.current_url = current_url
+        driver.execute_script.return_value = fetch_result or {
+            "status": 200,
+            "statusText": "OK",
+            "headers": {"content-type": "application/json"},
+            "body": '{"ok": true}',
+            "redirected": False,
+            "url": "https://example.com/api",
+        }
+        return driver
+
+    def test_fetch_same_origin_success(self, _patch_sessions_storage):
+        driver = self._fetch_driver()
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "/api", "method": "POST", "body": "a=1"})
+        res = svc._cmd_sessions_fetch(req)
+
+        assert res.status == "ok"
+        assert res.solution.status == 200
+        assert res.solution.response == '{"ok": true}'
+        assert res.solution.challenged is False
+        # Same-origin relative URL resolved against the page origin.
+        script, fetch_url, method, headers, body, timeout_ms = driver.execute_script.call_args[0]
+        assert fetch_url == "https://example.com/api"
+        assert method == "POST"
+        assert body == "a=1"
+
+    def test_fetch_challenged_response_flagged(self, _patch_sessions_storage):
+        driver = self._fetch_driver(
+            {
+                "status": 403,
+                "statusText": "Forbidden",
+                "headers": {"cf-mitigated": "challenge", "cf-ray": "abc-FRA"},
+                "body": "<html><title>Just a moment...</title></html>",
+                "redirected": False,
+                "url": "https://example.com/api",
+            }
+        )
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "https://example.com/api"})
+        res = svc._cmd_sessions_fetch(req)
+
+        assert res.status == "ok"
+        assert res.solution.status == 403
+        assert res.solution.challenged is True
+        assert res.solution.headers["cf-mitigated"] == "challenge"
+
+    def test_fetch_cross_origin_rejected(self, _patch_sessions_storage):
+        driver = self._fetch_driver(current_url="https://example.com/app")
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "https://other.example.com/api"})
+        with pytest.raises(Exception, match="same-origin"):
+            svc._cmd_sessions_fetch(req)
+
+    def test_fetch_missing_session_raises(self):
+        req = V1RequestBase({"cmd": "sessions.fetch", "url": "https://example.com/api"})
+        with pytest.raises(Exception, match="'session' is mandatory"):
+            svc._cmd_sessions_fetch(req)
+
+    def test_fetch_missing_url_raises(self, _patch_sessions_storage):
+        driver = self._fetch_driver()
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1"})
+        with pytest.raises(Exception, match="'url' is mandatory"):
+            svc._cmd_sessions_fetch(req)
+
+    def test_fetch_get_with_body_rejected(self, _patch_sessions_storage):
+        driver = self._fetch_driver()
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "/api", "body": "x"})
+        with pytest.raises(Exception, match="Cannot send a body"):
+            svc._cmd_sessions_fetch(req)
+
+    def test_fetch_network_error_raises(self, _patch_sessions_storage):
+        driver = self._fetch_driver({"error": "AbortError: The operation was aborted"})
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "/api"})
+        with pytest.raises(Exception, match="sessions.fetch failed"):
+            svc._cmd_sessions_fetch(req)

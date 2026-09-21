@@ -292,8 +292,9 @@ def test_get_webdriver_cleans_proxy_ext_dir_on_failure(monkeypatch) -> None:
 
     monkeypatch.setattr(subprocess, "Popen", failing_popen)
 
+    # A proxy is required for the proxy-manager extension to be loaded.
     with pytest.raises(OSError, match="No space left on device"):
-        utils.get_webdriver()
+        utils.get_webdriver(proxy={"url": "http://127.0.0.1:9"})
     assert not os.path.exists(ext_dir)
 
 
@@ -488,3 +489,81 @@ def test_performance_logs_to_har_filters_internal_chrome_urls() -> None:
 
     assert len(har["log"]["entries"]) == 1
     assert har["log"]["entries"][0]["request"]["url"] == "https://example.com/"
+
+
+class TestChromeOptionsConsolidation:
+    @pytest.fixture(autouse=True)
+    def _env(self, monkeypatch):
+        for var in [
+            "CHROME_EXTRA_FLAGS",
+            "STEALTH_OMIT_FLAGS",
+            "CHROME_DISABLE_OPTIMIZATIONS",
+            "MINIMAL_FINGERPRINT",
+            "DISABLE_QUIC",
+            "DISABLE_WEB_SECURITY",
+        ]:
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(utils, "_CUSTOM_CHROMIUM_MANIFEST", None)
+        # Avoid spawning `chrome --version` for the --user-agent fallback path.
+        monkeypatch.setattr(utils, "get_chrome_full_version", lambda: "151.0.0.0")
+        monkeypatch.setattr(utils, "get_chrome_major_version", lambda: "151")
+
+    def _options(self, monkeypatch, stealth_mode="off", custom=False, patches=None):
+        monkeypatch.setattr(utils, "_is_custom_chromium", lambda: custom)
+        monkeypatch.setattr(
+            utils, "_get_custom_chromium_manifest", lambda: {"patches": list(patches or [])}
+        )
+        return utils._build_chrome_options(stealth_mode)
+
+    def test_single_disable_features_argument(self, monkeypatch):
+        options = self._options(monkeypatch)
+        disable_args = [a for a in options.arguments if a.startswith("--disable-features=")]
+        assert len(disable_args) == 1
+        features = disable_args[0].removeprefix("--disable-features=").split(",")
+        for expected in [
+            "MediaRouter",
+            "OptimizationHints",
+            "Translate",
+            "LocalNetworkAccessChecks",
+        ]:
+            assert expected in features
+
+    def test_disable_features_merges_all_sources(self, monkeypatch):
+        monkeypatch.setenv("DISABLE_WEB_SECURITY", "true")
+        monkeypatch.setenv("MINIMAL_FINGERPRINT", "false")
+        options = self._options(monkeypatch)
+        disable_args = [a for a in options.arguments if a.startswith("--disable-features=")]
+        assert len(disable_args) == 1
+        features = set(disable_args[0].removeprefix("--disable-features=").split(","))
+        assert {"BlockInsecurePrivateNetworkRequests", "StrictOriginIsolation"} <= features
+
+    def test_omit_flags_removes_stealth_switch(self, monkeypatch):
+        monkeypatch.setenv("STEALTH_OMIT_FLAGS", "stealth-viewport-size")
+        options = self._options(monkeypatch, stealth_mode="standard", custom=True, patches=["native-ua"])
+        assert "--stealth-viewport-size" not in options.arguments
+        assert "--stealth-no-media-devices" in options.arguments
+
+    def test_native_ua_flag_from_manifest(self, monkeypatch):
+        options = self._options(monkeypatch, stealth_mode="standard", custom=True, patches=["native-ua"])
+        assert "--stealth-native-ua" in options.arguments
+        # Native UA makes the --user-agent fallback unnecessary.
+        assert not [a for a in options.arguments if a.startswith("--user-agent=")]
+
+    def test_native_ua_flag_absent_without_manifest(self, monkeypatch):
+        options = self._options(monkeypatch, stealth_mode="standard", custom=True, patches=[])
+        assert "--stealth-native-ua" not in options.arguments
+        # Legacy fallback keeps --user-agent for binaries without Patch 6b.
+        assert [a for a in options.arguments if a.startswith("--user-agent=")]
+
+    def test_extra_flags_added_once(self, monkeypatch):
+        monkeypatch.setenv("CHROME_EXTRA_FLAGS", "--foo=1,--bar")
+        options = self._options(monkeypatch)
+        assert options.arguments.count("--foo=1") == 1
+        assert "--bar" in options.arguments
+
+    def test_webdriver_false_property_variant(self, monkeypatch):
+        options = self._options(
+            monkeypatch, stealth_mode="standard", custom=True, patches=["webdriver-false"]
+        )
+        # False-property variant: property must stay present -> no AutomationControlled removal.
+        assert "--disable-blink-features=AutomationControlled" not in options.arguments

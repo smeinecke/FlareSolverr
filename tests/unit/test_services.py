@@ -180,6 +180,91 @@ class TestCloudflareService:
         svc.resolve(driver)
         assert mock_wait_instance.until_not.call_count >= 2
 
+    @staticmethod
+    def _probe_driver(state):
+        """Driver mock whose execute_script returns a canned challenge probe."""
+        driver = MagicMock()
+
+        def execute_script(script, *args):
+            return state
+
+        driver.execute_script = execute_script
+        return driver
+
+    def test_click_suppressed_by_hidden_success_template(self, svc):
+        """Hidden 'Verification successful' template text must not suppress clicks
+        when a real interactive control is rendered."""
+        driver = self._probe_driver(
+            {
+                "verifyButton": False,
+                "challengeIframe": True,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": False,
+                "successTextVisible": False,
+                "iframeSrcs": ["https://challenges.cloudflare.com/x"],
+            }
+        )
+        assert svc._should_attempt_verify_click(driver) is True
+
+    def test_click_suppressed_on_visible_success(self, svc):
+        """A *visible* success state means the challenge passed — never click."""
+        driver = self._probe_driver(
+            {
+                "verifyButton": True,
+                "challengeIframe": True,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": False,
+                "successTextVisible": True,
+                "iframeSrcs": [],
+            }
+        )
+        assert svc._should_attempt_verify_click(driver) is False
+
+    def test_click_on_verify_button(self, svc):
+        driver = self._probe_driver(
+            {
+                "verifyButton": True,
+                "challengeIframe": False,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": False,
+                "successTextVisible": False,
+                "iframeSrcs": [],
+            }
+        )
+        assert svc._should_attempt_verify_click(driver) is True
+
+    def test_no_click_on_automatic_challenge(self, svc):
+        """Visible 'Verifying...' text with no control = managed challenge; no blind clicks."""
+        driver = self._probe_driver(
+            {
+                "verifyButton": False,
+                "challengeIframe": False,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": True,
+                "successTextVisible": False,
+                "iframeSrcs": [],
+            }
+        )
+        assert svc._should_attempt_verify_click(driver) is False
+
+    def test_no_click_without_markers(self, svc):
+        driver = self._probe_driver(
+            {
+                "verifyButton": False,
+                "challengeIframe": False,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": False,
+                "successTextVisible": False,
+                "iframeSrcs": [],
+            }
+        )
+        assert svc._should_attempt_verify_click(driver) is False
+
+    def test_click_suppressed_on_probe_error(self, svc):
+        driver = MagicMock()
+        driver.execute_script.side_effect = RuntimeError("driver dead")
+        assert svc._should_attempt_verify_click(driver) is False
+
 
 class TestDDoSGuardService:
     @pytest.fixture

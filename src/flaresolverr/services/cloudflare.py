@@ -4,6 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 import time
+from typing import Any
 
 from selenium.common import TimeoutException
 from selenium.webdriver.chrome.webdriver import WebDriver
@@ -14,7 +15,7 @@ from selenium.webdriver.support.expected_conditions import presence_of_element_l
 from selenium.webdriver.support.wait import WebDriverWait
 
 from flaresolverr.services.base import ChallengeService, _wait_for_redirect
-from flaresolverr.utils import _human_like_click, _random_delay, get_config_browser_wait_timeout
+from flaresolverr.utils import _human_like_click, _random_delay, collect_failure_evidence, get_config_browser_wait_timeout
 
 HARD_BLOCK_TEXT = "Incompatible browser extension or network configuration"
 
@@ -94,6 +95,19 @@ class CloudflareService(ChallengeService):
                     if now - last_verify_click_ts >= click_cooldown_seconds:
                         self._click_verify(driver)
                         last_verify_click_ts = now
+                        # Dispatch alone is not activation — re-probe so the log
+                        # records whether the click actually changed state.
+                        try:
+                            after = self._probe_challenge_state(driver)
+                            if isinstance(after, dict):
+                                if after.get("successTextVisible"):
+                                    logger.info("Verify click produced a visible success state")
+                                elif after.get("verifyButton") or after.get("challengeIframe"):
+                                    logger.debug("Verify click dispatched; interactive control still present")
+                                else:
+                                    logger.debug("Verify click dispatched; control gone, waiting for transition")
+                        except Exception:  # noqa: BLE001
+                            logger.debug("Post-click state probe failed")
                     else:
                         remaining = click_cooldown_seconds - (now - last_verify_click_ts)
                         logger.debug("Skipping verify click due to cooldown (%.1fs remaining)", remaining)
@@ -105,42 +119,132 @@ class CloudflareService(ChallengeService):
 
         _wait_for_redirect(driver, html_element, browser_wait_timeout)
 
+    def get_debug_info(self, driver: WebDriver) -> dict[str, Any] | None:
+        """Collect a bounded failure record for Cloudflare challenge timeouts.
+
+        Includes the generic browser/response evidence plus Cloudflare-specific
+        state from window._cf_chl_opt and the rendered iframe/error elements.
+        Cookie values and POST bodies are never included.
+        """
+        info = collect_failure_evidence(driver)
+
+        def _safe(fn, default=None):
+            try:
+                return fn()
+            except Exception:  # noqa: BLE001
+                return default
+
+        cf_opt = _safe(lambda: driver.execute_script("return window._cf_chl_opt || null"))
+        if isinstance(cf_opt, dict):
+            info["cfChallenge"] = {
+                "cType": cf_opt.get("cType"),
+                "cRay": cf_opt.get("cRay"),
+                "cNounce": cf_opt.get("cNounce"),
+                "cvId": cf_opt.get("cvId"),
+                "md": cf_opt.get("md"),
+            }
+        iframe_srcs = _safe(lambda: [f.get_attribute("src") for f in driver.find_elements(By.TAG_NAME, "iframe")], [])
+        info["iframes"] = [src for src in (iframe_srcs or []) if src][:10]
+        info["visibleErrorText"] = _safe(
+            lambda: driver.execute_script(
+                """
+                var texts = [];
+                var walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+                var node;
+                while (node = walker.nextNode()) {
+                    var t = node.textContent.trim();
+                    if (t.length > 4 && t.length < 200 && node.parentElement && node.parentElement.offsetParent !== null) {
+                        texts.push(t);
+                    }
+                    if (texts.length >= 15) break;
+                }
+                return texts;
+                """
+            ),
+            [],
+        )
+        info["challengePresent"] = _safe(lambda: self.detect(driver), None)
+        return info
+
+    def _probe_challenge_state(self, driver: WebDriver) -> dict[str, Any] | None:
+        """Evaluate the visible challenge DOM state in one round-trip.
+
+        All checks are visibility-aware: hidden template markup (which always
+        contains strings like "Verification successful. Waiting for") does not
+        count — only rendered, non-zero-size, non-display:none elements.
+        """
+        return driver.execute_script(
+            """
+            function isVisible(el) {
+                if (!el) { return false; }
+                var rect = el.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) { return false; }
+                var style = getComputedStyle(el);
+                return style.display !== 'none' && style.visibility !== 'hidden';
+            }
+            function hasVisibleLeafText(marker) {
+                var els = document.querySelectorAll('div, span, p, h1, h2, h3, td, section');
+                for (var i = 0; i < els.length; i++) {
+                    var el = els[i];
+                    if (el.children.length === 0 && el.textContent.indexOf(marker) !== -1 && isVisible(el)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            var verifyButton = document.querySelector("input[type='button'][value='Verify you are human']");
+            var challengeIframes = document.querySelectorAll(
+                "iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile']"
+            );
+            var visibleIframe = false;
+            for (var i = 0; i < challengeIframes.length; i++) {
+                if (isVisible(challengeIframes[i])) { visibleIframe = true; break; }
+            }
+            var wrapper = document.getElementById('turnstile-wrapper');
+            var wrapperHasControl = !!(wrapper && isVisible(wrapper) && wrapper.querySelector('iframe, input'));
+            var iframeSrcs = [];
+            var allIframes = document.querySelectorAll('iframe');
+            for (var j = 0; j < allIframes.length && j < 5; j++) {
+                iframeSrcs.push(allIframes[j].getAttribute('src') || '(no src)');
+            }
+            return {
+                verifyButton: !!(verifyButton && isVisible(verifyButton)),
+                challengeIframe: visibleIframe,
+                turnstileWrapperWithControl: wrapperHasControl,
+                verifyingTextVisible: hasVisibleLeafText('Verifying you are human'),
+                successTextVisible: hasVisibleLeafText('Verification successful'),
+                iframeSrcs: iframeSrcs
+            };
+            """
+        )
+
     def _should_attempt_verify_click(self, driver: WebDriver) -> bool:
         try:
-            if driver.find_elements(By.XPATH, "//input[@type='button' and @value='Verify you are human']"):
-                return True
-
-            src = driver.page_source
-            if "Verifying you are human. This may take a few seconds." in src:
-                logger.debug("_should_attempt_verify_click: False (Verifying text present)")
-                return False
-
-            if "Verification successful. Waiting for" in src:
-                is_hidden = driver.execute_script(
-                    "var el = document.getElementById('ijUz0');if (!el) return false;return getComputedStyle(el).display === 'none';"
-                )
-                if not is_hidden:
-                    logger.debug("_should_attempt_verify_click: False (Verification successful visible)")
-                    return False
-
-            markers = driver.find_elements(
-                By.CSS_SELECTOR,
-                "#turnstile-wrapper, iframe[src*='turnstile'], iframe[src*='challenges.cloudflare.com']",
-            )
-            if markers:
-                return True
-
-            iframes = driver.find_elements(By.TAG_NAME, "iframe")
-            iframe_srcs = [f.get_attribute("src") or "(no src)" for f in iframes[:5]]
-            logger.debug(
-                "_should_attempt_verify_click: False (no markers). iframes=%s, page_snippet=%r",
-                iframe_srcs,
-                src[src.find("<body") : src.find("<body") + 800] if "<body" in src else src[:800],
-            )
-            return False
+            state = self._probe_challenge_state(driver)
         except Exception as e:  # noqa: BLE001
             logger.debug("_should_attempt_verify_click: exception %s", e)
             return False
+        if not isinstance(state, dict):
+            return False
+
+        # A visible success state means the challenge already passed — never click.
+        if state.get("successTextVisible"):
+            logger.debug("_should_attempt_verify_click: False (visible success state)")
+            return False
+
+        # A rendered interactive control means the challenge wants a click.
+        if state.get("verifyButton") or state.get("challengeIframe") or state.get("turnstileWrapperWithControl"):
+            logger.debug("_should_attempt_verify_click: True (interactive control present)")
+            return True
+
+        # Visible "Verifying..." text with no control = automatic managed
+        # challenge; blind clicks would hit arbitrary page elements.
+        if state.get("verifyingTextVisible"):
+            logger.debug("_should_attempt_verify_click: False (automatic verification in progress)")
+            return False
+
+        logger.debug("_should_attempt_verify_click: False (no markers). iframes=%s", state.get("iframeSrcs"))
+        return False
 
     def _click_verify(self, driver: WebDriver, num_tabs: int = 1) -> None:
         try:

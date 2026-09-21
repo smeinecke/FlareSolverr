@@ -112,6 +112,44 @@ def _is_custom_chromium() -> bool:
     return bool(_CUSTOM_CHROMIUM)
 
 
+_CUSTOM_CHROMIUM_MANIFEST: dict[str, Any] | None = None
+
+
+def _get_custom_chromium_manifest() -> dict[str, Any]:
+    """Read the .stealth-manifest.json shipped next to the custom binary.
+
+    The self-hosted build writes this file recording the Chromium revision,
+    patch IDs, GN args and binary hashes. Returns {} when absent (older builds
+    or non-custom binaries). Result is cached.
+    """
+    global _CUSTOM_CHROMIUM_MANIFEST
+    if _CUSTOM_CHROMIUM_MANIFEST is not None:
+        return _CUSTOM_CHROMIUM_MANIFEST
+    _CUSTOM_CHROMIUM_MANIFEST = {}
+    candidates = ["/opt/chromium/.stealth-manifest.json"]
+    chrome_dir = os.path.dirname(get_chrome_exe_path() or "")
+    if chrome_dir:
+        candidates.append(os.path.join(chrome_dir, ".stealth-manifest.json"))
+    for path in candidates:
+        try:
+            with open(path) as f:
+                manifest = json.load(f)
+            if isinstance(manifest, dict):
+                _CUSTOM_CHROMIUM_MANIFEST = manifest
+                break
+        except (OSError, json.JSONDecodeError):
+            continue
+    return _CUSTOM_CHROMIUM_MANIFEST
+
+
+def _custom_chromium_has_patch(patch_id: str) -> bool:
+    """True when the custom binary's build manifest lists the given patch."""
+    if not _is_custom_chromium():
+        return False
+    patches = _get_custom_chromium_manifest().get("patches")
+    return isinstance(patches, list) and patch_id in patches
+
+
 def get_config_log_html() -> bool:
     return os.environ.get("LOG_HTML", "false").lower() == "true"
 
@@ -126,6 +164,17 @@ def get_config_disable_media() -> bool:
 
 def get_config_browser_wait_timeout() -> int:
     return int(os.environ.get("BROWSER_WAIT_TIMEOUT", "1"))
+
+
+def get_config_stealth_omit_flags() -> set[str]:
+    """Parse STEALTH_OMIT_FLAGS: comma-separated --stealth-* switch names to omit.
+
+    Runtime ablation hook for the switch-gated native patches (e.g.
+    "stealth-viewport-size,stealth-no-media-devices"). Names are compared
+    without leading dashes.
+    """
+    raw = os.environ.get("STEALTH_OMIT_FLAGS", "")
+    return {token.strip().lstrip("-") for token in raw.split(",") if token.strip()}
 
 
 def get_config_js_injection_enabled() -> bool:
@@ -258,11 +307,15 @@ def apply_user_agent_override(driver: WebDriver, user_agent: str, accept_languag
     Uses Emulation.setUserAgentOverride with userAgentMetadata to ensure
     navigator.userAgentData is consistent with navigator.userAgent.
 
-    For custom Chromium builds we intentionally do *not* set userAgentMetadata:
-    the --user-agent command-line switch already gives all contexts (main,
-    workers, shared workers) a coherent UA, and overriding metadata via CDP
-    would create a mismatch because SharedWorkers do not receive the CDP
-    override.  We only override the userAgent and acceptLanguage fields.
+    For custom Chromium builds *without* the native-ua patch we intentionally
+    do not set userAgentMetadata: the --user-agent command-line switch already
+    gives all contexts (main, workers, shared workers) a coherent UA, and CDP
+    metadata would be suppressed by it anyway. With the native-ua patch
+    (--stealth-native-ua instead of --user-agent) we DO set metadata, since
+    nothing else overrides it and userAgentData must match the requested UA.
+
+    Known limitation: SharedWorkers do not receive the CDP override on any
+    path, so a session-level UA override is not fully coherent there.
     """
     accept_lang = accept_language if accept_language is not None else get_config_accept_language()
     params: dict[str, Any] = {
@@ -270,7 +323,7 @@ def apply_user_agent_override(driver: WebDriver, user_agent: str, accept_languag
         "acceptLanguage": accept_lang,
     }
 
-    if not _is_custom_chromium():
+    if not _is_custom_chromium() or _custom_chromium_has_patch("native-ua"):
         # Parse UA to extract platform and Chrome version
         # e.g., "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
         platform_match = re.search(r"\(([^)]+)\)", user_agent)
@@ -422,8 +475,12 @@ def _limit_cpu_affinity() -> None:
         pass
 
 
-def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
-    """Build and configure ChromeOptions based on settings."""
+def _build_chrome_options(effective_stealth_mode: str, load_extension: bool = False) -> ChromeOptions:
+    """Build and configure ChromeOptions based on settings.
+
+    `load_extension` controls whether the DisableLoadExtensionCommandLineSwitch
+    feature is disabled (required for --load-extension to work on newer Chrome).
+    """
     options = ChromeOptions()
     options.set_capability("unhandledPromptBehavior", "accept")
     options.add_argument("--no-sandbox")
@@ -436,6 +493,11 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
     options.add_argument("--media-cache-size=1")
     custom = _is_custom_chromium()
 
+    # Chrome treats repeated --disable-features switches as replace-not-merge:
+    # only the last occurrence takes effect. Collect every intended feature in
+    # one list and emit a single switch at the end.
+    disabled_features: list[str] = []
+
     if not get_config_chrome_disable_optimizations():
         options.add_argument("--renderer-process-limit=1")
         options.add_argument("--disable-breakpad")
@@ -444,7 +506,13 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
         options.add_argument("--disable-component-update")
         options.add_argument("--metrics-recording-only")
         options.add_argument("--no-pings")
-        options.add_argument("--disable-features=MediaRouter,GlobalMediaControls,AutofillServerCommunication,OptimizationHints,Translate")
+        disabled_features += [
+            "MediaRouter",
+            "GlobalMediaControls",
+            "AutofillServerCommunication",
+            "OptimizationHints",
+            "Translate",
+        ]
 
     for extra_flag in get_config_chrome_extra_flags():
         options.add_argument(extra_flag)
@@ -456,13 +524,12 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
         options.add_argument("--disable-http3")
 
     if not minimal_fingerprint:
-        options.add_argument("--disable-features=StrictOriginIsolation")
-        options.add_argument("--disable-features=IsolateOrigins")
+        disabled_features += ["StrictOriginIsolation", "IsolateOrigins"]
         options.add_argument("--disable-site-isolation-trials")
 
     if os.environ.get("DISABLE_WEB_SECURITY", "false").lower() == "true":
         options.add_argument("--disable-web-security")
-        options.add_argument("--disable-features=BlockInsecurePrivateNetworkRequests")
+        disabled_features.append("BlockInsecurePrivateNetworkRequests")
 
     if platform.machine().startswith(("arm", "aarch")):
         options.add_argument("--disable-gpu-sandbox")
@@ -474,25 +541,42 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
 
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
-    options.add_argument("--disable-features=LocalNetworkAccessChecks")
+    disabled_features.append("LocalNetworkAccessChecks")
+
+    if load_extension:
+        # DisableLoadExtensionCommandLineSwitch is enabled by default on newer
+        # Chrome; disabling it keeps --load-extension working.
+        disabled_features.append("DisableLoadExtensionCommandLineSwitch")
 
     # Disable the AutomationControlled blink feature so navigator.webdriver is
     # absent (undefined) rather than true. This must be active for both stock
-    # and custom Chromium builds.
-    if custom or not minimal_fingerprint:
+    # and custom Chromium builds — except on binaries built with the
+    # webdriver-false variant, where the property must stay present.
+    if (custom or not minimal_fingerprint) and not _custom_chromium_has_patch("webdriver-false"):
         options.add_argument("--disable-blink-features=AutomationControlled")
 
+    omit_flags = get_config_stealth_omit_flags()
+
+    # --stealth-native-ua is only useful when the binary carries Patch 6b
+    # (advertised via the build manifest) and stealth is active. When it is
+    # NOT active, fall back to the legacy --user-agent switch so headless mode
+    # never exposes a HeadlessChrome UA.
+    native_ua_active = (
+        custom and effective_stealth_mode != STEALTH_MODE_OFF and "stealth-native-ua" not in omit_flags and _custom_chromium_has_patch("native-ua")
+    )
+
     if custom:
-        # Custom Chromium C++ patches already handle navigator.webdriver,
-        # navigator.languages and visualViewport. We use the --user-agent
-        # command-line switch to set a normalized UA for *all* browsing
-        # contexts (main, workers, shared workers) so UA/UA-CH stay coherent.
-        full_version = get_chrome_full_version()
-        if not full_version:
-            full_version = f"{get_chrome_major_version()}.0.0.0"
-        machine = platform.machine()
-        user_agent = f"Mozilla/5.0 (X11; Linux {machine}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{full_version} Safari/537.36"
-        options.add_argument(f"--user-agent={user_agent}")
+        if not native_ua_active:
+            # Legacy fallback for binaries without Patch 6b: --user-agent sets a
+            # normalized UA for *all* browsing contexts (main, workers, shared
+            # workers) so UA stays coherent — at the cost of suppressing
+            # high-entropy UA client hints (GetUserAgentMetadata early-return).
+            full_version = get_chrome_full_version()
+            if not full_version:
+                full_version = f"{get_chrome_major_version()}.0.0.0"
+            machine = platform.machine()
+            user_agent = f"Mozilla/5.0 (X11; Linux {machine}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{full_version} Safari/537.36"
+            options.add_argument(f"--user-agent={user_agent}")
         # Native accept-language for HTTP headers; navigator.languages is still
         # handled by --stealth-navigator-languages at the binary level.
         options.add_argument(f"--accept-lang={get_config_accept_language()}")
@@ -510,10 +594,23 @@ def _build_chrome_options(effective_stealth_mode: str) -> ChromeOptions:
         # The value of this switch is the underlying navigator.languages state
         # consumed by all execution contexts. The C++ patch in apply.py parses
         # the comma-separated list so Window/Worker/SharedWorker stay coherent.
-        options.add_argument(f"--stealth-navigator-languages={get_config_accept_language()}")
-        options.add_argument("--stealth-viewport-size")
-        options.add_argument("--stealth-no-media-devices")
+        stealth_switches = [
+            f"--stealth-navigator-languages={get_config_accept_language()}",
+            "--stealth-viewport-size",
+            "--stealth-no-media-devices",
+        ]
+        if native_ua_active:
+            stealth_switches.append("--stealth-native-ua")
+        for switch in stealth_switches:
+            name = switch.lstrip("-").split("=", 1)[0]
+            if name not in omit_flags:
+                options.add_argument(switch)
+            else:
+                logger.debug("STEALTH_OMIT_FLAGS: omitting %s", switch)
         logger.debug("Applied custom Chromium stealth flags.")
+
+    if disabled_features:
+        options.add_argument("--disable-features=" + ",".join(disabled_features))
 
     return options
 
@@ -667,10 +764,10 @@ def _configure_headless(options: "uc.ChromeOptions | None" = None) -> bool:
 
 def _maybe_normalize_user_agent(driver: WebDriver, effective_stealth_mode: str) -> None:
     """Normalize user agent by removing HeadlessChrome token and applying consistent UA metadata."""
-    # Custom Chromium sets a normalized UA via the --user-agent command-line
-    # switch so it propagates into all worker contexts. CDP setUserAgentOverride
-    # only reaches the main (and some dedicated worker) contexts, which produced
-    # cross-realm mismatches. No runtime override is needed for custom builds.
+    # Custom Chromium handles the UA natively: builds with Patch 6b use
+    # --stealth-native-ua (no Headless token, full high-entropy client hints),
+    # older builds fall back to --user-agent for cross-context coherence.
+    # Either way no runtime override is needed for custom builds.
     if _is_custom_chromium():
         return
 
@@ -874,6 +971,134 @@ def get_performance_log(driver: WebDriver) -> list[dict[str, Any]]:
     return parse_performance_log_entries(logs)
 
 
+def _header_lookup(headers: dict[str, Any], name: str) -> Any:
+    """Case-insensitive lookup in a CDP header dict."""
+    name_lower = name.lower()
+    for key, value in headers.items():
+        if str(key).lower() == name_lower:
+            return value
+    return None
+
+
+def get_document_response_evidence(driver: WebDriver, max_failed_resources: int = 10) -> dict[str, Any]:
+    """Drain the performance log and summarize the most recent document exchange.
+
+    Returns a dict with the final document url/status/mimeType/protocol, the
+    redirect chain, Cloudflare response headers (cf-mitigated, cf-ray), a
+    navigation error (if the document load failed) and a bounded list of
+    failed sub-resources. Returns an empty dict when no document request is
+    found or performance logs are unavailable.
+
+    Note: this drains the performance log queue; call it only when the
+    exchange is complete (failure paths, postDataRaw completion).
+    """
+    entries = get_performance_log(driver)
+    if not entries:
+        return {}
+
+    url_by_request_id: dict[str, str] = {}
+    responses_by_request_id: dict[str, dict[str, Any]] = {}
+    failed_by_request_id: dict[str, str] = {}
+    doc_request_id: str | None = None
+    doc_url: str | None = None
+    redirects: list[dict[str, Any]] = []
+
+    for entry in entries:
+        method = entry.get("method")
+        params = entry.get("params") or {}
+        request_id = params.get("requestId")
+        if not request_id:
+            continue
+        if method == "Network.requestWillBeSent":
+            request_url = (params.get("request") or {}).get("url", "")
+            url_by_request_id[request_id] = request_url
+            if params.get("type") != "Document":
+                continue
+            redirect_response = params.get("redirectResponse")
+            if request_id == doc_request_id and redirect_response:
+                # Same requestId carrying a redirectResponse = next redirect hop.
+                redirects.append(
+                    {
+                        "url": redirect_response.get("url"),
+                        "status": redirect_response.get("status"),
+                    }
+                )
+                doc_url = request_url or doc_url
+            else:
+                # A new requestId for a Document request = new navigation.
+                doc_request_id = request_id
+                doc_url = request_url or doc_url
+                redirects = []
+        elif method == "Network.responseReceived":
+            responses_by_request_id[request_id] = params.get("response") or {}
+        elif method == "Network.loadingFailed":
+            error_text = params.get("errorText")
+            if error_text:
+                failed_by_request_id[request_id] = error_text
+
+    if doc_request_id is None:
+        return {}
+
+    response = responses_by_request_id.get(doc_request_id) or {}
+    headers = response.get("headers") or {}
+    nav_error = failed_by_request_id.pop(doc_request_id, None)
+    failed_resources = [{"url": url_by_request_id.get(rid, ""), "error": err} for rid, err in list(failed_by_request_id.items())[:max_failed_resources]]
+
+    return {
+        "url": response.get("url") or doc_url,
+        "status": response.get("status"),
+        "statusText": response.get("statusText"),
+        "mimeType": response.get("mimeType"),
+        "protocol": response.get("protocol"),
+        "cfMitigated": _header_lookup(headers, "cf-mitigated"),
+        "cfRay": _header_lookup(headers, "cf-ray"),
+        "redirects": redirects,
+        "navError": nav_error,
+        "failedResources": failed_resources,
+    }
+
+
+def collect_failure_evidence(driver: WebDriver) -> dict[str, Any]:
+    """Collect a bounded diagnostic snapshot of the browser after a failed request.
+
+    Never raises; every field is best-effort. Sensitive values (cookie values,
+    POST bodies) are deliberately excluded — only cookie names, domains and
+    expiry are recorded.
+    """
+    evidence: dict[str, Any] = {}
+
+    def _safe(fn, default=None):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001
+            return default
+
+    evidence["currentUrl"] = _safe(lambda: driver.current_url)
+    evidence["pageTitle"] = _safe(lambda: driver.title)
+    evidence["response"] = _safe(lambda: get_document_response_evidence(driver), {})
+
+    cookies = _safe(driver.get_cookies, []) or []
+    evidence["cookies"] = [{"name": c.get("name"), "domain": c.get("domain"), "expiry": c.get("expiry")} for c in cookies if isinstance(c, dict)]
+    evidence["cfClearancePresent"] = any(c.get("name") == "cf_clearance" for c in cookies if isinstance(c, dict))
+
+    caps = _safe(lambda: driver.capabilities, {}) or {}
+    chrome_caps = caps.get("chrome") or {}
+    evidence["browser"] = {
+        "name": caps.get("browserName"),
+        "version": caps.get("browserVersion"),
+        "chromedriverVersion": chrome_caps.get("chromedriverVersion"),
+    }
+    evidence["userAgent"] = _safe(lambda: get_user_agent(driver))
+    evidence["launchArgs"] = getattr(driver, "_flaresolverr_launch_args", None)
+    evidence["config"] = {
+        "stealthMode": get_config_stealth_mode(),
+        "headless": get_config_headless(),
+        "customChromium": _is_custom_chromium(),
+    }
+    evidence["screenshotBase64"] = _safe(driver.get_screenshot_as_base64)
+    return evidence
+
+
 def _cdp_headers_to_har(headers: dict[str, Any]) -> list[dict[str, str]]:
     """Convert CDP header dict to HAR header list."""
     har_headers = []
@@ -1026,18 +1251,32 @@ def performance_logs_to_har(parsed_entries: list[dict[str, Any]]) -> dict[str, A
     }
 
 
-def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None, logging_prefs: dict[str, str] | None = None) -> WebDriver:
+def get_webdriver(
+    proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None, logging_prefs: dict[str, str] | None = None, for_session: bool = False
+) -> WebDriver:
     logger.debug("Launching web browser...")
 
     effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
+    # Performance logging is enabled for every driver (not just sessions /
+    # recordHar) so failure paths can inspect the actual HTTP exchange.
+    if logging_prefs is None:
+        logging_prefs = {"performance": "ALL"}
     user_data_dir: str | None = None
     proxy_ext_dir: str | None = None
 
+    # The unpacked proxy-manager extension is only needed when a proxy is
+    # configured now (proxy auth / settings) or might be assigned later
+    # (sessions support dynamic proxy updates via apply_proxy_to_session).
+    # One-off drivers without a proxy launch without any extension.
+    use_extension = for_session or _is_proxy_valid(proxy)
+
     try:
-        proxy_ext_dir, proxy_ext_id = _build_stealth_extension_dir()
-        options = _build_chrome_options(effective_stealth_mode)
-        options.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
-        options.add_argument(f"--load-extension={os.path.abspath(proxy_ext_dir)}")
+        proxy_ext_id = None
+        if use_extension:
+            proxy_ext_dir, proxy_ext_id = _build_stealth_extension_dir()
+        options = _build_chrome_options(effective_stealth_mode, load_extension=use_extension)
+        if proxy_ext_dir:
+            options.add_argument(f"--load-extension={os.path.abspath(proxy_ext_dir)}")
         windows_headless = _configure_headless()
         driver_exe_path, version_main = _resolve_driver_paths()
         browser_executable_path = get_chrome_exe_path()
@@ -1099,6 +1338,7 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
                 service = ChromeService()
                 logger.warning("Custom chromium chromedriver not found at expected path, using system chromedriver.")
             driver = webdriver.Chrome(options=opts, service=service)
+            driver._flaresolverr_launch_args = list(cmd)  # type: ignore[attr-defined]
 
             # Store subprocess so it can be terminated on quit
             driver._chrome_proc = chrome_proc  # type: ignore[attr-defined]
@@ -1139,6 +1379,7 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
                 windows_headless=windows_headless,
                 headless=get_config_headless(),
             )
+            driver._flaresolverr_launch_args = list(options.arguments)  # type: ignore[attr-defined]
             driver._proxy_ext_dir = proxy_ext_dir  # type: ignore[attr-defined]
             driver._proxy_ext_id = proxy_ext_id  # type: ignore[attr-defined]
             # Wrap quit to clean up temp extension dir
@@ -1167,7 +1408,9 @@ def get_webdriver(proxy: dict[str, Any] | None = None, stealth_mode: str | bool 
     _maybe_normalize_user_agent(driver, effective_stealth_mode)
     _maybe_apply_stealth(driver, effective_stealth_mode)
 
-    if proxy is not None:
+    # An explicit empty proxy ({url: ""}) asks for direct mode — a fresh
+    # browser is already direct, so no extension round-trip is needed.
+    if proxy is not None and not _is_proxy_empty(proxy):
         apply_proxy_to_session(driver, proxy)
 
     if not custom_chromium:

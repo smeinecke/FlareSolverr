@@ -274,6 +274,7 @@ class SessionsStorage:
                 proxy,
                 stealth_mode=effective_stealth_mode,
                 logging_prefs={"performance": "ALL"},
+                for_session=True,
             )
             effective_accept_language = accept_language if accept_language is not None else utils.get_config_accept_language()
             if user_agent is not None:
