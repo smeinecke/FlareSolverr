@@ -1491,8 +1491,10 @@ def _post_request(req: V1RequestBase, driver: WebDriver) -> None:
     if req.postDataRaw is not None:
         _post_request_raw(req, driver)
         return
+    if req.postData is None:
+        raise RuntimeError("Request parameter 'postData' is mandatory for POST requests.")
     post_form = f'<form id="hackForm" action="{escape(req.url, quote=True)}" method="POST">'
-    query_string = req.postData[1:] if req.postData.startswith("?") else req.postData
+    query_string = req.postData.removeprefix("?")
     for name, value in parse_qsl(query_string, keep_blank_values=True):
         if name == "submit":
             continue
