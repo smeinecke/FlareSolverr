@@ -24,8 +24,8 @@ on:
         required: false
         type: boolean
         default: false
-      webdriver_false:
-        description: 'Patch 2 variant: navigator.webdriver present-but-false (tagged -wdfalse)'
+      webdriver_absent:
+        description: 'Patch 2 ablation variant: navigator.webdriver absent entirely (tagged -wdabsent)'
         required: false
         type: boolean
         default: false
@@ -154,7 +154,7 @@ jobs:
 
       - name: Apply patches
         env:
-          FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY: ${{ inputs.webdriver_false && '1' || '0' }}
+          FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY: ${{ inputs.webdriver_absent && '1' || '0' }}
         run: |
           cd "${{ env.CHROMIUM_ROOT }}/src"
           python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
@@ -191,7 +191,7 @@ jobs:
           CHROMIUM_VERSION: ${{ steps.resolve.outputs.chromium_version }}
           # Variant builds push to a separate tag so they never overwrite
           # :latest / :latest-amd64 of the default build.
-          TAG_SUFFIX: ${{ inputs.webdriver_false && '-wdfalse' || '' }}
+          TAG_SUFFIX: ${{ inputs.webdriver_absent && '-wdabsent' || '' }}
         run: |
           mkdir -p /tmp/chromium-bin/opt/chromium
           cd "${{ env.CHROMIUM_ROOT }}/src/out/Release"
@@ -206,18 +206,19 @@ jobs:
           # hashes, binary hashes). utils._custom_chromium_has_patch() reads
           # this to gate features that depend on specific patches.
           cd "${{ env.CHROMIUM_ROOT }}/src"
+          FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=${{ inputs.webdriver_absent && '1' || '0' }} \
           python3 "${{ github.workspace }}/chromium-patches/patches/apply.py" \
             --write-manifest /tmp/chromium-bin/opt/chromium/.stealth-manifest.json
 
           docker build \
             --build-arg CHROMIUM_VERSION="$CHROMIUM_VERSION" \
             -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$CHROMIUM_VERSION$TAG_SUFFIX" \
-            ${{ inputs.webdriver_false && '' || format('-t "{0}/{1}:latest" -t "{0}/{1}:latest-amd64"', env.REGISTRY, env.IMAGE_NAME) }} \
+            ${{ inputs.webdriver_absent && '' || format('-t "{0}/{1}:latest" -t "{0}/{1}:latest-amd64"', env.REGISTRY, env.IMAGE_NAME) }} \
             -f "${{ github.workspace }}/chromium-patches/Dockerfile.runtime" \
             /tmp/chromium-bin
 
           docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$CHROMIUM_VERSION$TAG_SUFFIX"
-          if [ "${{ inputs.webdriver_false }}" != "true" ]; then
+          if [ "${{ inputs.webdriver_absent }}" != "true" ]; then
             docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
             docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64"
           fi

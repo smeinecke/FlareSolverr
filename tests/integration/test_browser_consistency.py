@@ -50,9 +50,7 @@ class TestBrowserConsistency(unittest.TestCase):
 
         driver = utils.get_webdriver()
         try:
-            result = diagnostics.collect_browser_consistency(
-                driver, page_url=f"http://127.0.0.1:{port}/"
-            )
+            result = diagnostics.collect_browser_consistency(driver, page_url=f"http://127.0.0.1:{port}/")
 
             main = result["main"]["navigator"]
             iframe = result["iframe"]["navigator"]
@@ -66,14 +64,19 @@ class TestBrowserConsistency(unittest.TestCase):
                 ("shared_worker", shared),
             ]:
                 with self.subTest(realm=realm_name):
-                    self.assertEqual(nav["typeof_webdriver"], "undefined")
+                    # Stock non-automated browsers expose navigator.webdriver as
+                    # a present-but-false property; an absent property is a
+                    # patched-binary tell (see Patch 2 in chromium-patches).
+                    self.assertIs(nav["webdriver"], False)
+                    self.assertEqual(nav["typeof_webdriver"], "boolean")
                     self.assertEqual(nav["userAgent"], main["userAgent"])
                     self.assertEqual(nav["platform"], main["platform"])
                     self.assertEqual(nav["language"], main["language"])
                     self.assertEqual(nav["languages"], main["languages"])
                     self.assertEqual(nav["hardwareConcurrency"], main["hardwareConcurrency"])
 
-            self.assertEqual(main["typeof_webdriver"], "undefined")
+            self.assertIs(main["webdriver"], False)
+            self.assertEqual(main["typeof_webdriver"], "boolean")
         finally:
             driver.quit()
             server.shutdown()

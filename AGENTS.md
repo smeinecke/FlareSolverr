@@ -107,7 +107,7 @@ Remaining native patches in `chromium-patches/patches/apply.py` and their status
 
 | Patch | Signal | Justification | Runtime ablatable? | Notes |
 |-------|--------|---------------|--------------------|-------|
-| 2 | `navigator.webdriver` absent | Strong bot-detection signal; stock headless exposes `navigator.webdriver = true` | No (IDL annotation) | Required. Absence is verified by critical checks. Build-time variant `FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY=1` keeps the property present but `false` (manifest then lists `webdriver-false`, and `--disable-blink-features=AutomationControlled` must NOT be passed). |
+| 2 | `navigator.webdriver` present, `false` | Stock non-automated browsers expose the property returning `false`; an absent property is impossible on a real browser and was measured to fail Cloudflare managed challenges even with real human clicks | No (C++ patch) | Required. Default since the wdfalse validation: `Navigator::webdriver()` returns `false`, IDL left stock (manifest `webdriver-false`). Ablation variant `FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=1` restores the absent-property shape (manifest `webdriver-idl`) and requires `--disable-blink-features=AutomationControlled`. |
 | 3 | WebGL vendor/renderer | Was intended to hide headless/container GPU strings | No (C++ switch read) | **Removed after ablation.** In `--headless=new` the GPU process is disabled, so the patch is dormant. With a real display it forced an `Intel` identity over the actual NVIDIA/ANGLE backend, creating a cross-API incoherence. Removing it restores the natural ANGLE/GPU identity and the `bot-web-challenge` verdict did not change. |
 | 6 | `HeadlessChrome` → `Chrome` in UA | `HeadlessChrome` token in `navigator.userAgent` is a strong signal | No (constant string) | Required unless using non-headless mode. |
 | 6b | `Headless` product token in unified UA | `GetUserAgentInternal` prepends `Headless` to the UA product even when `HeadlessChrome` is renamed; also `--user-agent` suppresses `GetUserAgentMetadata` (no high-entropy UA-CH) | Yes (`--stealth-native-ua`) | Gated at runtime by the binary manifest (`native-ua` patch ID). Only passed when the manifest advertises it; otherwise `--user-agent` fallback stays. |
@@ -132,7 +132,8 @@ Run `tests/integration/test_gpu_architecture.py` to collect the data saved to
   `--webgl-unmasked-*` spoof has been removed, so the graphics stack is
   internally coherent.
 - **Headless stock Chrome 151.0.7922.108**: same disabled GPU state;
-  `navigator.webdriver` is `false` (not `undefined/null` as in custom) and
+  `navigator.webdriver` is `false` (same as the current custom build's
+  present-but-false shape) and
   `enumerateDevices` returns 3 default devices unless the fallback JS is active.
 - **Headed custom build (`HEADLESS=false`) on the test device**: the actual
   backend and WebGL `UNMASKED_VENDOR/RENDERER` now agree, both reporting

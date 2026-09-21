@@ -216,18 +216,16 @@ differences without establishing the cause.
 
 | Surface | Evidence | Improvement to evaluate |
 | --- | --- | --- |
-| `navigator.webdriver` | Patch 2 removes the property. Runtime probe: `'webdriver' in navigator` is false and the prototype descriptor is absent. | Compare with an ordinary, non-automated Window, where the native property exists and returns false. Preserve worker API differences. Native removal is still an observable API-shape change; test a false-valued native Window property as a separate ablation. *Variant available:* building with `FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY=1` keeps the property present-but-false (manifest `webdriver-false`); the runtime then also omits `--disable-blink-features=AutomationControlled`. |
+| `navigator.webdriver` | The absent-property shape was **measured to fail** Cloudflare managed challenges (see §9): a stock browser's `'webdriver' in navigator` is `true` with value `false`, so absence is impossible on a real browser. | *Resolved:* Patch 2's default is now present-but-false — `Navigator::webdriver()` returns `false`, IDL left stock (manifest `webdriver-false`). The absent shape remains available via the `FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=1` ablation build (manifest `webdriver-idl`, requires `--disable-blink-features=AutomationControlled`). The consistency-test contract was updated from `undefined` to `false`. |
 | Graphics | Fresh GPU diagnostic reports `gl=disabled`, WebGL/WebGPU `disabled_off`, and no WebGL context. | Compare with a real display and the actual GPU backend. Disabled graphics are internally consistent, but consistency does not imply a common desktop configuration. |
 | Viewport | Existing configuration forces a 1920×1080 viewport/screen; prior audit found `outer == inner`. Patch 7 returns layout dimensions for visual viewport dimensions. | Test without Patch 7's switch, then test zoom, scrollbars, resize, and frames. Visual and layout viewports need not always be equal. Preserve native relationships rather than forcing equality. |
 | Media devices | Patch 11 returns an empty enumeration. | Compare with its switch omitted under the same permission/device conditions. Empty devices are a valid environment, not automatically a defect or a guaranteed stealth improvement. |
 | Locale | Main/iframe/worker language equality passed the fresh integration diagnostic. | Retain the native propagation fix; extend coverage to ServiceWorkers, cross-origin frames, HTTP headers, and API-level locale overrides. |
 
 The Window webdriver getter lives in
-`third_party/blink/renderer/core/frame/navigator.cc:100`, while Patch 2 gates the
-IDL binding. The current consistency test explicitly requires `undefined`, so
-it would need a deliberate contract update if a false-valued native Window
-property proves preferable. Do not demand the same property surface on
-WorkerNavigator.
+`third_party/blink/renderer/core/frame/navigator.cc:100`. The consistency test
+now asserts the stock shape — `navigator.webdriver === false` present in all
+Window realms. Do not demand the same property surface on WorkerNavigator.
 
 *Implemented (ablation control):* `STEALTH_OMIT_FLAGS` suppresses selected
 `--stealth-*` switches at launch (`stealth-native-ua`,
@@ -431,7 +429,7 @@ are classified as `challenge_timeout`, `challenge_denied`, `nav_error`,
 | P1 | Compare headed real-display and headless configurations | **Done** — matrix arms | Identical verdicts headed vs headless on both targets and both egresses (§8). |
 | P1 | Fix visible-state click detection | **Done** | Visibility-aware probe; hidden template text cannot suppress a rendered control; unit-tested. |
 | P1 | Preserve same-origin API request context and real responses | **Done** | `sessions.fetch` command; raw-post responses keep real status/headers/body and classify challenges. |
-| P2 | Reassess webdriver property shape, viewport and media patches individually | **Partially** | `webdriver-false` build variant + `STEALTH_OMIT_FLAGS` runtime ablation exist; per-patch target ablations not yet run. |
+| P2 | Reassess webdriver property shape, viewport and media patches individually | **Partially** | Webdriver reassessment **done and acted on** (§9): present-but-false is now the default, absent shape kept as `FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=1` ablation. `STEALTH_OMIT_FLAGS` runtime ablation exists for viewport/locale/media; per-patch target ablations not yet run. |
 | P2 | Simplify launch configuration and record reproducible build provenance | **Done** | Single `--disable-features` switch; proxy extension only when needed; `.stealth-manifest.json` per build. |
 
 For target experiments, first record the same `/api` GET in ordinary Chrome,
@@ -490,12 +488,10 @@ tmailor — that difference was the flags, not the attachment.
    flip was a configuration confound (missing `--stealth-native-ua` — a
    `HeadlessChrome` UA), which also demonstrates that the UA identity is
    itself a live detection input on this target.
-2. **tempmailo rejects every arm**, including the no-external-attach
-   `dump-dom` run. Since `dump-dom` is only a weak control (internal CDP
-   machinery, exits at load), this cannot rule out attachment — but the
-   consistent rejection across all launch/attach/display variants points to
-   egress reputation, passive fingerprinting, or target policy rather than
-   anything fixable client-side.
+2. **tempmailo rejected every arm on this build**, including the
+   no-external-attach `dump-dom` run — later shown to be a **client-side fixable
+   fingerprint**: the absent `navigator.webdriver` property (§9). With the
+   `webdriver-false` binary all real arms pass tempmailo too.
 3. **Egress does not change outcomes** between direct and SOCKS routes in
    these runs — two egresses agreeing does not rule out reputation effects
    (both share the same operator/network history), but neither shows a
@@ -533,6 +529,52 @@ PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard \
   FLARESOLVERR_CF_MATRIX=/tmp/cf_matrix.json \
   uv run python -m pytest tests/integration/test_cf_challenge_matrix.py -m integration -s
 ```
+
+## 9. Root cause found: the absent `navigator.webdriver` property (2026-09-21)
+
+Zero-CDP controls run on the same egress IP, no debugging port, no driver:
+
+| Run | CDP/attach | Interaction | Result on tempmailo.com |
+| --- | --- | --- | --- |
+| Stock Chrome 153, headed, URL on command line | none | none needed | **passed** — real page rendered |
+| Custom Chromium (absent-webdriver build), headed, production flags | none | **real human clicks on the Turnstile checkbox (4×)** | interactive challenge shown → denied anyway |
+
+A real human clicking the widget inside the patched binary still failed, while
+stock Chrome on the same IP passed without ever showing a checkbox — so the
+verdict is decided before interaction, and the distinguishing input is the
+binary's fingerprint, not CDP, IP, or timing. Fingerprint diff on a real https
+origin showed exactly one always-on browser-visible difference:
+
+```
+stock Chrome:   navigator.webdriver === false,  'webdriver' in navigator === true
+custom build:   navigator.webdriver === undefined, 'webdriver' in navigator === false
+```
+
+(`userAgentData` behaved identically on both.) An absent `webdriver` property
+is impossible on a real browser — a textbook patched-binary tell.
+
+A `webdriver-false` build variant (`Navigator::webdriver()` returns `false`,
+IDL stock → property present, manifest `webdriver-false`, image
+`ghcr.io/smeinecke/chromium-stealth:154.0.8037.49-wdfalse`) was then tested
+against the same matrix (`/tmp/cf_matrix_wdfalse.json`):
+
+| Arm | tmailor.com/en | tempmailo.com |
+| --- | --- | --- |
+| manual-headless | **passed** | **passed** |
+| manual-headed | **passed** | **passed** |
+| uc-chromedriver | **passed** | **passed** |
+| dump-dom (no external attach) | timeout* | challenged |
+
+Both previously-failing targets pass on every real browser arm, headless and
+headed, including the chromedriver-owned arm — and the same binary also passed
+tempmailo in a zero-CDP headed run. The absent-property shape was promoted to
+default; the old absent behavior survives as the
+`FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=1` ablation variant.
+
+Remaining unknowns: `dump-dom` (weak control) still challenges on tempmailo;
+the `/api` POST path is still untested on this binary; the cross-context
+UA/UA-CH sweep is still pending. The fix is validated on two targets' homepage
+challenges — not on arbitrary Cloudflare configurations.
 
 ## Verification performed
 

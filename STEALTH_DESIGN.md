@@ -29,7 +29,7 @@ compatibility workarounds because the binary is not under our control.
 
 | Signal | Custom-build ownership | Current implementation | Classification | Notes |
 |--------|------------------------|------------------------|----------------|-------|
-| `navigator.webdriver` | Native (Blink) | C++ patch gates IDL attribute on `[RuntimeEnabled=AutomationControlled]`; `--disable-blink-features=AutomationControlled` | A | Must be absent/undefined in all realms. No JS getters. |
+| `navigator.webdriver` | Native (Blink) | C++ patch makes `Navigator::webdriver()` return `false`; IDL left stock so the property exists | A | Must be present and `false` in all realms — the exact stock non-automated shape. An absent property is impossible on a real browser and was measured to fail Cloudflare managed challenges even with real human clicks. No JS getters. |
 | `navigator.language` / `navigator.languages` | Native (Blink) + config | C++ patch `--stealth-navigator-languages=<list>`; `--accept-lang` and `--lang` also forwarded | A/B | Patch parses the switch value as the underlying language state for all contexts. `--lang` (Patch 10) keeps Intl.* defaults aligned with navigator.language. |
 | `navigator.userAgent` | Native + config | Patch 6b: `--stealth-native-ua` suppresses the `Headless` product token inside `GetUserAgentInternal`, so no `--user-agent` switch is needed once the binary advertises it via `.stealth-manifest.json`; `--user-agent` remains the fallback for older binaries, and CDP `Emulation.setUserAgentOverride` for stock Chromium | A/B | The native path derives the UA from the real version/brand state, keeping it coherent across main frame, iframes, dedicated and shared workers. |
 | `navigator.platform` | Native | Derived from UA / OS | A | No override. |
@@ -91,8 +91,11 @@ host (NVIDIA GeForce RTX 2080, driver 610.57.04).
 
 ## Upgrade maintenance notes
 
-- The `[RuntimeEnabled=AutomationControlled]` webdriver gate depends on Blink
-  IDL runtime features. If upstream moves the file, update `apply.py`.
+- The default Patch 2 shape is `navigator.webdriver` present-but-false
+  (`Navigator::webdriver()` returns `false`, IDL stock). This replaced the
+  absent-property shape after live Cloudflare testing showed the absent
+  property is a patched-binary tell. If upstream moves `navigator.cc` or the
+  automation-information IDL, update `apply.py`.
 - GPU identity is now coherent. In `--headless=new` the GPU process is
   disabled, so WebGL/WebGPU are unavailable and the identity is consistently
   "no GPU". With a real display the WebGL `UNMASKED_VENDOR/RENDERER` values
@@ -119,9 +122,7 @@ host (NVIDIA GeForce RTX 2080, driver 610.57.04).
   args hashes, binary hashes). The runtime reads it to gate binary-dependent
   behaviour such as `--stealth-native-ua`, so the Python side is safe to deploy
   before the rebuilt binary exists.
-- `FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY=1` build variant: Patch 2 keeps the
-  `navigator.webdriver` property present but returning `false` (stock
-  non-automated shape) instead of gating it absent. The manifest then lists
-  `webdriver-false` and the runtime must NOT pass
-  `--disable-blink-features=AutomationControlled` (which would remove the
-  property entirely).
+- `FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=1` build variant (ablation only):
+  Patch 2 gates the IDL attribute on `[RuntimeEnabled=AutomationControlled]`
+  so the property is absent entirely; the manifest then lists `webdriver-idl`
+  and the runtime passes `--disable-blink-features=AutomationControlled`.

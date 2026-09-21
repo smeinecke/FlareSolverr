@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 # Logical patch identifiers recorded in the build manifest. The runtime
 # (utils._custom_chromium_has_patch) gates behavior on these IDs.
 PATCH_IDS = [
-    "webdriver-idl",  # Patch 2: navigator.webdriver gated on AutomationControlled
+    "webdriver-false",  # Patch 2: navigator.webdriver present, returns false
     "headless-product-name",  # Patch 6: HeadlessChrome -> Chrome (headless shell path)
     "native-ua",  # Patch 6b: suppress "Headless" token in unified UA path
     "visual-viewport",  # Patch 7: visualViewport == innerWidth/Height
@@ -37,10 +37,11 @@ PATCH_IDS = [
 def _patch_ids() -> list[str]:
     """Effective patch IDs, adjusted for build variants."""
     ids = list(PATCH_IDS)
-    if os.environ.get("FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY") == "1":
-        # Patch 2 variant: navigator.webdriver present but false (stock
-        # non-automated browser shape) instead of absent (undefined).
-        ids[ids.index("webdriver-idl")] = "webdriver-false"
+    if os.environ.get("FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY") == "1":
+        # Patch 2 ablation variant: navigator.webdriver absent (undefined)
+        # instead of present-but-false. The absent shape is a detection tell —
+        # 'webdriver' in navigator === false is impossible on a real browser.
+        ids[ids.index("webdriver-false")] = "webdriver-idl"
     return ids
 
 
@@ -290,32 +291,24 @@ class PatchApplier:
         # browser. Arbitrary synthetic events must report isTrusted=false.
 
         # ──────────────────────────────────────────────────────────────────────────────
-        # Patch 2: navigator.webdriver → undefined via [RuntimeEnabled=AutomationControlled]
+        # Patch 2: navigator.webdriver → present, always false
         #
-        # Strategy: gate the IDL attribute on the AutomationControlled Blink runtime
-        # feature. When Chrome is launched with
-        #   --disable-blink-features=AutomationControlled
-        # the feature is OFF → the property does not exist on Navigator → JS reads it
-        # as `undefined` (not `false`, not `null`).
+        # Default: navigator.webdriver is present but always returns false —
+        # the exact shape of a stock non-automated browser. Measured on live
+        # Cloudflare managed challenges (tempmailo.com, 2026-09-21): the
+        # absent-property build was denied even with real human clicks on the
+        # Turnstile checkbox, while this shape passes unaided on the same IP.
         #
-        # This avoids:
-        #   • typeof null === "object"  (the old boolean? / std::nullopt approach)
-        #   • detectable prototype getter overrides (JS-only workaround)
-        #
-        # No C++ implementation changes needed - just the IDL attribute annotation.
-        # Chrome 112+: moved to core/frame/navigator_automation_information.idl.
-        #
-        # Variant: FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY=1 keeps the IDL
-        # attribute ungated (property always present, like a normal browser)
-        # and instead patches Navigator::webdriver() to return false. This is
-        # the stock non-automated shape (property exists, value false) — kept
-        # as a build-time ablation variant for detection experiments.
+        # Ablation variant: FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=1 restores
+        # the old behavior — gate the IDL attribute on the AutomationControlled
+        # Blink runtime feature so the property is absent entirely when Chrome
+        # is launched with --disable-blink-features=AutomationControlled.
         # ──────────────────────────────────────────────────────────────────────────────
-        if os.environ.get("FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY") == "1":
-            print("Patch 2 variant: navigator.webdriver → false (property present, value false)")
-            # The variant leaves the IDL stock (property present), but the
+        if os.environ.get("FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY") != "1":
+            print("Patch 2: navigator.webdriver → false (property present, value false)")
+            # The default leaves the IDL stock (property present), but the
             # file must still be listed so `apply.py --list-files` reverts a
-            # previously applied default Patch 2 gate on rebuilds.
+            # previously applied IDL gate on rebuilds.
             self.patched_files.append(
                 "third_party/blink/renderer/core/frame/navigator_automation_information.idl"
             )
@@ -341,9 +334,9 @@ class PatchApplier:
                 "navigator.webdriver always returns false",
             )
         else:
-            print("Patch 2: navigator.webdriver → undefined via [RuntimeEnabled=AutomationControlled]")
+            print("Patch 2 variant (ablation): navigator.webdriver → undefined via [RuntimeEnabled=AutomationControlled]")
 
-            # The default variant leaves navigator.cc stock, but the file must
+            # The ablation variant leaves navigator.cc stock, but the file must
             # still be listed so `apply.py --list-files` reverts a previously
             # applied webdriver-false patch on rebuilds.
             self.patched_files.append("third_party/blink/renderer/core/frame/navigator.cc")

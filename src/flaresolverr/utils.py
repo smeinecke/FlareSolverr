@@ -549,9 +549,10 @@ def _build_chrome_options(effective_stealth_mode: str, load_extension: bool = Fa
         disabled_features.append("DisableLoadExtensionCommandLineSwitch")
 
     # Disable the AutomationControlled blink feature so navigator.webdriver is
-    # absent (undefined) rather than true. This must be active for both stock
-    # and custom Chromium builds — except on binaries built with the
-    # webdriver-false variant, where the property must stay present.
+    # absent (undefined) rather than true. Needed for stock Chromium and for
+    # custom binaries built with the webdriver-idl ablation variant — the
+    # default webdriver-false build keeps the property present, so the flag
+    # must NOT be passed there.
     if (custom or not minimal_fingerprint) and not _custom_chromium_has_patch("webdriver-false"):
         options.add_argument("--disable-blink-features=AutomationControlled")
 
