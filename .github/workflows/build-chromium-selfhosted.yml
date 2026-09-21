@@ -24,6 +24,11 @@ on:
         required: false
         type: boolean
         default: false
+      webdriver_false:
+        description: 'Patch 2 variant: navigator.webdriver present-but-false (tagged -wdfalse)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -148,6 +153,8 @@ jobs:
           grep '^v8/' /tmp/patched_files.txt | sed 's|^v8/||' | xargs --no-run-if-empty git -C v8 checkout --
 
       - name: Apply patches
+        env:
+          FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY: ${{ inputs.webdriver_false && '1' || '0' }}
         run: |
           cd "${{ env.CHROMIUM_ROOT }}/src"
           python3 ${{ github.workspace }}/chromium-patches/patches/apply.py
@@ -182,6 +189,9 @@ jobs:
       - name: Build and push runtime image
         env:
           CHROMIUM_VERSION: ${{ steps.resolve.outputs.chromium_version }}
+          # Variant builds push to a separate tag so they never overwrite
+          # :latest / :latest-amd64 of the default build.
+          TAG_SUFFIX: ${{ inputs.webdriver_false && '-wdfalse' || '' }}
         run: |
           mkdir -p /tmp/chromium-bin/opt/chromium
           cd "${{ env.CHROMIUM_ROOT }}/src/out/Release"
@@ -201,13 +211,14 @@ jobs:
 
           docker build \
             --build-arg CHROMIUM_VERSION="$CHROMIUM_VERSION" \
-            -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$CHROMIUM_VERSION" \
-            -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
-            -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64" \
+            -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$CHROMIUM_VERSION$TAG_SUFFIX" \
+            ${{ inputs.webdriver_false && '' || format('-t "{0}/{1}:latest" -t "{0}/{1}:latest-amd64"', env.REGISTRY, env.IMAGE_NAME) }} \
             -f "${{ github.workspace }}/chromium-patches/Dockerfile.runtime" \
             /tmp/chromium-bin
 
-          docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$CHROMIUM_VERSION"
-          docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-          docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64"
+          docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$CHROMIUM_VERSION$TAG_SUFFIX"
+          if [ "${{ inputs.webdriver_false }}" != "true" ]; then
+            docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64"
+          fi
           rm -rf /tmp/chromium-bin
