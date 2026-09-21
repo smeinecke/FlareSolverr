@@ -313,21 +313,40 @@ class PatchApplier:
         # ──────────────────────────────────────────────────────────────────────────────
         if os.environ.get("FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY") == "1":
             print("Patch 2 variant: navigator.webdriver → false (property present, value false)")
+            # The variant leaves the IDL stock (property present), but the
+            # file must still be listed so `apply.py --list-files` reverts a
+            # previously applied default Patch 2 gate on rebuilds.
+            self.patched_files.append(
+                "third_party/blink/renderer/core/frame/navigator_automation_information.idl"
+            )
             self.patch(
                 "third_party/blink/renderer/core/frame/navigator.cc",
-                "bool Navigator::webdriver() const {\n  if (RuntimeEnabledFeatures::AutomationControlledEnabled())\n    return true;\n",
+                (
+                    "bool Navigator::webdriver() const {\n"
+                    "  if (RuntimeEnabledFeatures::AutomationControlledEnabled())\n"
+                    "    return true;\n"
+                    "\n"
+                    "  bool automation_enabled = false;\n"
+                    "  probe::ApplyAutomationOverride(GetExecutionContext(), automation_enabled);\n"
+                    "  return automation_enabled;\n"
+                    "}"
+                ),
                 (
                     "bool Navigator::webdriver() const {\n"
                     "  // Build variant: always report false so the property is\n"
                     "  // present (stock non-automated shape) instead of absent.\n"
                     "  return false;\n"
-                    "  if (RuntimeEnabledFeatures::AutomationControlledEnabled())\n"
-                    "    return true;\n"
+                    "}"
                 ),
                 "navigator.webdriver always returns false",
             )
         else:
             print("Patch 2: navigator.webdriver → undefined via [RuntimeEnabled=AutomationControlled]")
+
+            # The default variant leaves navigator.cc stock, but the file must
+            # still be listed so `apply.py --list-files` reverts a previously
+            # applied webdriver-false patch on rebuilds.
+            self.patched_files.append("third_party/blink/renderer/core/frame/navigator.cc")
 
             # Chrome 112+: navigator_automation_information.idl in core/frame/
             # The attribute already has [RuntimeEnabled=AutomationControlled] checked at
