@@ -4,6 +4,10 @@ This document is the living design note for the custom Chromium stealth layer.
 It records the inventory of stealth mechanisms and the ownership model
 (native Blink/Chromium vs. launch/CDP configuration vs. JavaScript fallback).
 
+The [Cloudflare detection review](docs/cloudflare-detection-review.md) records
+the September 2026 runtime audit, including the UA client-hint gap, the active
+unified-Chrome UA path, and proposed corrections to assumptions in this inventory.
+
 ## Design rule
 
 ```text
