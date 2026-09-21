@@ -5,11 +5,15 @@ arms and records per-(arm, target) results — including the Cloudflare Ray ID �
 so attachment-related detection differences can be measured under identical
 egress conditions.
 
-Arms:
+Arms (all share the production launch flags; only the launch/attach
+mechanism differs):
   manual-headless  custom Chromium via subprocess + CDP attach (production path)
   manual-headed    same, but HEADLESS=false (skipped without a display)
-  uc-chromedriver  undetected_chromedriver (chromedriver-attached control)
-  dump-dom         `chrome --headless=new --dump-dom` — zero CDP attachment
+  uc-chromedriver  same flags, but chromedriver owns the browser launch
+                   (adds --enable-automation etc.) — isolates attachment
+  dump-dom         `chrome --headless=new --dump-dom` — no external attach,
+                   but NOT zero-CDP (internal DevTools machinery, exits at
+                   load + virtual-time-budget) — weak signal only
 
 Configuration (env):
   FLARESOLVERR_CF_MATRIX   output JSON path (default /tmp/cf_challenge_matrix.json)
@@ -26,6 +30,7 @@ import json
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -54,11 +59,12 @@ CF_INTERSTITIAL_MARKERS = (
     "_cf_chl_opt",
     "cf-challenge-running",
     "challenge-stage",
-    "cdn-cgi/challenge-platform",
 )
-# Weak markers — real pages can legitimately embed Turnstile widgets, so these
-# alone do not prove an interstitial.
+# Weak markers — real pages legitimately embed Turnstile widgets, and
+# cdn-cgi/challenge-platform scripts also run on ordinary pages with JS
+# Detections enabled, so these alone do not prove an interstitial.
 CF_WIDGET_MARKERS = (
+    "cdn-cgi/challenge-platform",
     "challenges.cloudflare.com",
     "cf-turnstile",
 )
@@ -73,8 +79,19 @@ CF_CHALLENGE_TITLES = (
 )
 
 
-def _verdict_from_page(title: str, page_source: str, cookies: list[dict]) -> tuple[str, dict]:
-    """Classify the final page state into a coarse verdict + CF metadata."""
+def _verdict_from_page(
+    title: str,
+    page_source: str,
+    cookies: list[dict],
+    final_url: str = "",
+    nav_error: str | None = None,
+) -> tuple[str, dict]:
+    """Classify the final page state into a coarse verdict + CF metadata.
+
+    "passed" requires positive evidence of a real document — navigation
+    failures, chrome-error pages and empty bodies are never passes, and a
+    stale cf_clearance cookie does not override a visible challenge.
+    """
     meta = {}
     m = CF_RAY_RE.search(page_source or "")
     if m:
@@ -89,11 +106,20 @@ def _verdict_from_page(title: str, page_source: str, cookies: list[dict]) -> tup
     markers = [m for m in CF_INTERSTITIAL_MARKERS + CF_WIDGET_MARKERS if m in src]
     if markers:
         meta["markers"] = markers
+    meta["domLen"] = len(src)
     interstitial = any(m in src for m in CF_INTERSTITIAL_MARKERS)
-    if meta.get("cfClearance") and not interstitial:
-        return "passed", meta
-    if interstitial or any(t in title_l for t in CF_CHALLENGE_TITLES):
+    challenge_title = any(t in title_l for t in CF_CHALLENGE_TITLES)
+
+    # chrome-error:// is definitive; a driver.get() TimeoutException alone is
+    # not (challenge pages keep network busy past the load timeout).
+    if final_url.startswith(("chrome-error://", "chrome://")):
+        return "nav_error", meta
+    if interstitial or challenge_title:
         return "challenged", meta
+    if nav_error:
+        return "nav_error", meta
+    if len(src.strip()) < 256:
+        return "empty", meta
     return "passed", meta
 
 
@@ -107,17 +133,27 @@ def _driver_arm(url: str, headless: bool | None, use_uc: bool) -> dict:
             os.environ["HEADLESS"] = "true" if headless else "false"
         proxy = {"url": PROXY} if PROXY else None
         if use_uc:
-            # Bypass get_webdriver's manual-launch path: let chromedriver own
-            # the browser (adds --enable-automation — the detection control).
+            # ChromeDriver owns the browser launch (adds --enable-automation
+            # and friends) — but the browser flags are identical to the
+            # production path so attachment is the only changed variable.
             from flaresolverr import undetected_chromedriver as uc
 
-            opts = uc.ChromeOptions()
+            opts = utils._build_chrome_options(
+                utils.get_config_stealth_mode(), load_extension=bool(PROXY)
+            )
             opts.binary_location = utils.get_chrome_exe_path()
+            proxy_ext_dir = None
+            proxy_ext_id = None
             if PROXY:
-                opts.add_argument(f"--proxy-server={PROXY}")
+                proxy_ext_dir, proxy_ext_id = utils._build_stealth_extension_dir()
+                opts.add_argument(f"--load-extension={os.path.abspath(proxy_ext_dir)}")
             if headless is not False:
                 opts.add_argument("--headless=new")
             driver = uc.Chrome(options=opts)
+            if PROXY and proxy_ext_id:
+                driver._proxy_ext_id = proxy_ext_id
+                driver._proxy_ext_dir = proxy_ext_dir
+                utils.apply_proxy_to_session(driver, proxy)
         else:
             driver = utils.get_webdriver(proxy=proxy)
         driver.set_page_load_timeout(TIMEOUT)
@@ -141,7 +177,13 @@ def _driver_arm(url: str, headless: bool | None, use_uc: bool) -> dict:
         try:
             record["title"] = driver.title
             record["finalUrl"] = driver.current_url
-            verdict, meta = _verdict_from_page(driver.title, driver.page_source, driver.get_cookies())
+            verdict, meta = _verdict_from_page(
+                driver.title,
+                driver.page_source,
+                driver.get_cookies(),
+                final_url=driver.current_url or "",
+                nav_error=record.get("navError"),
+            )
             record["verdict"] = verdict
             record.update(meta)
         except Exception as e:  # noqa: BLE001
@@ -157,35 +199,49 @@ def _driver_arm(url: str, headless: bool | None, use_uc: bool) -> dict:
             else:
                 os.environ["HEADLESS"] = old_headless
         if driver is not None:
+            ext_dir = getattr(driver, "_proxy_ext_dir", None)
             try:
                 driver.quit()
             except Exception as exc:  # noqa: BLE001
                 print(f"[matrix] driver.quit failed: {exc}")
+            if ext_dir and os.path.isdir(ext_dir):
+                shutil.rmtree(ext_dir, ignore_errors=True)
     return record
 
 
 def _dump_dom_arm(url: str) -> dict:
-    """Zero-CDP arm: plain `chrome --headless=new --dump-dom` subprocess."""
+    """No-external-attach arm: `chrome --headless=new --dump-dom` subprocess.
+
+    NOTE: this is NOT a zero-CDP control — Chromium implements --dump-dom via
+    internal DevTools machinery (Target.attachToTarget / Runtime.evaluate) and
+    exits right after page load, so a managed challenge only gets
+    --virtual-time-budget worth of virtual time to resolve. Treat its verdicts
+    as a weak signal only.
+    """
     record: dict = {"headless": True, "uc": False}
     chrome = utils.get_chrome_exe_path()
+    # Reuse the production launch flags so this arm differs only in the
+    # absence of an external driver/attachment.
+    prod = utils._build_chrome_options(utils.get_config_stealth_mode(), load_extension=False)
     cmd = [
         chrome,
+        *prod.arguments,
         "--headless=new",
-        "--no-sandbox",
-        "--disable-gpu",
         f"--user-data-dir=/tmp/cf-matrix-dom-{os.getpid()}",
+        f"--virtual-time-budget={TIMEOUT * 1000}",
         "--dump-dom",
+        url,
     ]
     if PROXY:
+        # The proxy extension cannot be configured from a one-shot process;
+        # --proxy-server only supports proxies without auth here.
         cmd.insert(-1, f"--proxy-server={PROXY}")
-    cmd.append(url)
     start = time.time()
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, check=False)
         record["elapsed"] = round(time.time() - start, 1)
         record["exitCode"] = proc.returncode
         dom = proc.stdout or ""
-        record["domLen"] = len(dom)
         verdict, meta = _verdict_from_page("", dom, [])
         record["verdict"] = verdict if proc.returncode == 0 else "error"
         record.update(meta)

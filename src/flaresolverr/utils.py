@@ -992,6 +992,15 @@ def _header_lookup(headers: dict[str, Any], name: str) -> Any:
     return None
 
 
+def _get_main_frame_id(driver: WebDriver) -> str | None:
+    """Return the top-level frame id via CDP, or None if unavailable."""
+    try:
+        tree = driver.execute_cdp_cmd("Page.getFrameTree", {})  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - mocks and non-CDP drivers
+        return None
+    return ((tree or {}).get("frameTree") or {}).get("frame", {}).get("id")
+
+
 def get_document_response_evidence(driver: WebDriver, max_failed_resources: int = 10) -> dict[str, Any]:
     """Drain the performance log and summarize the most recent document exchange.
 
@@ -1011,13 +1020,21 @@ def get_document_response_evidence(driver: WebDriver, max_failed_resources: int 
     url_by_request_id: dict[str, str] = {}
     responses_by_request_id: dict[str, dict[str, Any]] = {}
     failed_by_request_id: dict[str, str] = {}
-    doc_request_id: str | None = None
-    doc_url: str | None = None
-    redirects: list[dict[str, Any]] = []
+    # Every Document request chain, in order. Iframe navigations are also
+    # type=Document, so the "latest Document" heuristic alone can silently
+    # replace the top-level 403/Ray ID with a challenge iframe's 200.
+    doc_chains: list[dict[str, Any]] = []
+    doc_chain_by_id: dict[str, dict[str, Any]] = {}
+    root_frame_ids: list[str] = []
 
     for entry in entries:
         method = entry.get("method")
         params = entry.get("params") or {}
+        if method == "Page.frameNavigated":
+            frame = params.get("frame") or {}
+            if frame.get("id") and "parentId" not in frame:
+                root_frame_ids.append(frame["id"])
+            continue
         request_id = params.get("requestId")
         if not request_id:
             continue
@@ -1027,20 +1044,26 @@ def get_document_response_evidence(driver: WebDriver, max_failed_resources: int 
             if params.get("type") != "Document":
                 continue
             redirect_response = params.get("redirectResponse")
-            if request_id == doc_request_id and redirect_response:
+            chain = doc_chain_by_id.get(request_id)
+            if chain is not None and redirect_response:
                 # Same requestId carrying a redirectResponse = next redirect hop.
-                redirects.append(
+                chain["redirects"].append(
                     {
                         "url": redirect_response.get("url"),
                         "status": redirect_response.get("status"),
                     }
                 )
-                doc_url = request_url or doc_url
+                chain["url"] = request_url or chain["url"]
             else:
                 # A new requestId for a Document request = new navigation.
-                doc_request_id = request_id
-                doc_url = request_url or doc_url
-                redirects = []
+                chain = {
+                    "requestId": request_id,
+                    "frameId": params.get("frameId"),
+                    "url": request_url,
+                    "redirects": [],
+                }
+                doc_chain_by_id[request_id] = chain
+                doc_chains.append(chain)
         elif method == "Network.responseReceived":
             responses_by_request_id[request_id] = params.get("response") or {}
         elif method == "Network.loadingFailed":
@@ -1048,8 +1071,26 @@ def get_document_response_evidence(driver: WebDriver, max_failed_resources: int 
             if error_text:
                 failed_by_request_id[request_id] = error_text
 
-    if doc_request_id is None:
+    if not doc_chains:
         return {}
+
+    # Prefer the chain belonging to the top-level frame. Frame ids come from
+    # Page.getFrameTree (chromedriver) or Page.frameNavigated perf-log events.
+    main_frame_id = _get_main_frame_id(driver) or (root_frame_ids[-1] if root_frame_ids else None)
+    chain = None
+    if main_frame_id:
+        chain = next((c for c in reversed(doc_chains) if c["frameId"] == main_frame_id), None)
+    if chain is None:
+        # Fallback: the main-frame document is the one matching the final URL.
+        current_url = getattr(driver, "current_url", None)
+        if current_url:
+            chain = next((c for c in reversed(doc_chains) if c["url"] == current_url), None)
+    if chain is None:
+        chain = doc_chains[-1]
+
+    doc_request_id = chain["requestId"]
+    doc_url = chain["url"]
+    redirects = chain["redirects"]
 
     response = responses_by_request_id.get(doc_request_id) or {}
     headers = response.get("headers") or {}

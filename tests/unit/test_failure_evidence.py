@@ -120,6 +120,88 @@ class TestDocumentResponseEvidence:
     def test_no_entries_returns_empty(self):
         assert utils.get_document_response_evidence(MockPerfDriver([])) == {}
 
+    def test_iframe_document_does_not_replace_top_level(self):
+        # Challenge iframe loads a Document request AFTER the top-level 403;
+        # the top-level exchange must still win. MockPerfDriver has no
+        # execute_cdp_cmd, so selection falls back to current_url matching.
+        entries = [
+            _perf_entry(
+                "Network.requestWillBeSent",
+                {"requestId": "1", "type": "Document", "frameId": "main", "request": {"url": "https://example.com/page"}},
+            ),
+            _perf_entry(
+                "Network.responseReceived",
+                {
+                    "requestId": "1",
+                    "type": "Document",
+                    "frameId": "main",
+                    "response": {
+                        "url": "https://example.com/page",
+                        "status": 403,
+                        "headers": {"cf-mitigated": "challenge", "cf-ray": "r1-FRA"},
+                    },
+                },
+            ),
+            _perf_entry(
+                "Network.requestWillBeSent",
+                {
+                    "requestId": "2",
+                    "type": "Document",
+                    "frameId": "iframe1",
+                    "request": {"url": "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/abc"},
+                },
+            ),
+            _perf_entry(
+                "Network.responseReceived",
+                {
+                    "requestId": "2",
+                    "type": "Document",
+                    "frameId": "iframe1",
+                    "response": {"url": "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/abc", "status": 200, "headers": {}},
+                },
+            ),
+        ]
+        evidence = utils.get_document_response_evidence(MockPerfDriver(entries))
+        assert evidence["status"] == 403
+        assert evidence["cfRay"] == "r1-FRA"
+        assert evidence["url"] == "https://example.com/page"
+
+    def test_main_frame_selected_by_frame_id(self):
+        class CDPDriver(MockPerfDriver):
+            def execute_cdp_cmd(self, cmd, params):
+                assert cmd == "Page.getFrameTree"
+                return {"frameTree": {"frame": {"id": "main-frame"}}}
+
+        entries = [
+            _perf_entry(
+                "Network.requestWillBeSent",
+                {"requestId": "1", "type": "Document", "frameId": "main-frame", "request": {"url": "https://example.com/other"}},
+            ),
+            _perf_entry(
+                "Network.responseReceived",
+                {
+                    "requestId": "1",
+                    "type": "Document",
+                    "frameId": "main-frame",
+                    "response": {"url": "https://example.com/other", "status": 403, "headers": {"cf-ray": "r2-LHR"}},
+                },
+            ),
+            _perf_entry(
+                "Network.requestWillBeSent",
+                {"requestId": "2", "type": "Document", "frameId": "iframe1", "request": {"url": "https://example.com/frame"}},
+            ),
+            _perf_entry(
+                "Network.responseReceived",
+                {"requestId": "2", "type": "Document", "frameId": "iframe1", "response": {"url": "https://example.com/frame", "status": 200, "headers": {}}},
+            ),
+        ]
+        # current_url does not match either chain; frameId must decide.
+        driver = CDPDriver(entries)
+        driver.current_url = "https://example.com/renamed"
+        evidence = utils.get_document_response_evidence(driver)
+        assert evidence["status"] == 403
+        assert evidence["cfRay"] == "r2-LHR"
+
 
 class TestCollectFailureEvidence:
     def test_redacts_cookie_values(self):

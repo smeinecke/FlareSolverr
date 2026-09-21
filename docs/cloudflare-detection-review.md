@@ -28,10 +28,11 @@ solution to the reported Cloudflare loop. CDP attachment, graphics availability,
 request context, and the target's policy still require controlled comparisons.
 
 *Follow-up:* the native UA path is fixed and shipped in `154.0.8037.49`, and the
-controlled comparisons now exist (§8): ChromeDriver attachment measurably worsens
-outcomes on tmailor, headed/headless and direct/SOCKS egress do not, and
-tempmailo rejects even an unattached browser — consistent with a per-target
-policy rather than a single browser defect.
+controlled comparisons now exist (§8): with identical launch flags, the
+attach mechanism (manual-CDP vs chromedriver-owned) does not change outcomes —
+but the UA identity itself is confirmed detection-relevant (a `HeadlessChrome`
+UA flipped tmailor to a managed challenge). tempmailo rejects every arm —
+consistent with a per-target policy or reputation rather than a browser defect.
 
 The current tests establish internal consistency for selected properties. They
 do not establish that the browser resembles ordinary Chrome or that Cloudflare
@@ -195,19 +196,21 @@ with this architecture, but is not a Cloudflare diagnostic.
 
 **Experiment performed:** `tests/integration/test_cf_challenge_matrix.py`
 compares four arms — manual launch + debugger attach (headless and headed),
-ChromeDriver-owned launch, and zero-CDP `--dump-dom` — against both reported
-targets, on direct and SOCKS egress. Results in [§8](#8-follow-up-measurements-2026-09-21):
-ChromeDriver attachment is a confirmed detection signal on tmailor (flips a
-pass into a managed challenge), while tempmailo challenges even the zero-CDP
-arm, so its rejection is not attachment-based.
+ChromeDriver-owned launch, and no-external-attach `--dump-dom` — with
+identical launch flags, on direct and SOCKS egress. Results in
+[§8](#8-follow-up-measurements-2026-09-21): with flags held constant,
+**attachment does not change the outcome** on either target — an apparent
+earlier effect was a flag confound (`HeadlessChrome` UA). The UC-vs-manual
+difference now reduces to chromedriver's own injected launch switches
+(`--enable-automation` etc.), which did not flip either target in these runs.
 
-Only if attachment changes outcomes should we prototype a narrower automation
-transport or lifecycle — **it does on tmailor**, so a transport reduction is now
-justified for that class of target. Blindly deleting `Runtime.enable` can break
-frame and execution-context tracking, especially after navigation and across
-origins. Reintroducing console wrappers or `Error.prepareStackTrace`
-modifications would add unrelated observable differences without establishing
-the cause.
+Since attachment did not change outcomes, a narrower automation transport is
+**not currently justified** by this measurement — keep it as a candidate only
+if a future isolated comparison shows one. Blindly deleting `Runtime.enable`
+can break frame and execution-context tracking, especially after navigation
+and across origins. Reintroducing console wrappers or
+`Error.prepareStackTrace` modifications would add unrelated observable
+differences without establishing the cause.
 
 ## 4. Native patches can still make the browser distinctive
 
@@ -424,7 +427,7 @@ are classified as `challenge_timeout`, `challenge_denied`, `nav_error`,
 | --- | --- | --- | --- |
 | P0 | Preserve response/failure evidence and effective configuration | **Done** | Timeouts now carry status, `cf-mitigated`, Ray ID, redirect chain, `_cf_chl_opt` metadata, screenshot, and launch configuration via `ChallengeError.details`; failure kinds are classified. |
 | P0 | Fix unified native UA generation and remove default UA override together | **Done** (rebuilt binary `154.0.8037.49`) | `--stealth-native-ua` active, `--user-agent` dropped; reduced UA has no `Headless` token. Cross-context UA-CH sweep still pending. |
-| P1 | Compare no attachment, debugger port only, and ChromeDriver attachment | **Done** — matrix executed | ChromeDriver attachment reproducibly flips tmailor pass→managed challenge; zero-CDP `--dump-dom` still challenged on tempmailo (§8). |
+| P1 | Compare no attachment, debugger port only, and ChromeDriver attachment | **Done** — matrix executed | With identical flags, attachment does not change outcomes on either target; an earlier apparent effect was a flag confound (§8). |
 | P1 | Compare headed real-display and headless configurations | **Done** — matrix arms | Identical verdicts headed vs headless on both targets and both egresses (§8). |
 | P1 | Fix visible-state click detection | **Done** | Visibility-aware probe; hidden template text cannot suppress a rendered control; unit-tested. |
 | P1 | Preserve same-origin API request context and real responses | **Done** | `sessions.fetch` command; raw-post responses keep real status/headers/body and classify challenges. |
@@ -448,58 +451,79 @@ If a newer stock browser passes, compare versions separately: installed Chrome
 
 Measured with the rebuilt custom binary `154.0.8037.49` (`native-ua` manifest;
 `--stealth-native-ua` active, no `--user-agent`). Harness:
-`tests/integration/test_cf_challenge_matrix.py`. Four arms:
+`tests/integration/test_cf_challenge_matrix.py`. Four arms, all sharing the
+production launch flags so only the launch/attach mechanism differs:
 
 - `manual-headless` / `manual-headed` — `get_webdriver()` path: Chromium
   launched manually, Selenium attaches over the debugger port.
-- `uc-chromedriver` — ChromeDriver owns the browser (`--enable-automation`,
-  CDC injection surface) as the detection control.
-- `dump-dom` — `chrome --headless=new --dump-dom` subprocess: pure navigation,
-  **no CDP, no debugger port, no JavaScript-driven attach**.
+- `uc-chromedriver` — same flags, but ChromeDriver owns the browser launch
+  (`--enable-automation`, CDC injection surface) as the detection control.
+- `dump-dom` — `chrome --headless=new --dump-dom` subprocess: no external
+  attachment, but **not a zero-CDP control** — Chromium implements `--dump-dom`
+  via internal DevTools machinery and exits at page load + virtual-time budget,
+  so a managed challenge gets little real time to resolve. Weak signal only.
 
-Both targets on direct egress and through the sonar SOCKS proxy produced
-identical verdicts (`/tmp/cf_matrix_direct3.json`, `/tmp/cf_matrix_sonar.json`):
+Isolated-flags run (`/tmp/cf_matrix_isolated.json`, direct egress — every arm
+receives the identical production flag set, so only the launch/attach
+mechanism differs):
 
 | Arm | tmailor.com/en | tempmailo.com |
 | --- | --- | --- |
 | manual-headless | **passed** | challenged (managed) |
 | manual-headed | **passed** | challenged (managed) |
-| uc-chromedriver | **challenged (managed)** | challenged (managed) |
-| dump-dom (zero-CDP) | timeout* | challenged (managed) |
+| uc-chromedriver | **passed** | challenged (managed) |
+| dump-dom (no external attach) | timeout* | challenged (managed) |
 
 \* `dump-dom` waits for load quiescence; tmailor's real page embeds a Turnstile
-widget whose network activity exceeds the 60s timeout — a harness artifact,
-not a challenge signal.
+widget whose network activity exceeds the timeout — a harness artifact, not a
+challenge signal.
+
+An earlier run with the UC arm missing the stealth flags (notably
+`--stealth-native-ua`, i.e. a `HeadlessChrome` UA) had shown it challenged on
+tmailor — that difference was the flags, not the attachment.
 
 ### Conclusions
 
-1. **ChromeDriver attachment is a confirmed detection signal.** Same binary,
-   same flags, same egress — attachment alone flips tmailor from pass to a
-   managed challenge. The manual launch + debugger-port architecture is
-   justified; further reducing the attached surface (fewer `Runtime`/`Page`
-   domains, or post-attach detachment) is now a legitimate direction.
-2. **tempmailo's rejection is not attachment-based.** Even the zero-CDP arm is
-   challenged, so no client-side transport fix applies — it is egress
-   reputation, passive fingerprinting, or target policy.
-3. **Egress does not change outcomes.** Direct and SOCKS-proxy results are
-   identical.
-4. **Headed vs headless does not change outcomes** on this build — the native
-   UA path produces a coherent headless identity.
-5. **Challenges are flaky, not absolute.** One headed run on tempmailo obtained
-   `cf_clearance` mid-challenge before navigating away; roughly 1-in-8.
+1. **ChromeDriver attachment is NOT a confirmed detection signal.** With the
+   identical production flag set, the chromedriver-launched arm passes
+   tmailor exactly like the manual-launch arms. The earlier pass→challenge
+   flip was a configuration confound (missing `--stealth-native-ua` — a
+   `HeadlessChrome` UA), which also demonstrates that the UA identity is
+   itself a live detection input on this target.
+2. **tempmailo rejects every arm**, including the no-external-attach
+   `dump-dom` run. Since `dump-dom` is only a weak control (internal CDP
+   machinery, exits at load), this cannot rule out attachment — but the
+   consistent rejection across all launch/attach/display variants points to
+   egress reputation, passive fingerprinting, or target policy rather than
+   anything fixable client-side.
+3. **Egress does not change outcomes** between direct and SOCKS routes in
+   these runs — two egresses agreeing does not rule out reputation effects
+   (both share the same operator/network history), but neither shows a
+   proxy-specific penalty.
+4. **Headed vs headless does not change outcomes** on this build.
+5. **A `cf_clearance` cookie alone is not a pass.** tempmailo issued clearance
+   mid-challenge in two runs while the interstitial stayed up — clearance is
+   recorded as metadata, never as success without positive page evidence.
+6. The `/api` POST path remains untested by this matrix (all arms GET `/en/`
+   or `/`). Its endpoint-level managed challenge stands as previously
+   measured.
 
 ### Harness corrections made along the way
 
-The first matrix run misclassified results; fixes are committed:
-
-- Challenge titles are localized (`Nur einen Moment…`), so verdicts now also
-  key on locale-independent DOM markers (`_cf_chl_opt`, `challenge-stage`,
-  `cdn-cgi/challenge-platform`, `cf-challenge-running`).
-- `cf-turnstile`/`challenges.cloudflare.com` are **weak** markers — real pages
-  (tmailor `/en/`) embed Turnstile widgets, so they no longer force a
-  "challenged" verdict alone.
-- `cRay`/`cType` regexes accept unquoted JS keys; matched markers are recorded
-  per result.
+- Challenge titles are localized (`Nur einen Moment…`), so verdicts key on
+  locale-independent DOM markers (`_cf_chl_opt`, `challenge-stage`,
+  `cf-challenge-running`).
+- `cf-turnstile`, `challenges.cloudflare.com`, and `cdn-cgi/challenge-platform`
+  are **weak** markers — real pages embed Turnstile widgets and JS-Detections
+  scripts, so they never force a "challenged" verdict alone.
+- "passed" now requires positive evidence: `chrome-error://` URLs classify as
+  `nav_error`, navigation exceptions and sub-256-byte documents are never
+  passes, and a stale `cf_clearance` cannot override a challenge title.
+- `cRay`/`cType` regexes accept unquoted JS keys; matched markers and DOM
+  length are recorded per result.
+- All arms share `_build_chrome_options()` output so comparisons isolate the
+  attach mechanism, and `dump-dom` gains `--virtual-time-budget` so the
+  challenge JS gets virtual time to run before the dump.
 
 Run it with:
 
