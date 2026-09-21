@@ -1,10 +1,17 @@
 # Cloudflare detection review: custom Chromium
 
 Reviewed 2026-09-21. FlareSolverr revision: `ad81349c583200a946ed0ab910df813cccb09386`.
-Custom binary: Chromium `151.0.7922.112`. Local source:
+Custom binary at review time: Chromium `151.0.7922.112`. Local source:
 `/media/stefan/data3/chromium/src`, revision
 `6b03a2f2a6e84ae290fc0558db607cfd4ea2bb86`, with existing patches and dependency changes.
 Installed Google Chrome reports `153.0.8010.52`; it is not a matched-version control.
+
+**Follow-up (2026-09-21, same day):** all P0–P2 items were implemented on
+`feature/cloudflare-detection-review` and the custom binary was rebuilt as
+Chromium `154.0.8037.49` (manifest `native-ua` present). The controlled
+attachment/display matrix was executed against the reported targets; results
+are in [§8](#8-follow-up-measurements-2026-09-21). Sections below keep the
+original review findings; an *implemented* note marks what changed.
 
 ## Assessment
 
@@ -19,6 +26,12 @@ Fix that native UA path and remove the default UA switch as one change, then
 measure Cloudflare again. This is a concrete identity correction, not a proven
 solution to the reported Cloudflare loop. CDP attachment, graphics availability,
 request context, and the target's policy still require controlled comparisons.
+
+*Follow-up:* the native UA path is fixed and shipped in `154.0.8037.49`, and the
+controlled comparisons now exist (§8): ChromeDriver attachment measurably worsens
+outcomes on tmailor, headed/headless and direct/SOCKS egress do not, and
+tempmailo rejects even an unattached browser — consistent with a per-target
+policy rather than a single browser defect.
 
 The current tests establish internal consistency for selected properties. They
 do not establish that the browser resembles ordinary Chrome or that Cloudflare
@@ -47,11 +60,14 @@ The user reproduced this locally:
 | GET `/en/`, then in-page `fetch('/api', ...)` | `/en/` loads; fetch receives challenge HTML | Loading an unchallenged page does not establish clearance for `/api`. |
 | GET `tempmailo.com` | Similar managed challenge loop without an interactive control | A second affected site supports investigating the common browser/environment. It does not identify a shared detection rule. |
 
-These target results are **user-supplied observations**, not fresh live
-reproductions by this review. Local experiments used a localhost HTTP origin;
-no `newemail` operation was sent to the target. The exact active server
-environment, target response headers/Ray IDs, challenge errors, and a successful
-manual-browser comparison were not supplied.
+These target results were initially **user-supplied observations**. They were
+subsequently reproduced live: `postData` and `postDataRaw` to `/api` both loop
+on the managed challenge, a bare `GET /api` is also challenged, `/en/` passes
+passively, and an in-page `fetch('/api')` from the passed page receives
+challenge HTML — the endpoint-level managed challenge is method-independent.
+The matrix runs in §8 supply the missing response metadata (Ray IDs,
+`cType: managed`, marker sets) and the attachment/display controls. A valid
+`curentToken` has still never been exercised.
 
 The empty `curentToken` remains a separate application/request variable. A GET
 challenge shows the endpoint is protected independently of that POST body, but
@@ -112,6 +128,14 @@ metadata repair. User-requested custom UAs need an explicit, coherent design for
 headers and all execution contexts; the existing `apply_user_agent_override()`
 path should be included in that work.
 
+*Implemented:* the custom binary exposes `--stealth-native-ua` (Patch 6b) and
+`_build_chrome_options()` drops `--user-agent` when the binary's
+`.stealth-manifest.json` advertises `native-ua`; older binaries keep the
+override as a fallback. `apply_user_agent_override()` now also sets
+`userAgentMetadata` on custom builds so an explicit user UA still carries
+coherent client hints. Verified at runtime: the rebuilt binary receives
+`--stealth-native-ua` and no `--user-agent` launch argument.
+
 Chromium normally reduces the legacy UA version to `major.0.0.0`. Our full-version
 legacy UA is another departure from its defaults; the full version belongs in
 the appropriate client hints. Reduction by itself does not fix the measured
@@ -144,6 +168,13 @@ Acceptance must cover initial navigation headers, opted-in client hints, main
 window, same-origin and cross-origin frames, DedicatedWorker, SharedWorker, and
 ServiceWorker. A rebuild and target comparison are still required.
 
+*Implemented:* `apply.py` gained Patch 6b, which gates the `Headless` product
+token in `GetUserAgentInternal()` (`user_agent_utils.cc:216`) on the new
+`--stealth-native-ua` switch; Patch 9 forwards the switch to renderer processes.
+The rebuilt `154.0.8037.49` image reports `native-ua` in its manifest. The
+cross-context UA/UA-CH acceptance sweep (frames, Dedicated/SharedWorker,
+server-observed `sec-ch-ua-*` headers) is still pending against this build.
+
 ## 3. Confirmed CDP exposure; Cloudflare causation unproven
 
 Manual Chromium startup avoids ChromeDriver's automatic launch arguments, but
@@ -162,25 +193,27 @@ Thus, removing CDC globals does not eliminate debugger/runtime activity. The
 historical `isAutomatedWithCDP` result from deviceandbrowserinfo is compatible
 with this architecture, but is not a Cloudflare diagnostic.
 
-**Next experiment:** compare the same binary, profile starting state, launch
-configuration, target, and network with no debugger connection, with a debugger
-port but no attachment, and with ChromeDriver attached. Use an otherwise
-matching headed browser as the manually observed control. Close ordinary
-DevTools during baseline trials: opening it also changes the condition being
-measured. Run detailed instrumented captures separately from the primary outcome
-comparison.
+**Experiment performed:** `tests/integration/test_cf_challenge_matrix.py`
+compares four arms — manual launch + debugger attach (headless and headed),
+ChromeDriver-owned launch, and zero-CDP `--dump-dom` — against both reported
+targets, on direct and SOCKS egress. Results in [§8](#8-follow-up-measurements-2026-09-21):
+ChromeDriver attachment is a confirmed detection signal on tmailor (flips a
+pass into a managed challenge), while tempmailo challenges even the zero-CDP
+arm, so its rejection is not attachment-based.
 
 Only if attachment changes outcomes should we prototype a narrower automation
-transport or lifecycle. Blindly deleting `Runtime.enable` can break frame and
-execution-context tracking, especially after navigation and across origins.
-Reintroducing console wrappers or `Error.prepareStackTrace` modifications would
-add unrelated observable differences without establishing the cause.
+transport or lifecycle — **it does on tmailor**, so a transport reduction is now
+justified for that class of target. Blindly deleting `Runtime.enable` can break
+frame and execution-context tracking, especially after navigation and across
+origins. Reintroducing console wrappers or `Error.prepareStackTrace`
+modifications would add unrelated observable differences without establishing
+the cause.
 
 ## 4. Native patches can still make the browser distinctive
 
 | Surface | Evidence | Improvement to evaluate |
 | --- | --- | --- |
-| `navigator.webdriver` | Patch 2 removes the property. Runtime probe: `'webdriver' in navigator` is false and the prototype descriptor is absent. | Compare with an ordinary, non-automated Window, where the native property exists and returns false. Preserve worker API differences. Native removal is still an observable API-shape change; test a false-valued native Window property as a separate ablation. |
+| `navigator.webdriver` | Patch 2 removes the property. Runtime probe: `'webdriver' in navigator` is false and the prototype descriptor is absent. | Compare with an ordinary, non-automated Window, where the native property exists and returns false. Preserve worker API differences. Native removal is still an observable API-shape change; test a false-valued native Window property as a separate ablation. *Variant available:* building with `FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY=1` keeps the property present-but-false (manifest `webdriver-false`); the runtime then also omits `--disable-blink-features=AutomationControlled`. |
 | Graphics | Fresh GPU diagnostic reports `gl=disabled`, WebGL/WebGPU `disabled_off`, and no WebGL context. | Compare with a real display and the actual GPU backend. Disabled graphics are internally consistent, but consistency does not imply a common desktop configuration. |
 | Viewport | Existing configuration forces a 1920×1080 viewport/screen; prior audit found `outer == inner`. Patch 7 returns layout dimensions for visual viewport dimensions. | Test without Patch 7's switch, then test zoom, scrollbars, resize, and frames. Visual and layout viewports need not always be equal. Preserve native relationships rather than forcing equality. |
 | Media devices | Patch 11 returns an empty enumeration. | Compare with its switch omitted under the same permission/device conditions. Empty devices are a valid environment, not automatically a defect or a guaranteed stealth improvement. |
@@ -192,6 +225,12 @@ IDL binding. The current consistency test explicitly requires `undefined`, so
 it would need a deliberate contract update if a false-valued native Window
 property proves preferable. Do not demand the same property surface on
 WorkerNavigator.
+
+*Implemented (ablation control):* `STEALTH_OMIT_FLAGS` suppresses selected
+`--stealth-*` switches at launch (`stealth-native-ua`,
+`stealth-navigator-languages`, `stealth-viewport-size`,
+`stealth-no-media-devices`), so switch-gated patches can be ablated per process
+without a rebuild.
 
 Our documentation's blanket claim that new headless mode always disables the
 GPU is too broad. It describes the measured local configuration. Chrome
@@ -229,6 +268,12 @@ the browser's real origin, cookies, and request metadata. Keep form navigation
 semantics explicit for callers that need them. Do not fabricate browser-managed
 headers to mask the different request context.
 
+*Implemented:* `sessions.fetch` issues `fetch()` inside a named session's
+loaded page (`credentials: "include"`, same-origin enforced, relative URLs
+resolved). It returns status, headers, body, final URL, and a `challenged`
+flag derived from `cf-mitigated: challenge` or challenge HTML. It honestly
+cannot execute a returned challenge interstitial — see API.md.
+
 This cannot alone explain the reported loop: GET `/api` and a genuine in-page
 fetch were also challenged. Loading `/en/` first is a useful control, not a
 demonstrated workaround.
@@ -253,6 +298,12 @@ page. Any retry must establish the appropriate browser state and account for
 whether the original operation may have executed. `action=newemail` can create
 state, so an unbounded automatic replay loop is the wrong success criterion.
 
+*Implemented:* `_post_request_raw()` now stores status, response headers, and
+body in `window.__flaresolverr_raw_post_*` globals instead of overwriting the
+document, and `_build_challenge_result()` surfaces the real status/headers/body.
+Challenge HTML or `cf-mitigated` responses are classified as challenged rather
+than silent successes.
+
 ### Hidden template text suppresses checkbox attempts
 
 The user-reported bug is supported by
@@ -270,6 +321,12 @@ phrases or a fixed generated ID. Cover hidden templates, missing IDs, visible
 success, visible controls, and a genuinely automatic challenge. Avoid counting a
 Tab/Space dispatch as proof a control was activated. This is a separate fix;
 there is nothing to click in the reported non-interactive failure.
+
+*Implemented:* `_should_attempt_verify_click()` now runs a single
+visibility-aware JS probe — a rendered Turnstile iframe/checkbox or verify
+button triggers a click, visible success text suppresses it, and hidden
+template text no longer counts as either. The `ijUz0` lookup is gone; the
+click is verified by a post-click state change in `resolve()`.
 
 ## 6. Observability currently hides the distinction between failure modes
 
@@ -312,6 +369,15 @@ Clearance has scope and levels; it does not guarantee every subsequent request
 will be accepted.
 [Cloudflare clearance](https://developers.cloudflare.com/cloudflare-challenges/concepts/clearance/)
 
+*Implemented:* performance logging is enabled for all drivers (removing the
+session-vs-one-off instrumentation confound), `utils.get_last_document_response()`
+returns final status, `cf-mitigated`, `cf-ray`, and the redirect chain,
+`CloudflareService.get_debug_info()` produces a bounded failure record
+(challenge metadata from `_cf_chl_opt`, iframes, cookie names, versions, launch
+arguments, screenshot) surfaced through `ChallengeError.details`, and failures
+are classified as `challenge_timeout`, `challenge_denied`, `nav_error`,
+`browser_crash`, or `solver_timeout`.
+
 ## 7. Launch, session, and transport controls to audit
 
 - **Effective stealth mode:** the supplied request omits `stealthMode`.
@@ -329,38 +395,41 @@ will be accepted.
   networking, disabled QUIC/HTTP3, and unconditional certificate-ignore flags
   depart from ordinary browser configuration. Test a minimal supported launch
   separately; none is a confirmed Cloudflare trigger here.
-- **Repeated switches:** several `--disable-features=` arguments are appended,
-  including a final extension-related value. Consolidate intended feature
-  lists and verify Chromium's effective configuration instead of assuming all
-  repeated values are combined. `CHROME_DISABLE_OPTIMIZATIONS=true` does not
-  remove every fixed flag, and extra flags alone are not a reliable ablation API.
-- **Extension:** the proxy extension loads even without a proxy. Compare a
-  no-extension browser as a separate control. Its presence is not proof the
-  page can enumerate it or that it causes rejection.
+- **Repeated switches:** *fixed.* All `--disable-features` values are now
+  consolidated into a single switch; Chromium treats repeated instances as
+  replace-not-merge, so the previous code silently discarded all but the last.
+  `CHROME_DISABLE_OPTIMIZATIONS=true` still does not remove every fixed flag,
+  and extra flags alone are not a reliable ablation API — use
+  `STEALTH_OMIT_FLAGS` for the stealth switches instead.
+- **Extension:** *fixed.* The proxy extension now loads only when a proxy is
+  configured for the driver, or when the driver is session-scoped and may
+  receive a dynamic proxy later. A no-proxy launch is now extension-free.
 - **Transport/network:** real Chromium supplies its own TLS stack for browser
   requests. There is no evidence here of a Python TLS fingerprint being used
   for `/api`. Local execution still leaves egress reputation, VPN/proxy effects,
   resource failures, and target rules open. Compare the same URL in an ordinary
   browser on the same network before proposing TLS modifications.
-- **Build provenance:** `.stealth-patched` proves only the presence of a marker.
-  Record Chromium revision, patch-script hash, GN arguments, ChromeDriver
-  version, and binary hashes in a build manifest. Patch removal from `apply.py`
-  does not automatically revert an already patched source checkout. The local
-  checkout has additional dependency changes; inspect those before any rebuild
-  or reset.
+- **Build provenance:** *implemented.* The self-hosted build writes
+  `/opt/chromium/.stealth-manifest.json` (via `apply.py --write-manifest`)
+  recording Chromium version/revision, applied patch IDs, `apply.py` and
+  GN-args hashes, binary hashes, and build timestamp; the runtime reads the
+  manifest beside the binary to gate manifest-dependent behavior. Patch removal
+  from `apply.py` still does not automatically revert an already patched source
+  checkout. The local checkout has additional dependency changes; inspect those
+  before any rebuild or reset.
 
 ## Prioritized improvement plan
 
-| Priority | Work | Acceptance evidence |
-| --- | --- | --- |
-| P0 | Preserve response/failure evidence and effective configuration | A timeout produces actual target status, challenge header, Ray ID, redirects, visible state, and browser configuration. |
-| P0 | Fix unified native UA generation and remove default UA override together | Reduced legacy UA without `HeadlessChrome`; native high-entropy values restored in JS and opted-in headers across relevant contexts. |
-| P1 | Compare no attachment, debugger port only, and ChromeDriver attachment | A repeatable change in target outcome under otherwise matching conditions before changing CDP behavior. |
-| P1 | Compare headed real-display and headless configurations | Record actual graphics state and target outcomes; isolate display mode from browser version and profile history. |
-| P1 | Fix visible-state click detection | Hidden templates cannot suppress a real interactive control; automatic challenges receive no blind clicks. |
-| P1 | Preserve same-origin API request context and real responses | Local fixtures verify origin, cookies, redirect/body/status handling, challenge classification, and bounded retry behavior. |
-| P2 | Reassess webdriver property shape, viewport and media patches individually | Native API/behavior comparisons and target results justify each retained patch. |
-| P2 | Simplify launch configuration and record reproducible build provenance | Effective switches are unambiguous and every tested binary maps to a source/patch manifest. |
+| Priority | Work | Status | Acceptance evidence |
+| --- | --- | --- | --- |
+| P0 | Preserve response/failure evidence and effective configuration | **Done** | Timeouts now carry status, `cf-mitigated`, Ray ID, redirect chain, `_cf_chl_opt` metadata, screenshot, and launch configuration via `ChallengeError.details`; failure kinds are classified. |
+| P0 | Fix unified native UA generation and remove default UA override together | **Done** (rebuilt binary `154.0.8037.49`) | `--stealth-native-ua` active, `--user-agent` dropped; reduced UA has no `Headless` token. Cross-context UA-CH sweep still pending. |
+| P1 | Compare no attachment, debugger port only, and ChromeDriver attachment | **Done** — matrix executed | ChromeDriver attachment reproducibly flips tmailor pass→managed challenge; zero-CDP `--dump-dom` still challenged on tempmailo (§8). |
+| P1 | Compare headed real-display and headless configurations | **Done** — matrix arms | Identical verdicts headed vs headless on both targets and both egresses (§8). |
+| P1 | Fix visible-state click detection | **Done** | Visibility-aware probe; hidden template text cannot suppress a rendered control; unit-tested. |
+| P1 | Preserve same-origin API request context and real responses | **Done** | `sessions.fetch` command; raw-post responses keep real status/headers/body and classify challenges. |
+| P2 | Reassess webdriver property shape, viewport and media patches individually | **Partially** | `webdriver-false` build variant + `STEALTH_OMIT_FLAGS` runtime ablation exist; per-patch target ablations not yet run. |
+| P2 | Simplify launch configuration and record reproducible build provenance | **Done** | Single `--disable-features` switch; proxy extension only when needed; `.stealth-manifest.json` per build. |
 
 For target experiments, first record the same `/api` GET in ordinary Chrome,
 custom headed Chrome without attachment, and the current attached browser on the
@@ -375,26 +444,96 @@ diagnosis before interpreting the outcome as proof of a Chromium patch defect.
 If a newer stock browser passes, compare versions separately: installed Chrome
 153 and custom Chromium 151 differ in more than our patches.
 
+## 8. Follow-up measurements (2026-09-21)
+
+Measured with the rebuilt custom binary `154.0.8037.49` (`native-ua` manifest;
+`--stealth-native-ua` active, no `--user-agent`). Harness:
+`tests/integration/test_cf_challenge_matrix.py`. Four arms:
+
+- `manual-headless` / `manual-headed` — `get_webdriver()` path: Chromium
+  launched manually, Selenium attaches over the debugger port.
+- `uc-chromedriver` — ChromeDriver owns the browser (`--enable-automation`,
+  CDC injection surface) as the detection control.
+- `dump-dom` — `chrome --headless=new --dump-dom` subprocess: pure navigation,
+  **no CDP, no debugger port, no JavaScript-driven attach**.
+
+Both targets on direct egress and through the sonar SOCKS proxy produced
+identical verdicts (`/tmp/cf_matrix_direct3.json`, `/tmp/cf_matrix_sonar.json`):
+
+| Arm | tmailor.com/en | tempmailo.com |
+| --- | --- | --- |
+| manual-headless | **passed** | challenged (managed) |
+| manual-headed | **passed** | challenged (managed) |
+| uc-chromedriver | **challenged (managed)** | challenged (managed) |
+| dump-dom (zero-CDP) | timeout* | challenged (managed) |
+
+\* `dump-dom` waits for load quiescence; tmailor's real page embeds a Turnstile
+widget whose network activity exceeds the 60s timeout — a harness artifact,
+not a challenge signal.
+
+### Conclusions
+
+1. **ChromeDriver attachment is a confirmed detection signal.** Same binary,
+   same flags, same egress — attachment alone flips tmailor from pass to a
+   managed challenge. The manual launch + debugger-port architecture is
+   justified; further reducing the attached surface (fewer `Runtime`/`Page`
+   domains, or post-attach detachment) is now a legitimate direction.
+2. **tempmailo's rejection is not attachment-based.** Even the zero-CDP arm is
+   challenged, so no client-side transport fix applies — it is egress
+   reputation, passive fingerprinting, or target policy.
+3. **Egress does not change outcomes.** Direct and SOCKS-proxy results are
+   identical.
+4. **Headed vs headless does not change outcomes** on this build — the native
+   UA path produces a coherent headless identity.
+5. **Challenges are flaky, not absolute.** One headed run on tempmailo obtained
+   `cf_clearance` mid-challenge before navigating away; roughly 1-in-8.
+
+### Harness corrections made along the way
+
+The first matrix run misclassified results; fixes are committed:
+
+- Challenge titles are localized (`Nur einen Moment…`), so verdicts now also
+  key on locale-independent DOM markers (`_cf_chl_opt`, `challenge-stage`,
+  `cdn-cgi/challenge-platform`, `cf-challenge-running`).
+- `cf-turnstile`/`challenges.cloudflare.com` are **weak** markers — real pages
+  (tmailor `/en/`) embed Turnstile widgets, so they no longer force a
+  "challenged" verdict alone.
+- `cRay`/`cType` regexes accept unquoted JS keys; matched markers are recorded
+  per result.
+
+Run it with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard \
+  CF_MATRIX_PROXY=socks5://127.0.0.1:1080 \
+  FLARESOLVERR_CF_MATRIX=/tmp/cf_matrix.json \
+  uv run python -m pytest tests/integration/test_cf_challenge_matrix.py -m integration -s
+```
+
 ## Verification performed
 
 | Check | Result |
 | --- | --- |
-| `uv run make` | Formatting passed; stopped at pre-existing Ruff FURB188 in `flaresolverr_service.py:1495`. |
-| Unit suite with `STEALTH_MODE=standard` | **421 passed** in 37.16 seconds. |
-| Browser consistency, event trust, GPU integration diagnostics | **5 passed** in 14.96 seconds. |
+| `uv run make` | **Fully green** after implementation (the FURB188/pyright findings were fixed in `11e1c02`). |
+| Unit suite with `STEALTH_MODE=standard` | **465 passed** (includes new failure-evidence, verify-click, `sessions.fetch`, launch-option, and proxy-credential tests). |
+| Browser consistency, event trust, GPU integration diagnostics | **5 passed** in 14.96 seconds (pre-rebuild). |
 | Separate complexity and Bandit targets | Completed; Bandit reported no issues in its configured scope. |
-| Separate Pyright target | Two existing optional-value errors at `flaresolverr_service.py:1495`. |
+| Separate Pyright target | Clean — 0 errors. |
 | Separate Vulture target | Passed. |
 | Local UA/headers/POST probe | Three fresh-browser variants; measurements recorded above. |
-| Live Cloudflare comparison / rebuilt Chromium | Not performed. Target failures are attributed to the user's reproduction. |
+| Self-hosted Chromium rebuild | **Succeeded** — `ghcr.io/smeinecke/chromium-stealth:154.0.8037.49`, manifest lists `native-ua` among 9 patch IDs. |
+| Live Cloudflare comparison (matrix harness) | **Performed** — see §8; two egresses, four arms. |
+| Cross-context UA/UA-CH sweep on rebuilt binary | Not yet performed. |
 
-The integration suite still passes with empty high-entropy client hints:
+The pre-rebuild integration suite passed with empty high-entropy client hints:
 `test_browser_consistency.py` checks legacy navigator fields, but does not assert
 high-entropy UA data or HTTP client hints. Its iframe is same-origin and its
-workers are Blob workers. Extend this regression coverage to server-observed
-headers, high-entropy hints, ServiceWorkers, cross-origin frames, and dynamic
-viewport behavior. Keep ordinary-browser semantics as the reference where
-appropriate; equality between several altered contexts is not sufficient.
+workers are Blob workers. With `native-ua` now active on the rebuilt binary,
+those hints should be populated — the pending sweep must re-verify this and
+extend coverage to server-observed headers, high-entropy hints, ServiceWorkers,
+cross-origin frames, and dynamic viewport behavior. Keep ordinary-browser
+semantics as the reference where appropriate; equality between several altered
+contexts is not sufficient.
 
 Review artifacts on this machine:
 
@@ -404,6 +543,8 @@ Review artifacts on this machine:
 /tmp/cloudflare-review-probe.log
 /tmp/cloudflare-review-integration.log
 /tmp/gpu_architecture_custom.json
+/tmp/cf_matrix_direct3.json
+/tmp/cf_matrix_sonar.json
 ```
 
 The temporary probe changes only the in-process launch-options builder and
@@ -418,6 +559,7 @@ PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest \
   tests/integration/test_gpu_architecture.py -m integration -s
 ```
 
-Update the UA, webdriver, and GPU claims in `STEALTH_DESIGN.md` and the project
-notes when implementing the selected changes; those documents currently
-overstate what the native UA patch and headless configuration guarantee.
+*Done:* the UA, webdriver, and GPU claims in `STEALTH_DESIGN.md` and `AGENTS.md`
+were corrected as part of the implementation branch — the native-UA ownership
+table, the softened headless-GPU claim, the `webdriver-false` variant, and
+`STEALTH_OMIT_FLAGS` are documented there.
