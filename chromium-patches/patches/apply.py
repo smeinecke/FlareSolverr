@@ -10,9 +10,97 @@ search string can be fixed without a full re-sync.
 """
 
 import argparse
+import hashlib
+import json
+import os
 import pathlib
 import re
+import subprocess
 import sys
+from datetime import UTC, datetime
+
+# Logical patch identifiers recorded in the build manifest. The runtime
+# (utils._custom_chromium_has_patch) gates behavior on these IDs.
+PATCH_IDS = [
+    "webdriver-idl",  # Patch 2: navigator.webdriver gated on AutomationControlled
+    "headless-product-name",  # Patch 6: HeadlessChrome -> Chrome (headless shell path)
+    "native-ua",  # Patch 6b: suppress "Headless" token in unified UA path
+    "visual-viewport",  # Patch 7: visualViewport == innerWidth/Height
+    "navigator-languages",  # Patch 8: navigator.languages from --stealth-navigator-languages
+    "renderer-switch-forwarding",  # Patch 9: forward --stealth-* switches to renderers
+    "icu-locale",  # Patch 10: ICU default locale in renderers
+    "no-media-devices",  # Patch 11: enumerateDevices() -> empty list
+    "chromedriver-cdc-removal",  # Patch 12: remove window.cdc_* injection
+]
+
+
+def _patch_ids() -> list[str]:
+    """Effective patch IDs, adjusted for build variants."""
+    ids = list(PATCH_IDS)
+    if os.environ.get("FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY") == "1":
+        # Patch 2 variant: navigator.webdriver present but false (stock
+        # non-automated browser shape) instead of absent (undefined).
+        ids[ids.index("webdriver-idl")] = "webdriver-false"
+    return ids
+
+
+def _sha256_file(path: pathlib.Path) -> str | None:
+    try:
+        h = hashlib.sha256()
+        h.update(path.read_bytes())
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
+def _read_chromium_version(src_root: pathlib.Path) -> str | None:
+    version_file = src_root / "chrome" / "VERSION"
+    try:
+        parts = {}
+        for line in version_file.read_text().splitlines():
+            if "=" in line:
+                key, _, value = line.partition("=")
+                parts[key.strip()] = value.strip()
+        return ".".join(parts[k] for k in ("MAJOR", "MINOR", "BUILD", "PATCH") if parts.get(k))
+    except OSError:
+        return None
+
+
+def write_manifest(output_path: str) -> None:
+    """Write a build-provenance manifest for the compiled stealth Chromium.
+
+    Records the Chromium version/revision, apply.py and gn-args.txt hashes,
+    the logical patch IDs applied, and binary hashes. The runtime reads this
+    file (utils._custom_chromium_has_patch) to gate features that depend on
+    specific patches.
+    """
+    src_root = pathlib.Path.cwd()
+    gn_args = pathlib.Path(__file__).resolve().parent.parent / "gn-args.txt"
+
+    revision = None
+    try:
+        revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=src_root, capture_output=True, text=True, timeout=30, check=False).stdout.strip() or None
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    binaries = {}
+    for name in ("chrome", "chromedriver", "chrome_crashpad_handler"):
+        digest = _sha256_file(src_root / "out" / "Release" / name)
+        if digest:
+            binaries[name] = digest
+
+    manifest = {
+        "buildTool": "chromium-patches/patches/apply.py",
+        "applyScriptSha256": _sha256_file(pathlib.Path(__file__).resolve()),
+        "gnArgsSha256": _sha256_file(gn_args),
+        "chromiumVersion": _read_chromium_version(src_root),
+        "chromiumRevision": revision,
+        "patches": _patch_ids(),
+        "binaries": binaries,
+        "builtAt": datetime.now(UTC).isoformat(),
+    }
+    pathlib.Path(output_path).write_text(json.dumps(manifest, indent=2) + "\n")
+    print(f"Wrote build manifest to {output_path}")
 
 
 class PatchApplier:
@@ -216,26 +304,48 @@ class PatchApplier:
         #
         # No C++ implementation changes needed - just the IDL attribute annotation.
         # Chrome 112+: moved to core/frame/navigator_automation_information.idl.
+        #
+        # Variant: FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY=1 keeps the IDL
+        # attribute ungated (property always present, like a normal browser)
+        # and instead patches Navigator::webdriver() to return false. This is
+        # the stock non-automated shape (property exists, value false) — kept
+        # as a build-time ablation variant for detection experiments.
         # ──────────────────────────────────────────────────────────────────────────────
-        print("Patch 2: navigator.webdriver → undefined via [RuntimeEnabled=AutomationControlled]")
+        if os.environ.get("FLARESOLVERR_WEBDRIVER_FALSE_PROPERTY") == "1":
+            print("Patch 2 variant: navigator.webdriver → false (property present, value false)")
+            self.patch(
+                "third_party/blink/renderer/core/frame/navigator.cc",
+                "bool Navigator::webdriver() const {\n  if (RuntimeEnabledFeatures::AutomationControlledEnabled())\n    return true;\n",
+                (
+                    "bool Navigator::webdriver() const {\n"
+                    "  // Build variant: always report false so the property is\n"
+                    "  // present (stock non-automated shape) instead of absent.\n"
+                    "  return false;\n"
+                    "  if (RuntimeEnabledFeatures::AutomationControlledEnabled())\n"
+                    "    return true;\n"
+                ),
+                "navigator.webdriver always returns false",
+            )
+        else:
+            print("Patch 2: navigator.webdriver → undefined via [RuntimeEnabled=AutomationControlled]")
 
-        # Chrome 112+: navigator_automation_information.idl in core/frame/
-        # The attribute already has [RuntimeEnabled=AutomationControlled] checked at
-        # runtime via RuntimeEnabledFeatures. We add it at the IDL level so the Blink
-        # bindings generator makes the property absent (not just false) when the
-        # feature is disabled.
-        self.patch(
-            "third_party/blink/renderer/core/frame/navigator_automation_information.idl",
-            "    readonly attribute boolean webdriver;",
-            "    [RuntimeEnabled=AutomationControlled] readonly attribute boolean webdriver;",
-            "gate webdriver on AutomationControlled runtime feature",
-            fallbacks=[
-                # Old Patch 2 left the IDL as boolean? - normalise it first.
-                "    readonly attribute boolean? webdriver;",
-                # Older Chrome: modules/navigatorcontrolled/
-                "readonly attribute boolean webdriver;",
-            ],
-        )
+            # Chrome 112+: navigator_automation_information.idl in core/frame/
+            # The attribute already has [RuntimeEnabled=AutomationControlled] checked at
+            # runtime via RuntimeEnabledFeatures. We add it at the IDL level so the Blink
+            # bindings generator makes the property absent (not just false) when the
+            # feature is disabled.
+            self.patch(
+                "third_party/blink/renderer/core/frame/navigator_automation_information.idl",
+                "    readonly attribute boolean webdriver;",
+                "    [RuntimeEnabled=AutomationControlled] readonly attribute boolean webdriver;",
+                "gate webdriver on AutomationControlled runtime feature",
+                fallbacks=[
+                    # Old Patch 2 left the IDL as boolean? - normalise it first.
+                    "    readonly attribute boolean? webdriver;",
+                    # Older Chrome: modules/navigatorcontrolled/
+                    "readonly attribute boolean webdriver;",
+                ],
+            )
 
         # ──────────────────────────────────────────────────────────────────────────────
         # Patch 6: Remove "HeadlessChrome" product name token from UA string and
@@ -250,6 +360,38 @@ class PatchApplier:
             'const char kHeadlessProductName[] = "HeadlessChrome";',
             'const char kHeadlessProductName[] = "Chrome";',
             "rename HeadlessChrome product token to Chrome",
+        )
+
+        # ──────────────────────────────────────────────────────────────────────────────
+        # Patch 6b: Suppress the "Headless" product token in the unified Chrome
+        # UA path (chrome --headless=new). The headless_browser_impl.cc patch
+        # above only covers the legacy headless-shell implementation; unified
+        # headless builds the UA in GetUserAgentInternal(), which prepends
+        # "Headless" to the product token whenever the kHeadless switch is set.
+        #
+        # Gating on --stealth-native-ua keeps the patch runtime-ablatable:
+        # without the switch the binary behaves exactly like stock Chromium.
+        # This is required because the alternative --user-agent override
+        # suppresses all high-entropy UA client hints (GetUserAgentMetadata
+        # early-returns low-entropy data when a command-line UA is set).
+        # File: components/embedder_support/user_agent_utils.cc
+        # ──────────────────────────────────────────────────────────────────────────────
+        print("Patch 6b: gate 'Headless' UA prepend on --stealth-native-ua")
+
+        self.patch(
+            "components/embedder_support/user_agent_utils.cc",
+            '  if (base::CommandLine::ForCurrentProcess()->HasSwitch(kHeadless)) {\n    product.insert(0, "Headless");\n  }',
+            (
+                '  // With --stealth-native-ua, suppress the "Headless" product token\n'
+                "  // so unified headless exposes the same UA as headed mode while\n"
+                "  // high-entropy UA client hints remain available (unlike the\n"
+                "  // --user-agent override, which blanks them).\n"
+                "  if (base::CommandLine::ForCurrentProcess()->HasSwitch(kHeadless) &&\n"
+                '      !base::CommandLine::ForCurrentProcess()->HasSwitch("stealth-native-ua")) {\n'
+                '    product.insert(0, "Headless");\n'
+                "  }"
+            ),
+            "gate Headless UA prepend on stealth-native-ua switch",
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
@@ -358,7 +500,7 @@ class PatchApplier:
             "third_party/blink/renderer/core/frame/navigator_language.cc",
             '#include "base/containers/span.h"',
             after_patterns=[
-                '#include <string_view>',
+                "#include <string_view>",
             ],
         )
 
@@ -420,9 +562,11 @@ class PatchApplier:
         # ──────────────────────────────────────────────────────────────────────────────
         print("Patch 9: forward stealth switches to renderer process command line")
 
+        # Primary target is the previously-patched block (keeps re-runs on a
+        # dirty checkout idempotent); on a fresh tree the anchor is the
+        # unmodified kWebRtcMaxCaptureFramerate line.
         self.patch(
             "content/browser/renderer_host/render_process_host_impl.cc",
-            "      switches::kWebRtcMaxCaptureFramerate,",
             (
                 "      // Forward custom stealth switches to renderer processes.\n"
                 '      "stealth-navigator-languages",\n'
@@ -431,7 +575,19 @@ class PatchApplier:
                 "\n"
                 "      switches::kWebRtcMaxCaptureFramerate,"
             ),
+            (
+                "      // Forward custom stealth switches to renderer processes.\n"
+                '      "stealth-native-ua",\n'
+                '      "stealth-navigator-languages",\n'
+                '      "stealth-viewport-size",\n'
+                '      "stealth-no-media-devices",\n'
+                "\n"
+                "      switches::kWebRtcMaxCaptureFramerate,"
+            ),
             "forward stealth switches to renderer process command line",
+            fallbacks=[
+                "      switches::kWebRtcMaxCaptureFramerate,",
+            ],
         )
 
         # ──────────────────────────────────────────────────────────────────────────────
@@ -523,9 +679,7 @@ class PatchApplier:
 
         self.patch(
             "third_party/blink/renderer/modules/mediastream/media_devices.cc",
-            "  const auto promise = result_tracker->Promise();\n"
-            "\n"
-            "  SendLogMessage(base::StringPrintf(",
+            "  const auto promise = result_tracker->Promise();\n\n  SendLogMessage(base::StringPrintf(",
             "  const auto promise = result_tracker->Promise();\n"
             "\n"
             "  // When the --stealth-no-media-devices switch is set, skip the device\n"
@@ -556,8 +710,7 @@ class PatchApplier:
         self.patch_regex(
             "chrome/test/chromedriver/chrome/devtools_client_impl.cc",
             r'std::string script =\s*"\(function \(\) \{"\s*(?:"window\.cdc_[^"]+;"\s*)*"\}\) \(\);"\s*;',
-            'std::string script =\n'
-            '        "(function () {})();";',
+            'std::string script =\n        "(function () {})();";',
             "remove CDC alias injection from chromedriver SetUpDevTools",
         )
 
@@ -575,7 +728,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Apply Chromium C++ patches")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be patched without writing")
     parser.add_argument("--list-files", action="store_true", help="Print the list of files touched by patches and exit")
+    parser.add_argument("--print-patch-ids", action="store_true", help="Print the logical patch IDs and exit")
+    parser.add_argument("--write-manifest", metavar="PATH", help="Write a build-provenance manifest JSON to PATH and exit")
     args = parser.parse_args()
+
+    if args.print_patch_ids:
+        for patch_id in _patch_ids():
+            print(patch_id)
+        sys.exit(0)
+
+    if args.write_manifest:
+        write_manifest(args.write_manifest)
+        sys.exit(0)
 
     applier = PatchApplier()
     if args.list_files:

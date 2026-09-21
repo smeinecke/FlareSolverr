@@ -98,4 +98,8 @@ cp -r out/Release/resources /opt/chromium/ 2>/dev/null || true
 # Sentinel file checked by utils.py to detect the patched build.
 touch /opt/chromium/.stealth-patched
 
+# Build provenance manifest (patch IDs, script/args hashes, binary hashes).
+# utils._custom_chromium_has_patch() reads this to gate patch-dependent features.
+python3 "$SCRIPT_DIR/patches/apply.py" --write-manifest /opt/chromium/.stealth-manifest.json || true
+
 echo "Build complete. Artifacts in /opt/chromium"

@@ -192,6 +192,13 @@ jobs:
           cp icudtl.dat /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
           cp -r locales resources /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
 
+          # Build provenance manifest (version, patch IDs, apply.py/gn-args
+          # hashes, binary hashes). utils._custom_chromium_has_patch() reads
+          # this to gate features that depend on specific patches.
+          cd "${{ env.CHROMIUM_ROOT }}/src"
+          python3 "${{ github.workspace }}/chromium-patches/patches/apply.py" \
+            --write-manifest /tmp/chromium-bin/opt/chromium/.stealth-manifest.json
+
           docker build \
             --build-arg CHROMIUM_VERSION="$CHROMIUM_VERSION" \
             -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$CHROMIUM_VERSION" \
