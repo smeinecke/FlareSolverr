@@ -114,6 +114,7 @@ All commands work via the generic `POST /v1/<group>/<command>` path:
 | `POST /v1/sessions/screenshot` | `sessions.screenshot` |
 | `POST /v1/sessions/clear` | `sessions.clear` |
 | `POST /v1/sessions/cdp` | `sessions.cdp` |
+| `POST /v1/sessions/fetch` | `sessions.fetch` |
 | `POST /v1/request/get` | `request.get` |
 | `POST /v1/request/post` | `request.post` |
 
@@ -368,6 +369,36 @@ Example:
   }
 }
 ```
+
+### + `sessions.fetch`
+
+Performs an in-page `fetch()` inside the session's currently loaded page, so the request inherits the page's cookies (`credentials: "include"`), origin, and browser request context. Restricted to **same-origin** URLs — relative URLs are resolved against the current page URL.
+
+| Parameter | Notes |
+| --------- | ----- |
+| session | The session ID to target. |
+| url | Same-origin URL (absolute or relative to the page). |
+| method | HTTP method (default `GET`). A body is rejected for `GET`/`HEAD`. |
+| body | Optional request body string. |
+| headers | Optional dictionary of request headers. |
+| timeoutMs | Optional fetch timeout in milliseconds. |
+
+Example:
+
+```json
+{
+  "cmd": "sessions.fetch",
+  "session": "my-session",
+  "url": "/api",
+  "method": "POST",
+  "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+  "body": "action=newemail"
+}
+```
+
+The response `solution` contains `status`, `statusText`, `headers` (dict), `response` (body text), `url` (final URL), `redirected`, and `challenged` — `true` when the response carries `cf-mitigated: challenge` or its body resembles a Cloudflare challenge page.
+
+**Limitation:** `fetch` receives a challenge response as plain HTML — it cannot execute a returned challenge interstitial. It preserves request context but does not bypass endpoint-level WAF rules.
 
 ### + `request.get`
 
