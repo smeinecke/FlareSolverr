@@ -224,7 +224,7 @@ This also speeds up the requests since it won't have to launch a new browser ins
 | Parameter | Notes |
 | --------- | ----- |
 | session | Optional. The session ID that you want to be assigned to the instance. If isn't set a random UUID will be assigned. |
-| proxy | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. You must include the proxy schema in the URL: `http://`, `socks4://` or `socks5://`. Authorization (username/password) is supported. Proxy can also be changed dynamically when reusing a session via `request.get` / `request.post`. |
+| proxy | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. You must include the proxy schema in the URL: `http://`, `socks4://` or `socks5://`. Authorization (username/password) is supported either as explicit fields (`"username"`, `"password"`) or embedded in the URL (`"url": "http://user:pass@host:port"`) — explicit fields take precedence, and URL credentials are percent-decoded. Proxy can also be changed dynamically when reusing a session via `request.get` / `request.post`. |
 | stealth | Optional, default uses `STEALTH_MODE`. Enables/disables stealth patches for this session. |
 | stealthMode | Optional enum override: `"off"`, `"standard"`, `"csp-safe"`. Preferred over `stealth` for explicit behavior. |
 | userAgent | Optional. Custom browser user agent for the session. |

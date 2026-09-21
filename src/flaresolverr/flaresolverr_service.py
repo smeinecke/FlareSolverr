@@ -218,10 +218,21 @@ def health_endpoint(details: bool = False) -> HealthResponse:
 
 
 def _redact_request_for_log(req_dict: dict) -> dict:
-    """Return a copy of the request dict with proxy password redacted."""
+    """Return a copy of the request dict with proxy credentials redacted.
+
+    Masks the explicit `password` field as well as credentials embedded in
+    the proxy URL userinfo (scheme://user:pass@host).
+    """
     proxy = req_dict.get("proxy")
-    if isinstance(proxy, dict) and "password" in proxy:
-        req_dict = {**req_dict, "proxy": {**proxy, "password": "***"}}  # nosec B105
+    if isinstance(proxy, dict):
+        redacted = dict(proxy)
+        if "password" in redacted:
+            redacted["password"] = "***"  # nosec B105
+        url = redacted.get("url")
+        if isinstance(url, str):
+            redacted["url"] = utils._redact_url_credentials(url)
+        if redacted != proxy:
+            req_dict = {**req_dict, "proxy": redacted}
     return req_dict
 
 

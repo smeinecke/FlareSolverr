@@ -615,6 +615,11 @@ def _build_chrome_options(effective_stealth_mode: str, load_extension: bool = Fa
     return options
 
 
+def _redact_url_credentials(url: str) -> str:
+    """Replace URL userinfo (scheme://user:pass@host) with a redacted marker."""
+    return re.sub(r"(://)[^/@]+@", r"\1***:***@", url)
+
+
 def _check_proxy_reachable(proxy_url: str) -> None:
     """Raise RuntimeError if the proxy host:port is not reachable.
 
@@ -628,7 +633,7 @@ def _check_proxy_reachable(proxy_url: str) -> None:
     host = parsed.hostname
     port = parsed.port
     if not host or not port:
-        raise RuntimeError(f"Invalid proxy URL (cannot parse host/port): {proxy_url!r}")
+        raise RuntimeError(f"Invalid proxy URL (cannot parse host/port): {_redact_url_credentials(proxy_url)!r}")
     try:
         with socket.create_connection((host, port), timeout=5):
             pass
@@ -667,7 +672,8 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
         payload = {"mode": "direct"}
         logger.debug("Clearing proxy on session via extension")
     elif not _is_proxy_valid(proxy):
-        raise RuntimeError(f"Invalid proxy config (schema required, e.g. http:// or socks5://): {proxy!r}")
+        safe_proxy = {k: ("***" if k == "password" else _redact_url_credentials(v) if k == "url" and isinstance(v, str) else v) for k, v in proxy.items()}
+        raise RuntimeError(f"Invalid proxy config (schema required, e.g. http:// or socks5://): {safe_proxy!r}")
     else:
         proxy_url = proxy["url"]
         _check_proxy_reachable(proxy_url)
@@ -676,7 +682,7 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
         host = parsed.hostname
         port = parsed.port
         if not host or not port:
-            raise RuntimeError(f"Invalid proxy URL (cannot parse host/port): {proxy_url!r}")
+            raise RuntimeError(f"Invalid proxy URL (cannot parse host/port): {_redact_url_credentials(proxy_url)!r}")
         payload = {
             "mode": "fixed_servers",
             "rules": {
@@ -690,6 +696,12 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
         }
         username = proxy.get("username")
         password = proxy.get("password")
+        # Credentials embedded in the URL (scheme://user:pass@host:port) apply
+        # when no explicit username/password fields are set. urlparse returns
+        # them percent-encoded, so decode before sending to the extension.
+        if not username and parsed.username:
+            username = urllib.parse.unquote(parsed.username)
+            password = urllib.parse.unquote(parsed.password or "")
         if username:
             payload["auth"] = {"username": username, "password": password or ""}
         logger.debug("Applying proxy to session via extension: %s:%d", host, port)

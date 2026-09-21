@@ -87,7 +87,7 @@ The `GET /health` endpoint returns the service status along with runtime metrics
 | LOG_LEVEL          | info                   | Verbosity of the logging. Use `LOG_LEVEL=debug` for more information.                                                                    |
 | LOG_FILE           | none                   | Path to capture log to file. Example: `/config/flaresolverr.log`.                                                                         |
 | LOG_HTML           | false                  | Only for debugging. If `true` all HTML that passes through the proxy will be logged to the console in `debug` level.                     |
-| PROXY_URL          | none                   | URL for proxy. Will be overwritten by `request` or `sessions` proxy, if used. Example: `http://127.0.0.1:8080`.                          |
+| PROXY_URL          | none                   | URL for proxy. Will be overwritten by `request` or `sessions` proxy, if used. Example: `http://127.0.0.1:8080`. May embed credentials (`http://user:pass@host:port`) — percent-encoded userinfo is decoded; explicit `PROXY_USERNAME`/`PROXY_PASSWORD` take precedence. |
 | PROXY_USERNAME     | none                   | Username for proxy. Will be overwritten by `request` or `sessions` proxy, if used. Example: `testuser`.                                  |
 | PROXY_PASSWORD     | none                   | Password for proxy. Will be overwritten by `request` or `sessions` proxy, if used. Example: `testpass`.                                  |
 | CAPTCHA_SOLVER     | default                | Captcha solving method. It is used when a captcha is encountered. See the Captcha Solvers section.                                       |

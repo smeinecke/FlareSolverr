@@ -185,3 +185,25 @@ class TestRawPostHelpers:
         assert service._looks_like_challenge_html("<title>Just a moment...</title>")
         assert not service._looks_like_challenge_html('{"ok": true}')
         assert not service._looks_like_challenge_html(None)
+
+
+class TestProxyCredentialRedaction:
+    def test_url_userinfo_redacted_in_request_log(self):
+        req = {"cmd": "request.get", "proxy": {"url": "http://user:secretpass@proxy:8080"}}
+        redacted = service._redact_request_for_log(req)
+        logged_url = redacted["proxy"]["url"]
+        assert "secretpass" not in logged_url
+        assert "user" not in logged_url
+        assert logged_url == "http://***:***@proxy:8080"
+        # Original dict must not be mutated.
+        assert req["proxy"]["url"] == "http://user:secretpass@proxy:8080"
+
+    def test_password_field_still_redacted(self):
+        req = {"cmd": "request.get", "proxy": {"url": "http://proxy:8080", "username": "u", "password": "p"}}
+        redacted = service._redact_request_for_log(req)
+        assert redacted["proxy"]["password"] == "***"
+        assert redacted["proxy"]["url"] == "http://proxy:8080"
+
+    def test_no_proxy_passthrough(self):
+        req = {"cmd": "request.get", "url": "https://example.com"}
+        assert service._redact_request_for_log(req) == req

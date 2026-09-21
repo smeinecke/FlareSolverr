@@ -115,6 +115,66 @@ def test_apply_proxy_to_session_sends_auth_when_present(monkeypatch) -> None:
     assert '"mode": "fixed_servers"' in script
 
 
+def test_apply_proxy_to_session_extracts_auth_from_url(monkeypatch) -> None:
+    """Credentials embedded in the proxy URL should populate the auth payload."""
+    driver = _make_ack_driver("abc123")
+    monkeypatch.setattr(utils, "_check_proxy_reachable", lambda url: None)
+
+    utils.apply_proxy_to_session(driver, {"url": "http://user:pass@proxy:8080"})
+
+    injected = [c[0][0] for c in driver.execute_script.call_args_list if "chrome.runtime.sendMessage" in c[0][0]]
+    assert len(injected) == 1
+    assert '"username": "user"' in injected[0]
+    assert '"password": "pass"' in injected[0]
+
+
+def test_apply_proxy_to_session_url_auth_percent_decoded(monkeypatch) -> None:
+    """Percent-encoded credentials in the URL must be decoded before use."""
+    driver = _make_ack_driver("abc123")
+    monkeypatch.setattr(utils, "_check_proxy_reachable", lambda url: None)
+
+    utils.apply_proxy_to_session(driver, {"url": "http://us%40er:p%40ss%3A1@proxy:8080"})
+
+    injected = [c[0][0] for c in driver.execute_script.call_args_list if "chrome.runtime.sendMessage" in c[0][0]]
+    assert len(injected) == 1
+    assert '"username": "us@er"' in injected[0]
+    assert '"password": "p@ss:1"' in injected[0]
+
+
+def test_apply_proxy_to_session_explicit_fields_win_over_url(monkeypatch) -> None:
+    """Explicit username/password fields take precedence over URL userinfo."""
+    driver = _make_ack_driver("abc123")
+    monkeypatch.setattr(utils, "_check_proxy_reachable", lambda url: None)
+
+    utils.apply_proxy_to_session(driver, {"url": "http://urluser:urlpass@proxy:8080", "username": "explicit", "password": "explicitpass"})
+
+    injected = [c[0][0] for c in driver.execute_script.call_args_list if "chrome.runtime.sendMessage" in c[0][0]]
+    assert len(injected) == 1
+    assert '"username": "explicit"' in injected[0]
+    assert '"password": "explicitpass"' in injected[0]
+
+
+def test_apply_proxy_to_session_url_without_password(monkeypatch) -> None:
+    """URL userinfo with only a username sends an empty password."""
+    driver = _make_ack_driver("abc123")
+    monkeypatch.setattr(utils, "_check_proxy_reachable", lambda url: None)
+
+    utils.apply_proxy_to_session(driver, {"url": "socks5://user@proxy:1080"})
+
+    injected = [c[0][0] for c in driver.execute_script.call_args_list if "chrome.runtime.sendMessage" in c[0][0]]
+    assert len(injected) == 1
+    assert '"username": "user"' in injected[0]
+    assert '"password": ""' in injected[0]
+
+
+def test_invalid_proxy_error_redacts_url_credentials() -> None:
+    """Error messages must not leak credentials embedded in the proxy URL."""
+    driver = _make_ack_driver("abc123")
+    with pytest.raises(RuntimeError, match="cannot parse host/port") as exc_info:
+        utils.apply_proxy_to_session(driver, {"url": "http://user:secretpass@"})
+    assert "secretpass" not in str(exc_info.value)
+
+
 def test_apply_proxy_to_session_raises_on_invalid_proxy() -> None:
     """An invalid proxy (missing schema) must raise RuntimeError."""
     driver = _make_ack_driver("abc123")
@@ -510,9 +570,7 @@ class TestChromeOptionsConsolidation:
 
     def _options(self, monkeypatch, stealth_mode="off", custom=False, patches=None):
         monkeypatch.setattr(utils, "_is_custom_chromium", lambda: custom)
-        monkeypatch.setattr(
-            utils, "_get_custom_chromium_manifest", lambda: {"patches": list(patches or [])}
-        )
+        monkeypatch.setattr(utils, "_get_custom_chromium_manifest", lambda: {"patches": list(patches or [])})
         return utils._build_chrome_options(stealth_mode)
 
     def test_single_disable_features_argument(self, monkeypatch):
@@ -562,8 +620,6 @@ class TestChromeOptionsConsolidation:
         assert "--bar" in options.arguments
 
     def test_webdriver_false_property_variant(self, monkeypatch):
-        options = self._options(
-            monkeypatch, stealth_mode="standard", custom=True, patches=["webdriver-false"]
-        )
+        options = self._options(monkeypatch, stealth_mode="standard", custom=True, patches=["webdriver-false"])
         # False-property variant: property must stay present -> no AutomationControlled removal.
         assert "--disable-blink-features=AutomationControlled" not in options.arguments
