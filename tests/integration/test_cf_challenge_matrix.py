@@ -34,7 +34,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
-from flaresolverr import utils  # noqa: E402
+from flaresolverr import utils
 
 pytestmark = pytest.mark.integration
 
@@ -43,8 +43,34 @@ OUT_PATH = os.environ.get("FLARESOLVERR_CF_MATRIX", "/tmp/cf_challenge_matrix.js
 TIMEOUT = int(os.environ.get("CF_MATRIX_TIMEOUT", "60"))
 PROXY = os.environ.get("CF_MATRIX_PROXY", "").strip() or None
 
-CF_RAY_RE = re.compile(r'"cRay"\s*:\s*"([^"]+)"')
-CF_TYPE_RE = re.compile(r'"cType"\s*:\s*"([^"]+)"')
+# _cf_chl_opt keys are unquoted JS object properties (cRay: "..."), so the
+# key itself must be matched with optional quotes.
+CF_RAY_RE = re.compile(r'["\']?cRay["\']?\s*:\s*["\']([^"\']+)["\']')
+CF_TYPE_RE = re.compile(r'["\']?cType["\']?\s*:\s*["\']([^"\']+)["\']')
+
+# Challenge interstitial markers — only present on the CF "Just a moment"
+# page itself (titles are localized — e.g. "Nur einen Moment…").
+CF_INTERSTITIAL_MARKERS = (
+    "_cf_chl_opt",
+    "cf-challenge-running",
+    "challenge-stage",
+    "cdn-cgi/challenge-platform",
+)
+# Weak markers — real pages can legitimately embed Turnstile widgets, so these
+# alone do not prove an interstitial.
+CF_WIDGET_MARKERS = (
+    "challenges.cloudflare.com",
+    "cf-turnstile",
+)
+# Localized CF interstitial titles seen in the wild.
+CF_CHALLENGE_TITLES = (
+    "just a moment",
+    "nur einen moment",
+    "performing security verification",
+    "attention required",
+    "un instant",
+    "un momento",
+)
 
 
 def _verdict_from_page(title: str, page_source: str, cookies: list[dict]) -> tuple[str, dict]:
@@ -58,11 +84,15 @@ def _verdict_from_page(title: str, page_source: str, cookies: list[dict]) -> tup
         meta["cfType"] = m.group(1)
     meta["cfClearance"] = any(c.get("name") == "cf_clearance" for c in cookies)
 
+    src = page_source or ""
     title_l = (title or "").lower()
-    challenged_markers = ("just a moment", "performing security verification", "attention required")
-    if meta.get("cfClearance"):
+    markers = [m for m in CF_INTERSTITIAL_MARKERS + CF_WIDGET_MARKERS if m in src]
+    if markers:
+        meta["markers"] = markers
+    interstitial = any(m in src for m in CF_INTERSTITIAL_MARKERS)
+    if meta.get("cfClearance") and not interstitial:
         return "passed", meta
-    if any(t in title_l for t in challenged_markers) or '"cRay"' in (page_source or ""):
+    if interstitial or any(t in title_l for t in CF_CHALLENGE_TITLES):
         return "challenged", meta
     return "passed", meta
 
@@ -79,7 +109,7 @@ def _driver_arm(url: str, headless: bool | None, use_uc: bool) -> dict:
         if use_uc:
             # Bypass get_webdriver's manual-launch path: let chromedriver own
             # the browser (adds --enable-automation — the detection control).
-            from flaresolverr import undetected_chromedriver as uc  # noqa: PLC0415
+            from flaresolverr import undetected_chromedriver as uc
 
             opts = uc.ChromeOptions()
             opts.binary_location = utils.get_chrome_exe_path()
@@ -105,15 +135,13 @@ def _driver_arm(url: str, headless: bool | None, use_uc: bool) -> dict:
             except Exception as e:  # noqa: BLE001
                 record["navError"] = f"{type(e).__name__}: {e}"
                 break
-            if "just a moment" not in title.lower() and "security verification" not in title.lower():
+            if not any(t in title.lower() for t in CF_CHALLENGE_TITLES):
                 break
         record["elapsed"] = round(time.time() - start, 1)
         try:
             record["title"] = driver.title
             record["finalUrl"] = driver.current_url
-            verdict, meta = _verdict_from_page(
-                driver.title, driver.page_source, driver.get_cookies()
-            )
+            verdict, meta = _verdict_from_page(driver.title, driver.page_source, driver.get_cookies())
             record["verdict"] = verdict
             record.update(meta)
         except Exception as e:  # noqa: BLE001
@@ -131,8 +159,8 @@ def _driver_arm(url: str, headless: bool | None, use_uc: bool) -> dict:
         if driver is not None:
             try:
                 driver.quit()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                print(f"[matrix] driver.quit failed: {exc}")
     return record
 
 
@@ -153,7 +181,7 @@ def _dump_dom_arm(url: str) -> dict:
     cmd.append(url)
     start = time.time()
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, check=False)
         record["elapsed"] = round(time.time() - start, 1)
         record["exitCode"] = proc.returncode
         dom = proc.stdout or ""
