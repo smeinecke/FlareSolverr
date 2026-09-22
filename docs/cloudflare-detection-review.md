@@ -594,9 +594,18 @@ so the delay costs nothing there. Verified end-to-end on the running service:
 https://tmailor.com/api` (the original failing request, `action=newemail&curentToken=`)
 → 200 with the API's own JSON response.
 
-Remaining unknowns: `dump-dom` (weak control) still challenges on tempmailo;
-the cross-context UA/UA-CH sweep is still pending. The fix is validated on two
-targets' challenges via the real API flow — not on arbitrary Cloudflare
+Cross-context UA/UA-CH sweep (2026-09-22, `/tmp/ua_custom.json` vs
+`/tmp/ua_stock.json`): main window, same-origin iframe, DedicatedWorker and
+server-observed request headers all agree — `sec-ch-ua` brands
+`Not A(Brand);99` + `Chromium;154`, `sec-ch-ua-full-version-list` carries
+`154.0.8037.49`, `sec-ch-ua-platform`/`arch` populated, UA `Chrome/154.0.0.0`,
+`Accept-Language en-US,en` — i.e. Patch 6b restored high-entropy hints that
+`--user-agent` previously suppressed. Two known-shape deltas vs branded Google
+Chrome remain: our brand list omits `Google Chrome` (unbranded Chromium's
+stock shape) and WorkerNavigator still has no `webdriver` property (correct —
+the IDL is a `Navigator` partial; the consistency test now encodes this).
+`dump-dom` (weak control) still challenges on tempmailo. The fix is validated
+on two targets' challenges via the real API flow — not on arbitrary Cloudflare
 configurations.
 
 ## Verification performed
@@ -613,17 +622,15 @@ configurations.
 | Self-hosted Chromium rebuild | **Succeeded** — `ghcr.io/smeinecke/chromium-stealth:154.0.8037.49`, manifest lists `native-ua` among 9 patch IDs. |
 | Live Cloudflare comparison (matrix harness) | **Performed** — see §8 (two egresses, four arms) and §9 (webdriver-false binary, all real arms pass both targets). |
 | End-to-end API flow on `webdriver-false` binary | **Performed** — `request.get` tempmailo 200 + `cf_clearance`, tmailor `/en/` 200 no challenge, `request.post` tmailor `/api` 200 real JSON response. Exposed and fixed the resolve-loop probe stall (§9). |
-| Cross-context UA/UA-CH sweep on rebuilt binary | Not yet performed. |
+| Cross-context UA/UA-CH sweep on `webdriver-false` binary | **Performed** — coherent hints across realms and headers (§9); remaining deltas are inherent unbranded-Chromium shape. |
 
-The pre-rebuild integration suite passed with empty high-entropy client hints:
-`test_browser_consistency.py` checks legacy navigator fields, but does not assert
-high-entropy UA data or HTTP client hints. Its iframe is same-origin and its
-workers are Blob workers. With `native-ua` now active on the rebuilt binary,
-those hints should be populated — the pending sweep must re-verify this and
-extend coverage to server-observed headers, high-entropy hints, ServiceWorkers,
-cross-origin frames, and dynamic viewport behavior. Keep ordinary-browser
-semantics as the reference where appropriate; equality between several altered
-contexts is not sufficient.
+The pre-rebuild integration suite passed with empty high-entropy client hints;
+the follow-up sweep on the `webdriver-false` binary (§9) now confirms
+high-entropy UA-CH is populated and coherent across realms and request
+headers. Coverage not yet extended to: ServiceWorker `navigator` surface
+(registration verified only), cross-origin frames, and dynamic viewport
+behavior. Keep ordinary-browser semantics as the reference where appropriate;
+equality between several altered contexts is not sufficient.
 
 Review artifacts on this machine:
 
@@ -635,6 +642,11 @@ Review artifacts on this machine:
 /tmp/gpu_architecture_custom.json
 /tmp/cf_matrix_direct3.json
 /tmp/cf_matrix_sonar.json
+/tmp/cf_matrix_isolated.json
+/tmp/cf_matrix_wdfalse.json
+/tmp/ua_ch_sweep.py
+/tmp/ua_custom.json
+/tmp/ua_stock.json
 ```
 
 The temporary probe changes only the in-process launch-options builder and

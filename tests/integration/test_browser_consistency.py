@@ -57,18 +57,18 @@ class TestBrowserConsistency(unittest.TestCase):
             dedicated = result["dedicated_worker"]["ok"]["navigator"]
             shared = result["shared_worker"]["ok"]["navigator"]
 
-            for realm_name, nav in [
-                ("main", main),
-                ("iframe", iframe),
-                ("dedicated_worker", dedicated),
-                ("shared_worker", shared),
+            # Stock non-automated browsers expose navigator.webdriver as a
+            # present-but-false property on Window realms; WorkerNavigator has
+            # no webdriver attribute at all (the IDL is a Navigator partial).
+            # An absent Window property is a patched-binary tell (Patch 2).
+            for realm_name, nav, expect_webdriver in [
+                ("main", main, False),
+                ("iframe", iframe, False),
+                ("dedicated_worker", dedicated, None),
+                ("shared_worker", shared, None),
             ]:
                 with self.subTest(realm=realm_name):
-                    # Stock non-automated browsers expose navigator.webdriver as
-                    # a present-but-false property; an absent property is a
-                    # patched-binary tell (see Patch 2 in chromium-patches).
-                    self.assertIs(nav["webdriver"], False)
-                    self.assertEqual(nav["typeof_webdriver"], "boolean")
+                    self.assertIs(nav["webdriver"], expect_webdriver)
                     self.assertEqual(nav["userAgent"], main["userAgent"])
                     self.assertEqual(nav["platform"], main["platform"])
                     self.assertEqual(nav["language"], main["language"])
