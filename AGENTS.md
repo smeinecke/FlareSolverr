@@ -62,6 +62,7 @@ npm run build
 - `get_webdriver()` starts custom Chromium manually (`subprocess.Popen`) and connects via the remote-debugging port to avoid `chromedriver` adding `--enable-automation`.
 - `proxy_ext_dir` and `user_data_dir` are cleaned up in `get_webdriver()` if Chrome fails to start.
 - UA is handled natively once the binary advertises Patch 6b in `.stealth-manifest.json` (`--stealth-native-ua` removes the `Headless` token inside `GetUserAgentInternal`, restoring coherent high-entropy UA-CH). On older binaries the `--user-agent` CLI switch remains the fallback — it is used instead of CDP `Emulation.setUserAgentOverride` so the UA is consistent across main, dedicated worker and shared worker contexts.
+- The Cloudflare resolver must not run heavy challenge-state probes early: `_probe_challenge_state`'s DOM walk forces layout on the live challenge page and measurably stalls Turnstile auto-verification. `resolve()` waits `CHALLENGE_PROBE_GRACE` seconds (default 12) before probing or clicking; automatic challenges pass in ~4s undisturbed.
 - `--stealth-navigator-languages` and `--stealth-viewport-size` custom switches are forwarded by `apply.py` to renderer processes.
 - `navigator.hardwareConcurrency` is kept at a plausible value via CPU affinity (`_limit_cpu_affinity`) rather than JS patching.
 - `performance.now()` uses stock Chromium behavior. The native timing jitter patch (Patch 13) was removed after ablation showed no reproducible difference from stock Chrome on the external timing signal and no internal regression.

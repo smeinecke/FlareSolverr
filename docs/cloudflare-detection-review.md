@@ -500,9 +500,10 @@ tmailor — that difference was the flags, not the attachment.
 5. **A `cf_clearance` cookie alone is not a pass.** tempmailo issued clearance
    mid-challenge in two runs while the interstitial stayed up — clearance is
    recorded as metadata, never as success without positive page evidence.
-6. The `/api` POST path remains untested by this matrix (all arms GET `/en/`
-   or `/`). Its endpoint-level managed challenge stands as previously
-   measured.
+6. The `/api` POST path was not covered by this matrix (all arms GET `/en/`
+   or `/`) — it was later verified directly on the `webdriver-false` binary
+   via the real API flow (§9 follow-up): `request.post` to `tmailor.com/api`
+   returns HTTP 200 with the API's own JSON response.
 
 ### Harness corrections made along the way
 
@@ -571,24 +572,47 @@ tempmailo in a zero-CDP headed run. The absent-property shape was promoted to
 default; the old absent behavior survives as the
 `FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=1` ablation variant.
 
+### Follow-up: the resolver loop itself stalled auto-verification
+
+End-to-end API testing then exposed a second, Python-side defect: the same
+binary passed tempmailo via `driver.get` + passive title polling in ~4s, but
+`request.get` through the service timed out at 60s every time. Bisecting the
+service path isolated `CloudflareService.resolve()`: on each wait timeout it
+ran `driver.page_source` plus `_probe_challenge_state` — a `Runtime.evaluate`
+that walks every text node and forces layout/visibility checks on the live
+challenge page. With probing disabled the challenge passed in ~4.6s; with the
+probe JS executing (clicks disabled) it stayed challenged past 40s. A trivial
+`execute_script("return 1")` per second did **not** disturb it — the specific
+DOM-walking/layout-forcing probe is the interference, not CDP evaluation in
+general.
+
+Fix: `CHALLENGE_PROBE_GRACE` (default 12s) — the resolver now polls
+title/selectors only during the grace window; probing and verify-clicks begin
+only if the challenge persists. Interactive challenges wait for input anyway,
+so the delay costs nothing there. Verified end-to-end on the running service:
+`request.get https://tempmailo.com/` → 200 with `cf_clearance`; `request.post
+https://tmailor.com/api` (the original failing request, `action=newemail&curentToken=`)
+→ 200 with the API's own JSON response.
+
 Remaining unknowns: `dump-dom` (weak control) still challenges on tempmailo;
-the `/api` POST path is still untested on this binary; the cross-context
-UA/UA-CH sweep is still pending. The fix is validated on two targets' homepage
-challenges — not on arbitrary Cloudflare configurations.
+the cross-context UA/UA-CH sweep is still pending. The fix is validated on two
+targets' challenges via the real API flow — not on arbitrary Cloudflare
+configurations.
 
 ## Verification performed
 
 | Check | Result |
 | --- | --- |
 | `uv run make` | **Fully green** after implementation (the FURB188/pyright findings were fixed in `11e1c02`). |
-| Unit suite with `STEALTH_MODE=standard` | **465 passed** (includes new failure-evidence, verify-click, `sessions.fetch`, launch-option, and proxy-credential tests). |
+| Unit suite with `STEALTH_MODE=standard` | **469 passed** (includes new failure-evidence, verify-click, `sessions.fetch`, launch-option, proxy-credential, and probe-grace tests). |
 | Browser consistency, event trust, GPU integration diagnostics | **5 passed** in 14.96 seconds (pre-rebuild). |
 | Separate complexity and Bandit targets | Completed; Bandit reported no issues in its configured scope. |
 | Separate Pyright target | Clean — 0 errors. |
 | Separate Vulture target | Passed. |
 | Local UA/headers/POST probe | Three fresh-browser variants; measurements recorded above. |
 | Self-hosted Chromium rebuild | **Succeeded** — `ghcr.io/smeinecke/chromium-stealth:154.0.8037.49`, manifest lists `native-ua` among 9 patch IDs. |
-| Live Cloudflare comparison (matrix harness) | **Performed** — see §8; two egresses, four arms. |
+| Live Cloudflare comparison (matrix harness) | **Performed** — see §8 (two egresses, four arms) and §9 (webdriver-false binary, all real arms pass both targets). |
+| End-to-end API flow on `webdriver-false` binary | **Performed** — `request.get` tempmailo 200 + `cf_clearance`, tmailor `/en/` 200 no challenge, `request.post` tmailor `/api` 200 real JSON response. Exposed and fixed the resolve-loop probe stall (§9). |
 | Cross-context UA/UA-CH sweep on rebuilt binary | Not yet performed. |
 
 The pre-rebuild integration suite passed with empty high-entropy client hints:

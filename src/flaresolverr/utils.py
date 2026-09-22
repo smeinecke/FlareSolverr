@@ -166,6 +166,16 @@ def get_config_browser_wait_timeout() -> int:
     return int(os.environ.get("BROWSER_WAIT_TIMEOUT", "1"))
 
 
+def get_config_challenge_probe_grace() -> float:
+    """Seconds before the Cloudflare resolver starts probing/clicking.
+
+    The probe forces layout and walks the challenge DOM, which measurably
+    stalls Turnstile auto-verification. Auto-verifying challenges pass in
+    ~4s undisturbed, so probing starts only after this grace window.
+    """
+    return float(os.environ.get("CHALLENGE_PROBE_GRACE", "12"))
+
+
 def get_config_stealth_omit_flags() -> set[str]:
     """Parse STEALTH_OMIT_FLAGS: comma-separated --stealth-* switch names to omit.
 

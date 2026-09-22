@@ -180,6 +180,45 @@ class TestCloudflareService:
         svc.resolve(driver)
         assert mock_wait_instance.until_not.call_count >= 2
 
+    def _single_timeout_resolve(self, svc, monkeypatch, mock_wait, grace: str):
+        """Run resolve() with exactly one TimeoutException cycle, then success."""
+        driver = MagicMock()
+        driver.title = "Just a moment..."
+        driver.page_source = ""
+        driver.find_elements.return_value = []
+
+        calls = [0]
+
+        def side_effect(*a, **k):
+            calls[0] += 1
+            if calls[0] == 1:
+                raise TimeoutException()
+            return True
+
+        mock_wait_instance = MagicMock()
+        mock_wait_instance.until_not.side_effect = side_effect
+        mock_wait.return_value = mock_wait_instance
+
+        monkeypatch.setenv("CHALLENGE_PROBE_GRACE", grace)
+        probe = MagicMock(return_value=False)
+        monkeypatch.setattr(svc, "_should_attempt_verify_click", probe)
+        svc.resolve(driver)
+        return probe
+
+    @patch("flaresolverr.services.cloudflare.WebDriverWait")
+    def test_resolve_skips_probe_during_grace_period(self, mock_wait, svc, monkeypatch):
+        """The challenge-state probe forces layout + a full DOM walk, which
+        stalls Turnstile auto-verification — it must not run during grace."""
+        probe = self._single_timeout_resolve(svc, monkeypatch, mock_wait, "9999")
+        probe.assert_not_called()
+
+    @patch("flaresolverr.services.cloudflare.WebDriverWait")
+    def test_resolve_probes_after_grace_period(self, mock_wait, svc, monkeypatch):
+        """Once the grace window elapses, probing resumes so interactive
+        challenges can still be detected and clicked."""
+        probe = self._single_timeout_resolve(svc, monkeypatch, mock_wait, "0")
+        probe.assert_called_once()
+
     @staticmethod
     def _probe_driver(state):
         """Driver mock whose execute_script returns a canned challenge probe."""

@@ -15,7 +15,13 @@ from selenium.webdriver.support.expected_conditions import presence_of_element_l
 from selenium.webdriver.support.wait import WebDriverWait
 
 from flaresolverr.services.base import ChallengeService, _wait_for_redirect
-from flaresolverr.utils import _human_like_click, _random_delay, collect_failure_evidence, get_config_browser_wait_timeout
+from flaresolverr.utils import (
+    _human_like_click,
+    _random_delay,
+    collect_failure_evidence,
+    get_config_browser_wait_timeout,
+    get_config_challenge_probe_grace,
+)
 
 HARD_BLOCK_TEXT = "Incompatible browser extension or network configuration"
 
@@ -68,8 +74,16 @@ class CloudflareService(ChallengeService):
             return
         browser_wait_timeout = get_config_browser_wait_timeout()
         attempt = 0
+        resolve_start = time.time()
         last_verify_click_ts = 0.0
         click_cooldown_seconds = 10.0
+        # Challenge state probing forces synchronous layout and walks the whole
+        # DOM on the challenge page every poll — measured to stall Turnstile's
+        # automatic verification (challenge never resolved while probing ran,
+        # resolved in ~4s without it). Give auto-verification an undisturbed
+        # window before probing or clicking; interactive challenges wait for
+        # input anyway, so the delay costs nothing there.
+        probe_grace_seconds = get_config_challenge_probe_grace()
 
         while True:
             attempt += 1
@@ -91,7 +105,12 @@ class CloudflareService(ChallengeService):
                 if HARD_BLOCK_TEXT in page_source:
                     raise RuntimeError("Cloudflare hard block: Incompatible browser extension or network configuration")
                 now = time.time()
-                if self._should_attempt_verify_click(driver):
+                if now - resolve_start < probe_grace_seconds:
+                    logger.debug(
+                        "Skipping challenge-state probe: grace period (%.1fs remaining)",
+                        probe_grace_seconds - (now - resolve_start),
+                    )
+                elif self._should_attempt_verify_click(driver):
                     if now - last_verify_click_ts >= click_cooldown_seconds:
                         self._click_verify(driver)
                         last_verify_click_ts = now
