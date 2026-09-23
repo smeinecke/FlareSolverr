@@ -59,7 +59,7 @@ FROM ${CHROMIUM_STEALTH_IMAGE} AS custom-chrome
 # and the final stage falls back to the Debian chromium package.
 RUN mkdir -p /opt/chromium-dist && \
     if [ -f /opt/chromium/chrome ]; then \
-        cp -r /opt/chromium/* /opt/chromium-dist/; \
+        cp -r /opt/chromium/. /opt/chromium-dist/; \
     fi
 
 # ---------------------------------------------------------------------------
