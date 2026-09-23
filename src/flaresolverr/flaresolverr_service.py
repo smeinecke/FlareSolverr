@@ -887,8 +887,7 @@ def _cmd_sessions_fetch(req: V1RequestBase) -> V1ResponseBase:
             )
         if cross_origin_redirect:
             logger.warning(
-                f"sessions.fetch response redirected cross-origin to {final_origin.scheme}://{final_origin.netloc} "
-                f"(allowed by allowCrossOriginRedirect)"
+                f"sessions.fetch response redirected cross-origin to {final_origin.scheme}://{final_origin.netloc} (allowed by allowCrossOriginRedirect)"
             )
 
         body = fetch_result.get("body") or ""
