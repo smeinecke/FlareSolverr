@@ -1013,6 +1013,29 @@ def _get_main_frame_id(driver: WebDriver) -> str | None:
     return ((tree or {}).get("frameTree") or {}).get("frame", {}).get("id")
 
 
+def _select_document_chain(doc_chains: list[dict[str, Any]], root_frame_ids: list[str], driver: WebDriver) -> tuple[dict[str, Any], bool]:
+    """Pick the Document chain belonging to the top-level frame.
+
+    Returns (chain, identified). identified=False means the last-resort
+    fallback was used — the chain may be an iframe navigation and callers must
+    not treat it as authoritative top-level evidence.
+    """
+    # Frame ids come from Page.getFrameTree (chromedriver) or
+    # Page.frameNavigated perf-log events.
+    main_frame_id = _get_main_frame_id(driver) or (root_frame_ids[-1] if root_frame_ids else None)
+    chain = None
+    if main_frame_id:
+        chain = next((c for c in reversed(doc_chains) if c["frameId"] == main_frame_id), None)
+    if chain is None:
+        # Fallback: the main-frame document is the one matching the final URL.
+        current_url = getattr(driver, "current_url", None)
+        if current_url:
+            chain = next((c for c in reversed(doc_chains) if c["url"] == current_url), None)
+    if chain is None:
+        return doc_chains[-1], False
+    return chain, True
+
+
 def get_document_response_evidence(driver: WebDriver, max_failed_resources: int = 10, entries: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Summarize the most recent top-level document exchange.
 
@@ -1093,22 +1116,7 @@ def get_document_response_evidence(driver: WebDriver, max_failed_resources: int 
     if not doc_chains:
         return {}
 
-    # Prefer the chain belonging to the top-level frame. Frame ids come from
-    # Page.getFrameTree (chromedriver) or Page.frameNavigated perf-log events.
-    main_frame_id = _get_main_frame_id(driver) or (root_frame_ids[-1] if root_frame_ids else None)
-    chain = None
-    if main_frame_id:
-        chain = next((c for c in reversed(doc_chains) if c["frameId"] == main_frame_id), None)
-    if chain is None:
-        # Fallback: the main-frame document is the one matching the final URL.
-        current_url = getattr(driver, "current_url", None)
-        if current_url:
-            chain = next((c for c in reversed(doc_chains) if c["url"] == current_url), None)
-    identified = chain is not None
-    if chain is None:
-        # Last resort: the latest Document chain. Can be an iframe navigation —
-        # callers must not treat this as authoritative top-level evidence.
-        chain = doc_chains[-1]
+    chain, identified = _select_document_chain(doc_chains, root_frame_ids, driver)
 
     doc_request_id = chain["requestId"]
     doc_url = chain["url"]

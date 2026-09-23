@@ -991,58 +991,16 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
     except FunctionTimedOut:
         msg = f"Error solving the challenge. Timeout after {timeout} seconds."
         _abort_pending_raw_post(driver)
-        detected = None
-        try:
-            detected = getattr(driver, "_flaresolverr_detected_service", None)
-        except Exception:  # noqa: BLE001
-            logger.debug("Could not read detected service from driver after timeout")
-        details: dict[str, Any] | None = None
-        if driver is not None:
-            if detected is not None:
-                svc = SERVICE_MANAGER.get_service(detected)
-                if svc is not None:
-                    try:
-                        details = svc.get_debug_info(driver, stealth_mode=req_stealth_mode)
-                    except Exception:  # noqa: BLE001
-                        details = None
-            if details is None:
-                try:
-                    details = utils.collect_failure_evidence(driver, stealth_mode=req_stealth_mode)
-                except Exception:  # noqa: BLE001
-                    details = None
-            if details is not None:
-                details["failureKind"] = _classify_failure(driver, detected, details)
-                details["request"] = {
-                    "cmd": req.cmd,
-                    "method": method,
-                    "url": req.url,
-                    "hasPostData": req.postData is not None or req.postDataRaw is not None,
-                    "postDataContentType": req.postDataContentType,
-                }
-                details["session"] = session.session_id if session is not None else None
-                raise ChallengeError(msg, details=details)
+        details = _failure_details(driver, req, method, session, req_stealth_mode)
+        if details is not None:
+            raise ChallengeError(msg, details=details)
         raise RuntimeError(msg)
     except Exception as e:
         msg = "Error solving the challenge. " + str(e).replace("\n", "\\n")
         _abort_pending_raw_post(driver)
         # Generic errors lose evidence today; attach a bounded snapshot when a
         # driver exists so crash/navigation failures are diagnosable too.
-        details = None
-        if driver is not None:
-            try:
-                detected = getattr(driver, "_flaresolverr_detected_service", None)
-                details = utils.collect_failure_evidence(driver, stealth_mode=req_stealth_mode)
-                details["failureKind"] = _classify_failure(driver, detected, details)
-                details["request"] = {
-                    "cmd": req.cmd,
-                    "method": method,
-                    "url": req.url,
-                    "hasPostData": req.postData is not None or req.postDataRaw is not None,
-                    "postDataContentType": req.postDataContentType,
-                }
-                details["session"] = session.session_id if session is not None else None
-            except Exception:  # noqa: BLE001
-                details = None
+        details = _failure_details(driver, req, method, session, req_stealth_mode)
         if details is not None:
             raise ChallengeError(msg, details=details) from e
         raise RuntimeError(msg) from e
@@ -1063,6 +1021,52 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             # Clean up any leaked temp dirs (e.g. if get_webdriver failed
             # after creating the proxy extension temp dir)
             utils._cleanup_orphaned_temp_dirs()
+
+
+def _failure_details(
+    driver: WebDriver | None,
+    req: V1RequestBase,
+    method: str,
+    session: Any,
+    req_stealth_mode: str | None,
+) -> dict[str, Any] | None:
+    """Collect bounded failure evidence for a failed request, if possible.
+
+    Prefers service-specific debug info over the generic browser snapshot.
+    Never raises.
+    """
+    if driver is None:
+        return None
+    try:
+        detected = getattr(driver, "_flaresolverr_detected_service", None)
+    except Exception:  # noqa: BLE001
+        detected = None
+    details: dict[str, Any] | None = None
+    if detected is not None:
+        svc = SERVICE_MANAGER.get_service(detected)
+        if svc is not None:
+            try:
+                details = svc.get_debug_info(driver, stealth_mode=req_stealth_mode)
+            except Exception:  # noqa: BLE001
+                details = None
+    if details is None:
+        try:
+            details = utils.collect_failure_evidence(driver, stealth_mode=req_stealth_mode)
+        except Exception:  # noqa: BLE001
+            return None
+    try:
+        details["failureKind"] = _classify_failure(driver, detected, details)
+    except Exception:  # noqa: BLE001
+        logger.debug("Could not classify failure kind")
+    details["request"] = {
+        "cmd": req.cmd,
+        "method": method,
+        "url": req.url,
+        "hasPostData": req.postData is not None or req.postDataRaw is not None,
+        "postDataContentType": req.postDataContentType,
+    }
+    details["session"] = session.session_id if session is not None else None
+    return details
 
 
 def _classify_failure(driver: WebDriver, detected_service: str | None, evidence: dict[str, Any]) -> str:
@@ -1427,18 +1431,7 @@ def _build_challenge_result(
     # postDataRaw stashes the real XHR result on the driver object (immune to
     # later navigation); window globals remain the fallback for flows where
     # the stash is absent. Read it first — actions below may navigate.
-    raw_post: dict[str, Any] | None = None
-    if req.postDataRaw is not None:
-        raw_post = getattr(driver, "_flaresolverr_raw_post_result", None)
-        if raw_post is None:
-            raw_post = utils.retry_driver_read(
-                lambda: driver.execute_script(
-                    "return {"
-                    "status: typeof window.__flaresolverr_raw_post_status === 'undefined' ? null : window.__flaresolverr_raw_post_status, "
-                    "headers: typeof window.__flaresolverr_raw_post_headers === 'undefined' ? null : window.__flaresolverr_raw_post_headers, "
-                    "body: typeof window.__flaresolverr_raw_post_body === 'undefined' ? null : window.__flaresolverr_raw_post_body};"
-                )
-            )
+    raw_post = _read_raw_post_result(req, driver)
 
     # Challenge classification is independent of body output so
     # returnOnlyCookies responses are still flagged honestly.
@@ -1482,19 +1475,7 @@ def _build_challenge_result(
             doc_evidence = utils.get_document_response_evidence(driver, entries=perf_entries)
         except Exception:  # noqa: BLE001
             doc_evidence = {}
-    if doc_evidence.get("mainFrameIdentified", True) is False:
-        # The selected exchange could not be tied to the top-level frame — it
-        # may be an iframe response. Keep it in failure diagnostics, but do not
-        # attribute it to the API result.
-        doc_status = None
-        doc_headers: dict[str, Any] = {}
-        logger.debug("Document evidence could not be tied to the main frame; reporting status as unknown")
-    else:
-        doc_status = doc_evidence.get("status")
-        # Cookie values never reach the response header map (already exposed
-        # via solution.cookies).
-        doc_headers = {k: v for k, v in (doc_evidence.get("headers") or {}).items() if str(k).lower() != "set-cookie"}
-    challenge_res.status = doc_status
+    challenge_res.status, doc_headers = _resolve_document_result(doc_evidence)
 
     if isinstance(raw_post, dict) and raw_post.get("status") is not None:
         # The XHR response is the answer; the bootstrap document GET only
@@ -1533,6 +1514,44 @@ def _build_challenge_result(
         challenge_res.har = utils.performance_logs_to_har(perf_entries)
 
     return challenge_res
+
+
+def _read_raw_post_result(req: V1RequestBase, driver: WebDriver) -> dict[str, Any] | None:
+    """Read the completed postDataRaw XHR result.
+
+    The Python-side stash written by _post_request_raw survives later
+    navigation; the window globals remain the fallback for flows where the
+    stash is absent. `typeof` guards preserve legitimate empty bodies.
+    """
+    if req.postDataRaw is None:
+        return None
+    result = getattr(driver, "_flaresolverr_raw_post_result", None)
+    if result is None:
+        result = utils.retry_driver_read(
+            lambda: driver.execute_script(
+                "return {"
+                "status: typeof window.__flaresolverr_raw_post_status === 'undefined' ? null : window.__flaresolverr_raw_post_status, "
+                "headers: typeof window.__flaresolverr_raw_post_headers === 'undefined' ? null : window.__flaresolverr_raw_post_headers, "
+                "body: typeof window.__flaresolverr_raw_post_body === 'undefined' ? null : window.__flaresolverr_raw_post_body};"
+            )
+        )
+    return result if isinstance(result, dict) else None
+
+
+def _resolve_document_result(doc_evidence: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    """Turn document evidence into (status, headers) for the API result.
+
+    When the selected exchange could not be tied to the top-level frame it
+    may describe an iframe — keep it for diagnostics but report status as
+    unknown and attribute no document headers. Cookie values never reach the
+    header map (already exposed via solution.cookies).
+    """
+    if doc_evidence.get("mainFrameIdentified", True) is False:
+        logger.debug("Document evidence could not be tied to the main frame; reporting status as unknown")
+        return None, {}
+    status = doc_evidence.get("status")
+    headers = {k: v for k, v in (doc_evidence.get("headers") or {}).items() if str(k).lower() != "set-cookie"}
+    return status, headers
 
 
 def _parse_raw_headers(raw_headers: Any) -> dict[str, str]:
