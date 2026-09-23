@@ -422,13 +422,14 @@ class TestSessionsFetch:
         assert res.solution.response == '{"ok": true}'
         assert res.solution.challenged is False
         # Same-origin relative URL resolved against the page origin.
-        script, fetch_url, method, headers, body, timeout_ms = driver.execute_script.call_args[0]
+        script, fetch_url, method, headers, body, timeout_ms, same_origin = driver.execute_script.call_args[0]
         assert fetch_url == "https://example.com/api"
         assert method == "POST"
         assert body == "a=1"
         # mode:'same-origin' prevents a cross-origin redirect from being
         # followed at all — the body never reaches another origin.
-        assert "mode: 'same-origin'" in script
+        assert "opts.mode = 'same-origin'" in script
+        assert same_origin is True
 
     def test_fetch_challenged_response_flagged(self, _patch_sessions_storage):
         driver = self._fetch_driver(
@@ -487,6 +488,28 @@ class TestSessionsFetch:
         req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "/api"})
         with pytest.raises(Exception, match="sessions.fetch failed"):
             svc._cmd_sessions_fetch(req)
+
+    def test_fetch_cross_origin_redirect_allowed_when_opted_in(self, _patch_sessions_storage):
+        driver = self._fetch_driver(
+            {
+                "status": 200,
+                "statusText": "OK",
+                "headers": {},
+                "body": "ok",
+                "redirected": True,
+                "url": "https://cdn.example.net/api",
+            }
+        )
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "/api", "allowCrossOriginRedirect": True})
+        res = svc._cmd_sessions_fetch(req)
+
+        assert res.status == "ok"
+        assert res.solution.evalResult["url"] == "https://cdn.example.net/api"
+        assert res.solution.evalResult["crossOriginRedirect"] is True
+        # CORS mode — the same-origin restriction is not applied to fetch().
+        assert driver.execute_script.call_args[0][6] is False
 
     def test_fetch_cross_origin_redirect_rejected(self, _patch_sessions_storage):
         driver = self._fetch_driver(

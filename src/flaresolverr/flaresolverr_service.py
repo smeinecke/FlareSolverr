@@ -819,7 +819,8 @@ def _cmd_sessions_fetch(req: V1RequestBase) -> V1ResponseBase:
                 headers_dict[name.strip()] = value.strip()
 
         timeout_ms = int(req.timeoutMs) if req.timeoutMs else 30000
-        logger.debug(f"sessions.fetch (session_id={session_id}, {method} {fetch_url})")
+        allow_cross_origin = bool(req.allowCrossOriginRedirect)
+        logger.debug(f"sessions.fetch (session_id={session_id}, {method} {fetch_url}, allowCrossOriginRedirect={allow_cross_origin})")
 
         # The sync script endpoint awaits the returned promise under the
         # WebDriver script timeout (default ~30s); align it so timeoutMs is the
@@ -832,13 +833,16 @@ def _cmd_sessions_fetch(req: V1RequestBase) -> V1ResponseBase:
         try:
             fetch_result = driver.execute_script(
                 """
-                var url = arguments[0], method = arguments[1], headers = arguments[2], body = arguments[3], timeoutMs = arguments[4];
+                var url = arguments[0], method = arguments[1], headers = arguments[2], body = arguments[3], timeoutMs = arguments[4], sameOrigin = arguments[5];
                 var controller = new AbortController();
                 var timer = setTimeout(function() { controller.abort(); }, timeoutMs);
                 // mode:'same-origin' makes a cross-origin redirect a network
                 // error, so a 307/308 cannot forward body/headers to another
                 // origin before the Python-side final-URL check runs.
-                var opts = {method: method, headers: headers, credentials: 'include', mode: 'same-origin', signal: controller.signal};
+                // allowCrossOriginRedirect requests use CORS mode instead —
+                // the target must then permit the cross-origin exchange.
+                var opts = {method: method, headers: headers, credentials: 'include', signal: controller.signal};
+                if (sameOrigin) { opts.mode = 'same-origin'; }
                 if (body !== null && method !== 'GET' && method !== 'HEAD') { opts.body = body; }
                 return fetch(url, opts).then(function(r) {
                     return r.text().then(function(t) {
@@ -857,6 +861,7 @@ def _cmd_sessions_fetch(req: V1RequestBase) -> V1ResponseBase:
                 headers_dict,
                 req.body,
                 timeout_ms,
+                not allow_cross_origin,
             )
         finally:
             try:
@@ -868,14 +873,22 @@ def _cmd_sessions_fetch(req: V1RequestBase) -> V1ResponseBase:
         if fetch_result.get("error"):
             raise RuntimeError(f"sessions.fetch failed: {fetch_result['error']}")
 
-        # fetch() follows redirects by default; the same-origin contract must
-        # hold for the final URL too, not just the requested one.
+        # With same-origin mode the browser already refuses cross-origin
+        # redirects; this check is a defensive assertion. With
+        # allowCrossOriginRedirect the redirect may legitimately land on
+        # another origin — it is reported, not rejected.
         final_url = fetch_result.get("url") or fetch_url
         final_origin = urlparse(final_url)
-        if (final_origin.scheme, final_origin.netloc) != (current_origin.scheme, current_origin.netloc):
+        cross_origin_redirect = (final_origin.scheme, final_origin.netloc) != (current_origin.scheme, current_origin.netloc)
+        if cross_origin_redirect and not allow_cross_origin:
             raise RuntimeError(
                 f"'sessions.fetch' response redirected to a different origin ({final_origin.scheme}://{final_origin.netloc}); "
                 f"page origin is {current_origin.scheme}://{current_origin.netloc}."
+            )
+        if cross_origin_redirect:
+            logger.warning(
+                f"sessions.fetch response redirected cross-origin to {final_origin.scheme}://{final_origin.netloc} "
+                f"(allowed by allowCrossOriginRedirect)"
             )
 
         body = fetch_result.get("body") or ""
@@ -898,6 +911,7 @@ def _cmd_sessions_fetch(req: V1RequestBase) -> V1ResponseBase:
             "redirected": fetch_result.get("redirected"),
             "url": fetch_result.get("url"),
             "challenged": challenged,
+            "crossOriginRedirect": cross_origin_redirect,
         }
         result.cookies = _safe_driver_call(driver.get_cookies, [])
 

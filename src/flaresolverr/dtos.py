@@ -91,6 +91,7 @@ class V1RequestBase:
     method: str | None = None  # HTTP method for sessions.fetch (default GET)
     body: str | None = None  # Request body for sessions.fetch
     timeoutMs: int | None = None  # fetch() timeout for sessions.fetch (default 30000)
+    allowCrossOriginRedirect: bool | None = None  # sessions.fetch: allow redirects to leave the page origin (default false)
     # JavaScript injection (issue #38).
     # NOTE: Raw JS execution is already supported via:
     #   - sessions.eval command (driver.execute_script)
@@ -139,6 +140,7 @@ class V1RequestBase:
             "method",
             "body",
             "timeoutMs",
+            "allowCrossOriginRedirect",
             "scriptInject",
         }
         for key, value in _dict.items():
