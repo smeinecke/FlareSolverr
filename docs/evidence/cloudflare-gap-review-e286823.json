@@ -1,0 +1,82 @@
+{
+  "uncertain_frame": {
+    "evidence": {
+      "url": "https://example.test/frame",
+      "status": 200,
+      "statusText": null,
+      "mimeType": null,
+      "protocol": null,
+      "headers": {
+        "X-Review": "iframe"
+      },
+      "cfMitigated": null,
+      "cfRay": null,
+      "redirects": [],
+      "navError": null,
+      "failedResources": [],
+      "mainFrameIdentified": false
+    },
+    "reportedStatus": 200
+  },
+  "matrix_server_error": "passed",
+  "get_404": {
+    "status": 404,
+    "url": "http://127.0.0.1:44723/missing",
+    "body": "<html><head><title>Local review</title></head><body>/missing</body></html>",
+    "headers": {
+      "Content-Type": "text/html",
+      "Date": "Wed, 23 Sep 2026 14:27:20 GMT",
+      "Server": "BaseHTTP/0.6 Python/3.13.2"
+    },
+    "actualUrl": "http://127.0.0.1:44723/missing"
+  },
+  "raw_post_204": {
+    "status": 204,
+    "url": "http://127.0.0.1:44723/empty",
+    "body": "",
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "access-control-allow-headers": "content-type,x-review-marker",
+      "access-control-allow-methods": "GET,POST,OPTIONS",
+      "access-control-allow-origin": "http://127.0.0.1:44723",
+      "date": "Wed, 23 Sep 2026 14:27:20 GMT",
+      "server": "BaseHTTP/0.6 Python/3.13.2",
+      "x-review-response": "post"
+    },
+    "actualUrl": "http://127.0.0.1:44723/empty"
+  },
+  "action_navigation": {
+    "status": 200,
+    "url": "http://127.0.0.1:44723/start",
+    "body": "<html><head><title>Local review</title></head><body>/missing</body></html>",
+    "headers": {
+      "Content-Type": "text/html",
+      "Date": "Wed, 23 Sep 2026 14:27:21 GMT",
+      "Server": "BaseHTTP/0.6 Python/3.13.2"
+    },
+    "actualUrl": "http://127.0.0.1:44723/missing"
+  },
+  "cross_origin_error": "'sessions.fetch' response redirected to a different origin (http://127.0.0.1:46565); page origin is http://127.0.0.1:44723.",
+  "cross_origin_received": [
+    {
+      "port": 46565,
+      "path": "/capture",
+      "body": "review=redirect",
+      "marker": "local-test"
+    }
+  ],
+  "raw_timeout": {
+    "error": "Error solving the challenge. Timeout after 1.0 seconds.",
+    "elapsed": 1.0218621519998123,
+    "at_return": {
+      "done": false,
+      "error": null,
+      "readyState": 1
+    },
+    "later": {
+      "done": true,
+      "error": null,
+      "readyState": 4
+    }
+  }
+}

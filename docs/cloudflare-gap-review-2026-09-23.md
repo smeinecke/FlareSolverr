@@ -1,5 +1,9 @@
 # Cloudflare follow-up: remaining gaps
 
+**Latest verification:** the review of `b9d5eb1` and `e286823` reproduced five
+remaining issues. See [the commit follow-up](cloudflare-gap-review-e286823.md).
+The implementation summary below does not establish that all gaps are closed.
+
 Reviewed 2026-09-23 at FlareSolverr revision
 `40b084bf895f64717edf395539c281c969bfd2ef`. Scope: changes after `7b6d27d`,
 the current challenge matrix, response handling, browser build paths, and the
@@ -266,9 +270,13 @@ input or that a failure occurred before interaction. Likewise, comparing stock
 target outcomes, preserve build/configuration evidence for future trials, and
 avoid generalizing two targets into a claim about all Cloudflare configurations.
 
-## Resolution status (implemented)
+## Implementation summary from e286823
 
-All eight gaps have been addressed on `feature/cloudflare-detection-review`:
+The commit reported changes addressing G1–G8 on
+`feature/cloudflare-detection-review`. Subsequent verification reproduced
+remaining cases in G1/G2/G5/G7/G8; see
+[the follow-up findings and evidence](cloudflare-gap-review-e286823.md).
+The original implementation summary follows:
 
 - **G1** — `_build_challenge_result` now takes the real top-level document
   status and headers from `get_document_response_evidence` (single perf-log

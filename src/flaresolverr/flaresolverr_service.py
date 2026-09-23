@@ -835,7 +835,10 @@ def _cmd_sessions_fetch(req: V1RequestBase) -> V1ResponseBase:
                 var url = arguments[0], method = arguments[1], headers = arguments[2], body = arguments[3], timeoutMs = arguments[4];
                 var controller = new AbortController();
                 var timer = setTimeout(function() { controller.abort(); }, timeoutMs);
-                var opts = {method: method, headers: headers, credentials: 'include', signal: controller.signal};
+                // mode:'same-origin' makes a cross-origin redirect a network
+                // error, so a 307/308 cannot forward body/headers to another
+                // origin before the Python-side final-URL check runs.
+                var opts = {method: method, headers: headers, credentials: 'include', mode: 'same-origin', signal: controller.signal};
                 if (body !== null && method !== 'GET' && method !== 'HEAD') { opts.body = body; }
                 return fetch(url, opts).then(function(r) {
                     return r.text().then(function(t) {
@@ -974,6 +977,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         return cast(ChallengeResolutionT, challenge_result)
     except FunctionTimedOut:
         msg = f"Error solving the challenge. Timeout after {timeout} seconds."
+        _abort_pending_raw_post(driver)
         detected = None
         try:
             detected = getattr(driver, "_flaresolverr_detected_service", None)
@@ -1007,6 +1011,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         raise RuntimeError(msg)
     except Exception as e:
         msg = "Error solving the challenge. " + str(e).replace("\n", "\\n")
+        _abort_pending_raw_post(driver)
         # Generic errors lose evidence today; attach a bounded snapshot when a
         # driver exists so crash/navigation failures are diagnosable too.
         details = None
@@ -1401,31 +1406,14 @@ def _build_challenge_result(
     req: V1RequestBase,
     driver: WebDriver,
     turnstile_token: str | None,
-    har_entries: list[dict[str, Any]] | None = None,
     doc_evidence: dict[str, Any] | None = None,
 ) -> ChallengeResolutionResultT:
     challenge_res = ChallengeResolutionResultT({})
-    logger.debug("_build_challenge_result: reading current_url")
-    challenge_res.url = utils.retry_driver_read(lambda: driver.current_url)
-    logger.debug("_build_challenge_result: reading userAgent")
-    challenge_res.userAgent = utils.retry_driver_read(lambda: utils.get_user_agent(driver))
     challenge_res.turnstile_token = turnstile_token
-
-    if doc_evidence is None:
-        try:
-            doc_evidence = utils.get_document_response_evidence(driver)
-        except Exception:  # noqa: BLE001
-            doc_evidence = {}
-    # Cookie values never reach the response header map (already exposed via
-    # solution.cookies) — filter here too, not only in the evidence helper.
-    doc_headers = {k: v for k, v in (doc_evidence.get("headers") or {}).items() if str(k).lower() != "set-cookie"}
-    # The top-level document status from the performance log. Unknown is
-    # represented as null rather than fabricating 200.
-    challenge_res.status = doc_evidence.get("status")
 
     # postDataRaw stashes the real XHR result on the driver object (immune to
     # later navigation); window globals remain the fallback for flows where
-    # the stash is absent.
+    # the stash is absent. Read it first — actions below may navigate.
     raw_post: dict[str, Any] | None = None
     if req.postDataRaw is not None:
         raw_post = getattr(driver, "_flaresolverr_raw_post_result", None)
@@ -1438,10 +1426,6 @@ def _build_challenge_result(
                     "body: typeof window.__flaresolverr_raw_post_body === 'undefined' ? null : window.__flaresolverr_raw_post_body};"
                 )
             )
-        if isinstance(raw_post, dict) and raw_post.get("status") is not None:
-            # The XHR response is the answer; the bootstrap document GET only
-            # established origin context.
-            challenge_res.status = raw_post["status"]
 
     # Challenge classification is independent of body output so
     # returnOnlyCookies responses are still flagged honestly.
@@ -1453,9 +1437,10 @@ def _build_challenge_result(
             logger.warning("Raw POST response is a Cloudflare challenge, not the application response.")
             challenge_res.challenged = True
 
+    # Actions and waits run BEFORE capturing the final URL/status/body so a
+    # navigation triggered by an action (or during waitInSeconds) is reflected
+    # consistently across all result fields.
     if not req.returnOnlyCookies:
-        challenge_res.headers = dict(doc_headers)
-
         if req.actions:
             action_results = _execute_actions(driver, req.actions)
             eval_values = [r for r in action_results if r is not None]
@@ -1465,6 +1450,46 @@ def _build_challenge_result(
         if req.waitInSeconds and req.waitInSeconds > 0:
             logger.info("Waiting " + str(req.waitInSeconds) + " seconds before returning the response...")
             time.sleep(req.waitInSeconds)
+
+    logger.debug("_build_challenge_result: reading current_url")
+    challenge_res.url = utils.retry_driver_read(lambda: driver.current_url)
+    logger.debug("_build_challenge_result: reading userAgent")
+    challenge_res.userAgent = utils.retry_driver_read(lambda: utils.get_user_agent(driver))
+
+    # Drain the performance log once, after actions/waits, so status, headers
+    # and HAR all describe the final document exchange (draining empties the
+    # queue — later consumers would see nothing).
+    try:
+        perf_entries = utils.get_performance_log(driver)
+    except Exception:  # noqa: BLE001
+        logger.debug("Performance log unavailable; response status/headers will be unknown")
+        perf_entries = []
+    if doc_evidence is None:
+        try:
+            doc_evidence = utils.get_document_response_evidence(driver, entries=perf_entries)
+        except Exception:  # noqa: BLE001
+            doc_evidence = {}
+    if doc_evidence.get("mainFrameIdentified", True) is False:
+        # The selected exchange could not be tied to the top-level frame — it
+        # may be an iframe response. Keep it in failure diagnostics, but do not
+        # attribute it to the API result.
+        doc_status = None
+        doc_headers: dict[str, Any] = {}
+        logger.debug("Document evidence could not be tied to the main frame; reporting status as unknown")
+    else:
+        doc_status = doc_evidence.get("status")
+        # Cookie values never reach the response header map (already exposed
+        # via solution.cookies).
+        doc_headers = {k: v for k, v in (doc_evidence.get("headers") or {}).items() if str(k).lower() != "set-cookie"}
+    challenge_res.status = doc_status
+
+    if isinstance(raw_post, dict) and raw_post.get("status") is not None:
+        # The XHR response is the answer; the bootstrap document GET only
+        # established origin context.
+        challenge_res.status = raw_post["status"]
+
+    if not req.returnOnlyCookies:
+        challenge_res.headers = dict(doc_headers)
 
         if req.download:
             logger.debug("_build_challenge_result: reading download content")
@@ -1491,8 +1516,8 @@ def _build_challenge_result(
     if req.returnScreenshot:
         challenge_res.screenshot = driver.get_screenshot_as_base64()
 
-    if req.recordHar and har_entries is not None:
-        challenge_res.har = utils.performance_logs_to_har(har_entries)
+    if req.recordHar:
+        challenge_res.har = utils.performance_logs_to_har(perf_entries)
 
     return challenge_res
 
@@ -1644,16 +1669,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
 
         _apply_js_injection(req, driver, "document_idle")
         logger.debug("_evil_logic: building challenge result")
-        # Drain the performance log once so the final status/headers, HAR, and
-        # diagnostics all share one capture (draining empties the queue).
-        try:
-            perf_entries = utils.get_performance_log(driver)
-        except Exception:  # noqa: BLE001
-            logger.debug("Performance log unavailable; response status/headers will be unknown")
-            perf_entries = []
-        doc_evidence = utils.get_document_response_evidence(driver, entries=perf_entries)
-        har_entries = perf_entries if req.recordHar else None
-        res.result = _build_challenge_result(req, driver, turnstile_token, har_entries, doc_evidence)
+        res.result = _build_challenge_result(req, driver, turnstile_token)
         logger.debug("_evil_logic: challenge result built successfully")
         return res
     finally:
@@ -1771,10 +1787,7 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
     if not completed:
         # Abort the in-flight XHR so a retained session does not keep a
         # still-running request, then surface an explicit timeout failure.
-        try:
-            driver.execute_script("try { window.__flaresolverr_raw_post_xhr.abort(); } catch (e) {}")
-        except Exception:  # noqa: BLE001
-            logger.debug("Could not abort in-flight raw POST XHR")
+        _abort_pending_raw_post(driver)
         raise RuntimeError(f"Raw POST request did not complete within {wait_timeout} seconds.")
 
     error = driver.execute_script("return window.__flaresolverr_raw_post_error")
@@ -1795,6 +1808,21 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
     )
     if isinstance(result, dict):
         driver._flaresolverr_raw_post_result = result  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def _abort_pending_raw_post(driver: WebDriver | None) -> None:
+    """Abort a still-running postDataRaw XHR, if any.
+
+    Called on request timeout/failure before the session lock is released —
+    an XHR left running could still mutate session state after the API call
+    already returned an error.
+    """
+    if driver is None:
+        return
+    try:
+        driver.execute_script("try { if (window.__flaresolverr_raw_post_xhr) window.__flaresolverr_raw_post_xhr.abort(); } catch (e) {}")
+    except Exception:  # noqa: BLE001
+        logger.debug("Could not abort in-flight raw POST XHR")
 
 
 def _post_request(req: V1RequestBase, driver: WebDriver) -> None:

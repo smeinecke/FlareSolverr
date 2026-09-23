@@ -244,6 +244,37 @@ class TestChallengeResultResponse:
         assert result.challenged is True
         assert result.status == 403
 
+    def test_uncertain_iframe_evidence_not_attributed_to_result(self):
+        # When the selected Document exchange cannot be tied to the top-level
+        # frame, it must not become the authoritative API response.
+        driver = MockDriverRawPost()
+        driver.get_cookies = lambda: []
+        evidence = {
+            "status": 200,
+            "headers": {"content-type": "text/html"},
+            "mainFrameIdentified": False,
+        }
+        result = service._build_challenge_result(self._req(), driver, None, doc_evidence=evidence)
+        assert result.status is None
+        assert result.headers == {}
+
+    def test_raw_post_status_not_masked_by_uncertain_frame(self):
+        # The XHR stash is the answer regardless of document-frame uncertainty.
+        driver = MockDriverRawPost()
+        driver.get_cookies = lambda: []
+        driver._flaresolverr_raw_post_result = {"status": 201, "headers": "", "body": "{}"}
+        req = self._req(cmd="request.post", postDataRaw="x=1")
+        result = service._build_challenge_result(req, driver, None, doc_evidence={"status": 200, "mainFrameIdentified": False})
+        assert result.status == 201
+
+    def test_abort_pending_raw_post_executes_abort(self):
+        driver = MockDriverRawPost()
+        service._abort_pending_raw_post(driver)
+        assert any("__flaresolverr_raw_post_xhr" in s for s in driver._scripts)
+
+    def test_abort_pending_raw_post_tolerates_missing_driver(self):
+        service._abort_pending_raw_post(None)  # must not raise
+
 
 class TestDtoFields:
     """Tests for the new DTO fields."""

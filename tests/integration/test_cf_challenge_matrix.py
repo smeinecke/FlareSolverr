@@ -77,6 +77,19 @@ CF_CHALLENGE_TITLES = (
     "un instant",
     "un momento",
 )
+# Server/application error document titles — a titled 5xx page is not a pass.
+ERROR_TITLES = (
+    "service unavailable",
+    "bad gateway",
+    "gateway timeout",
+    "access denied",
+    "forbidden",
+    "temporarily unavailable",
+    "internal server error",
+    "too many requests",
+    "request failed",
+    "error ",
+)
 
 
 def _verdict_from_page(
@@ -85,12 +98,15 @@ def _verdict_from_page(
     cookies: list[dict],
     final_url: str = "",
     nav_error: str | None = None,
+    http_status: int | None = None,
+    expected_host: str | None = None,
 ) -> tuple[str, dict]:
     """Classify the final page state into a coarse verdict + CF metadata.
 
     "passed" requires positive evidence of a real document — navigation
-    failures, chrome-error pages and empty bodies are never passes, and a
-    stale cf_clearance cookie does not override a visible challenge.
+    failures, chrome-error pages, empty bodies, HTTP >= 400 responses,
+    error-titled documents, and unexpected host changes are never passes,
+    and a stale cf_clearance cookie does not override a visible challenge.
     """
     meta = {}
     m = CF_RAY_RE.search(page_source or "")
@@ -100,6 +116,8 @@ def _verdict_from_page(
     if m:
         meta["cfType"] = m.group(1)
     meta["cfClearance"] = any(c.get("name") == "cf_clearance" for c in cookies)
+    if http_status is not None:
+        meta["httpStatus"] = http_status
 
     src = page_source or ""
     title_l = (title or "").lower()
@@ -124,6 +142,20 @@ def _verdict_from_page(
         return "nav_error", meta
     if len(src.strip()) < 256:
         return "empty", meta
+    # Application-level failures (403/429/503 pages render fine but are not
+    # successful target content) and redirects off the target host are
+    # neither passes nor CF interstitials.
+    if http_status is not None and http_status >= 400:
+        return "unknown", meta
+    if any(t in title_l for t in ERROR_TITLES):
+        return "unknown", meta
+    if expected_host and final_url:
+        from urllib.parse import urlparse
+
+        final_host = urlparse(final_url).netloc
+        if final_host and final_host != expected_host:
+            meta["redirectedTo"] = final_host
+            return "unknown", meta
     if not (title or "").strip():
         # No challenge evidence, but also no positive evidence of a real
         # rendered document — a bare byte count is not a pass.
@@ -197,12 +229,24 @@ def _driver_arm(url: str, headless: bool | None, use_uc: bool) -> dict:
         try:
             record["title"] = driver.title
             record["finalUrl"] = driver.current_url
+            # Pull the real top-level document status from the perf log so a
+            # rendered 4xx/5xx page is not mistaken for a pass. The arm is
+            # finished at this point, so draining the queue is safe.
+            http_status = None
+            try:
+                http_status = utils.get_document_response_evidence(driver).get("status")
+            except Exception:  # noqa: BLE001
+                pass
+            from urllib.parse import urlparse
+
             verdict, meta = _verdict_from_page(
                 driver.title,
                 driver.page_source,
                 driver.get_cookies(),
                 final_url=driver.current_url or "",
                 nav_error=record.get("navError"),
+                http_status=http_status,
+                expected_host=urlparse(url).netloc,
             )
             record["verdict"] = verdict
             record.update(meta)
@@ -321,3 +365,50 @@ def test_cf_challenge_matrix():
 
     # Diagnostic harness: assert only that the run produced data.
     assert any("verdict" in r for r in results)
+
+
+class TestVerdictClassifier:
+    """Deterministic classifier coverage — a titled/large document is not
+    enough for 'passed'; error pages, off-host redirects and missing positive
+    evidence classify as unknown/nav_error."""
+
+    BIG_PAGE = "<html><body>" + "x" * 1024 + "</body></html>"
+
+    def test_titled_503_document_is_not_a_pass(self):
+        html = "<html><head><title>503 Service Unavailable</title></head><body>" + "x" * 1024 + "</body></html>"
+        verdict, _ = _verdict_from_page("503 Service Unavailable", html, [])
+        assert verdict == "unknown"
+
+    def test_http_error_status_is_not_a_pass(self):
+        for status in (403, 429, 500, 503):
+            verdict, meta = _verdict_from_page("Some Page", self.BIG_PAGE, [], http_status=status)
+            assert verdict == "unknown", status
+            assert meta["httpStatus"] == status
+
+    def test_off_host_redirect_is_unknown(self):
+        verdict, meta = _verdict_from_page(
+            "Login", self.BIG_PAGE, [],
+            final_url="https://sso.example.net/login",
+            expected_host="tmailor.com",
+        )
+        assert verdict == "unknown"
+        assert meta["redirectedTo"] == "sso.example.net"
+
+    def test_challenge_page_classifies_challenged(self):
+        html = "<html><head><title>Just a moment...</title></head><body>_cf_chl_opt cRay: 'x'" + "x" * 1024 + "</body></html>"
+        verdict, _ = _verdict_from_page("Just a moment...", html, [])
+        assert verdict == "challenged"
+
+    def test_normal_document_passes(self):
+        verdict, _ = _verdict_from_page(
+            "Temp Mail", self.BIG_PAGE, [],
+            final_url="https://tempmailo.com/",
+            http_status=200,
+            expected_host="tempmailo.com",
+        )
+        assert verdict == "passed"
+
+    def test_dump_dom_title_extracted(self):
+        html = "<html><head><title>  My Page  </title></head><body>ok</body></html>"
+        assert _title_from_html(html) == "My Page"
+        assert _title_from_html("<html><body>no title</body></html>") == ""

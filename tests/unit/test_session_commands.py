@@ -426,6 +426,9 @@ class TestSessionsFetch:
         assert fetch_url == "https://example.com/api"
         assert method == "POST"
         assert body == "a=1"
+        # mode:'same-origin' prevents a cross-origin redirect from being
+        # followed at all — the body never reaches another origin.
+        assert "mode: 'same-origin'" in script
 
     def test_fetch_challenged_response_flagged(self, _patch_sessions_storage):
         driver = self._fetch_driver(
