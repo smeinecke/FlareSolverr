@@ -1,0 +1,55 @@
+{
+  "reviewDate": "2026-09-23",
+  "revision": "40b084bf895f64717edf395539c281c969bfd2ef",
+  "scope": "Localhost browser probes and offline classifier examples; no live target requests",
+  "browserVersion": "154.0.8037.49",
+  "stealthMode": "standard",
+  "identity": {
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "architecture": "x86",
+    "bitness": "64",
+    "chromiumFullVersionHint": "154.0.8037.49",
+    "webdriver": false,
+    "webdriverPresent": true,
+    "webdriverDescriptorPresent": true
+  },
+  "responseCases": [
+    {
+      "case": "GET /missing via _evil_logic",
+      "serverStatus": 404,
+      "solutionStatus": 200,
+      "solutionHeaders": {}
+    },
+    {
+      "case": "POST /empty with postDataRaw via _evil_logic",
+      "serverStatus": 204,
+      "serverBody": "",
+      "serverHeaders": {"X-Audit-Response": "empty-post"},
+      "solutionStatus": 204,
+      "solutionHeaders": {},
+      "solutionBody": "<html><head><title>Local review</title></head><body>GET bootstrap document</body></html>"
+    }
+  ],
+  "classifierCases": [
+    {
+      "title": "Service unavailable",
+      "bodyConstruction": "'<html><body>Service unavailable' + ' ' * 300 + '</body></html>'",
+      "verdict": "passed"
+    },
+    {
+      "title": "OK",
+      "body": "<html><body>Welcome</body></html>",
+      "verdict": "empty"
+    },
+    {
+      "titleArgument": "",
+      "bodyConstruction": "'<html><title>Nur einen Moment…</title><body>' + 'checking ' * 40 + '</body></html>'",
+      "verdict": "passed"
+    }
+  ],
+  "validation": {
+    "make": "passed",
+    "unitTestsPassed": 469,
+    "browserIntegrationTestsPassed": 5
+  }
+}

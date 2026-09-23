@@ -118,9 +118,25 @@ def _verdict_from_page(
         return "challenged", meta
     if nav_error:
         return "nav_error", meta
+    # Browser-rendered network/server error pages are large enough to clear
+    # the byte threshold but are not passes.
+    if 'id="main-frame-error"' in src or re.search(r"net::ERR_|ERR_CONNECTION|ERR_NAME_|ERR_TIMED", src):
+        return "nav_error", meta
     if len(src.strip()) < 256:
         return "empty", meta
+    if not (title or "").strip():
+        # No challenge evidence, but also no positive evidence of a real
+        # rendered document — a bare byte count is not a pass.
+        return "unknown", meta
     return "passed", meta
+
+
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+
+
+def _title_from_html(html: str) -> str:
+    m = _TITLE_RE.search(html or "")
+    return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
 
 
 def _driver_arm(url: str, headless: bool | None, use_uc: bool) -> dict:
@@ -154,8 +170,12 @@ def _driver_arm(url: str, headless: bool | None, use_uc: bool) -> dict:
                 driver._proxy_ext_id = proxy_ext_id
                 driver._proxy_ext_dir = proxy_ext_dir
                 utils.apply_proxy_to_session(driver, proxy)
+            # Recorded flags are the requested ones — chromedriver adds its
+            # own (e.g. --enable-automation) at launch.
+            record["launchArgs"] = list(opts.arguments)
         else:
             driver = utils.get_webdriver(proxy=proxy)
+            record["launchArgs"] = getattr(driver, "_flaresolverr_launch_args", None)
         driver.set_page_load_timeout(TIMEOUT)
         start = time.time()
         try:
@@ -236,13 +256,15 @@ def _dump_dom_arm(url: str) -> dict:
         # The proxy extension cannot be configured from a one-shot process;
         # --proxy-server only supports proxies without auth here.
         cmd.insert(-1, f"--proxy-server={PROXY}")
+    record["launchArgs"] = cmd[1:]
     start = time.time()
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, check=False)
         record["elapsed"] = round(time.time() - start, 1)
         record["exitCode"] = proc.returncode
         dom = proc.stdout or ""
-        verdict, meta = _verdict_from_page("", dom, [])
+        record["title"] = _title_from_html(dom)
+        verdict, meta = _verdict_from_page(record["title"], dom, [])
         record["verdict"] = verdict if proc.returncode == 0 else "error"
         record.update(meta)
         if proc.returncode != 0:

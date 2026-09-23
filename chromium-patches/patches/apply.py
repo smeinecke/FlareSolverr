@@ -76,7 +76,10 @@ def write_manifest(output_path: str) -> None:
     specific patches.
     """
     src_root = pathlib.Path.cwd()
-    gn_args = pathlib.Path(__file__).resolve().parent.parent / "gn-args.txt"
+    # Hash the effective generated args.gn when the build tree exists —
+    # provenance must reflect what was actually compiled, not the template.
+    effective_gn_args = src_root / "out" / "Release" / "args.gn"
+    gn_args = effective_gn_args if effective_gn_args.is_file() else pathlib.Path(__file__).resolve().parent.parent / "gn-args.txt"
 
     revision = None
     try:
@@ -94,6 +97,7 @@ def write_manifest(output_path: str) -> None:
         "buildTool": "chromium-patches/patches/apply.py",
         "applyScriptSha256": _sha256_file(pathlib.Path(__file__).resolve()),
         "gnArgsSha256": _sha256_file(gn_args),
+        "gnArgsSource": str(gn_args),
         "chromiumVersion": _read_chromium_version(src_root),
         "chromiumRevision": revision,
         "patches": _patch_ids(),

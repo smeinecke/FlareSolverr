@@ -398,6 +398,8 @@ Example:
 
 The response `solution` contains `status`, `statusText`, `headers` (dict), `response` (body text), `url` (final URL), `redirected`, and `challenged` — `true` when the response carries `cf-mitigated: challenge` or its body resembles a Cloudflare challenge page.
 
+The same-origin restriction also applies **after redirects**: if the response's final URL is on a different origin than the page, the command fails rather than returning cross-origin content. `timeoutMs` bounds the fetch via an in-page `AbortController`; the driver's script timeout is raised to match so larger values actually take effect. Successful fetches count toward the session's request count and refresh its activity timestamp.
+
 **Limitation:** `fetch` receives a challenge response as plain HTML — it cannot execute a returned challenge interstitial. It preserves request context but does not bypass endpoint-level WAF rules.
 
 ### + `request.get`
@@ -562,8 +564,7 @@ Example response from a `request.get`:
       "server": "gws",
       "content-length": "61587",
       "x-xss-protection": "0",
-      "x-frame-options": "SAMEORIGIN",
-      "set-cookie": "1P_JAR=2020-07-16-04; expires=Sat..."
+      "x-frame-options": "SAMEORIGIN"
     },
     "response": "<!DOCTYPE html>...",
     "cookies": [
@@ -603,6 +604,7 @@ Example response from a `request.get`:
 ```
 
 > **Note:** Response fields are populated depending on the command and parameters used:
+> - `status` / `headers` — the real top-level document response captured from the browser's network log (the `postDataRaw` XHR response for raw POST). `status` is `null` when the document exchange cannot be determined — it is never fabricated. `set-cookie` is excluded from `headers`; cookie values are exposed under `cookies`.
 > - `title` — present in `sessions.get`, `sessions.screenshot`, and `sessions.action` responses.
 > - `screenshot` — present when `returnScreenshot=true` (requests) or from `sessions.screenshot`.
 > - `evalResult` — present when an `eval` action is used or from `sessions.eval` / `sessions.action`.

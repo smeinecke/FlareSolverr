@@ -53,8 +53,9 @@ npm run build
 
 - Challenge/resolve timeouts raise `ChallengeError` with a `details` object: `failureKind` (`challenge_timeout`, `challenge_denied`, `nav_error`, `browser_crash`, `solver_timeout`) plus bounded evidence — final document status/`cf-mitigated`/`cf-ray`/redirect chain from the performance log, `_cf_chl_opt` fields, cookie names (never values), browser/driver versions, launch args, screenshot.
 - Performance logging (`goog:loggingPrefs`) is enabled for every driver, not just sessions/`recordHar` requests. Keep `get_performance_log`/`get_document_response_evidence` best-effort — some drivers/test doubles don't expose `get_log`.
-- `request.post` + `postDataRaw` stores the XHR status/headers/body in window globals instead of `document.write`, so the real HTTP status propagates and `cf-mitigated: challenge` responses are marked `challenged` rather than reported as solved.
-- `sessions.fetch` runs an in-page `fetch()` (same-origin only) preserving cookies/origin — see API.md.
+- `request.post` + `postDataRaw` stores the XHR status/headers/body in window globals *and* stashes the completed result on the driver object (`_flaresolverr_raw_post_result`) so a later navigation cannot wipe it; empty bodies are preserved, and `cf-mitigated: challenge` responses are marked `challenged` rather than reported as solved (including under `returnOnlyCookies`).
+- `solution.status`/`solution.headers` for `request.get`/`request.post` come from the real top-level document exchange via `get_document_response_evidence` (one shared perf-log drain with HAR). `status` is `null` when unknown — never a fabricated 200 — and `set-cookie` is filtered from `headers`.
+- `sessions.fetch` runs an in-page `fetch()` (same-origin only, enforced again on the post-redirect final URL) preserving cookies/origin; it raises the driver script timeout to `timeoutMs + 10s` and updates `session.request_count`/`touch()` — see API.md.
 
 ## Learned Configuration
 
@@ -62,7 +63,7 @@ npm run build
 - `get_webdriver()` starts custom Chromium manually (`subprocess.Popen`) and connects via the remote-debugging port to avoid `chromedriver` adding `--enable-automation`.
 - `proxy_ext_dir` and `user_data_dir` are cleaned up in `get_webdriver()` if Chrome fails to start.
 - UA is handled natively once the binary advertises Patch 6b in `.stealth-manifest.json` (`--stealth-native-ua` removes the `Headless` token inside `GetUserAgentInternal`, restoring coherent high-entropy UA-CH). On older binaries the `--user-agent` CLI switch remains the fallback — it is used instead of CDP `Emulation.setUserAgentOverride` so the UA is consistent across main, dedicated worker and shared worker contexts.
-- The Cloudflare resolver must not run heavy challenge-state probes early: `_probe_challenge_state`'s DOM walk forces layout on the live challenge page and measurably stalls Turnstile auto-verification. `resolve()` waits `CHALLENGE_PROBE_GRACE` seconds (default 12) before probing or clicking; automatic challenges pass in ~4s undisturbed.
+- The Cloudflare resolver must not run heavy challenge-state probes early: `_probe_challenge_state`'s DOM walk forces layout on the live challenge page and measurably stalls Turnstile auto-verification. `resolve()` waits `CHALLENGE_PROBE_GRACE` seconds (default 12) before probing or clicking, then rate-limits probes to once per 5s; automatic challenges pass in ~4s undisturbed. `page_source` reads are cheap enough to keep during grace (needed for early hard-block detection).
 - `--stealth-navigator-languages` and `--stealth-viewport-size` custom switches are forwarded by `apply.py` to renderer processes.
 - `navigator.hardwareConcurrency` is kept at a plausible value via CPU affinity (`_limit_cpu_affinity`) rather than JS patching.
 - `performance.now()` uses stock Chromium behavior. The native timing jitter patch (Patch 13) was removed after ablation showed no reproducible difference from stock Chrome on the external timing signal and no internal regression.

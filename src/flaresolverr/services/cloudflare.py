@@ -84,6 +84,11 @@ class CloudflareService(ChallengeService):
         # window before probing or clicking; interactive challenges wait for
         # input anyway, so the delay costs nothing there.
         probe_grace_seconds = get_config_challenge_probe_grace()
+        # After the grace window the probe still forces layout on the live
+        # challenge page; rate-limit it so a slow auto-verify is not kept
+        # stalled by per-second DOM walks.
+        last_probe_ts = 0.0
+        probe_interval_seconds = 5.0
 
         while True:
             attempt += 1
@@ -110,42 +115,49 @@ class CloudflareService(ChallengeService):
                         "Skipping challenge-state probe: grace period (%.1fs remaining)",
                         probe_grace_seconds - (now - resolve_start),
                     )
-                elif self._should_attempt_verify_click(driver):
-                    if now - last_verify_click_ts >= click_cooldown_seconds:
-                        self._click_verify(driver)
-                        last_verify_click_ts = now
-                        # Dispatch alone is not activation — re-probe so the log
-                        # records whether the click actually changed state.
-                        try:
-                            after = self._probe_challenge_state(driver)
-                            if isinstance(after, dict):
-                                if after.get("successTextVisible"):
-                                    logger.info("Verify click produced a visible success state")
-                                elif after.get("verifyButton") or after.get("challengeIframe"):
-                                    logger.debug("Verify click dispatched; interactive control still present")
-                                else:
-                                    logger.debug("Verify click dispatched; control gone, waiting for transition")
-                        except Exception:  # noqa: BLE001
-                            logger.debug("Post-click state probe failed")
-                    else:
-                        remaining = click_cooldown_seconds - (now - last_verify_click_ts)
-                        logger.debug("Skipping verify click due to cooldown (%.1fs remaining)", remaining)
+                elif now - last_probe_ts < probe_interval_seconds:
+                    logger.debug(
+                        "Skipping challenge-state probe: probe backoff (%.1fs remaining)",
+                        probe_interval_seconds - (now - last_probe_ts),
+                    )
                 else:
-                    logger.debug("Skipping verify click: challenge appears to be in automatic verification mode")
+                    last_probe_ts = now
+                    if self._should_attempt_verify_click(driver):
+                        if now - last_verify_click_ts >= click_cooldown_seconds:
+                            self._click_verify(driver)
+                            last_verify_click_ts = now
+                            # Dispatch alone is not activation — re-probe so the log
+                            # records whether the click actually changed state.
+                            try:
+                                after = self._probe_challenge_state(driver)
+                                if isinstance(after, dict):
+                                    if after.get("successTextVisible"):
+                                        logger.info("Verify click produced a visible success state")
+                                    elif after.get("verifyButton") or after.get("challengeIframe"):
+                                        logger.debug("Verify click dispatched; interactive control still present")
+                                    else:
+                                        logger.debug("Verify click dispatched; control gone, waiting for transition")
+                            except Exception:  # noqa: BLE001
+                                logger.debug("Post-click state probe failed")
+                        else:
+                            remaining = click_cooldown_seconds - (now - last_verify_click_ts)
+                            logger.debug("Skipping verify click due to cooldown (%.1fs remaining)", remaining)
+                    else:
+                        logger.debug("Skipping verify click: challenge appears to be in automatic verification mode")
                 html_element = self._get_html_element(driver)
                 if html_element is None:
                     continue
 
         _wait_for_redirect(driver, html_element, browser_wait_timeout)
 
-    def get_debug_info(self, driver: WebDriver) -> dict[str, Any] | None:
+    def get_debug_info(self, driver: WebDriver, stealth_mode: str | None = None) -> dict[str, Any] | None:
         """Collect a bounded failure record for Cloudflare challenge timeouts.
 
         Includes the generic browser/response evidence plus Cloudflare-specific
         state from window._cf_chl_opt and the rendered iframe/error elements.
         Cookie values and POST bodies are never included.
         """
-        info = collect_failure_evidence(driver)
+        info = collect_failure_evidence(driver, stealth_mode=stealth_mode)
 
         def _safe(fn, default=None):
             try:

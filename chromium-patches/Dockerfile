@@ -5,7 +5,8 @@
 # ---------------------------------------------------------------------------
 # Stage 1: Build environment
 # ---------------------------------------------------------------------------
-FROM ubuntu:22.04 AS build-env
+# Ubuntu 24.04 provides Python 3.12 — apply.py requires >=3.11 (datetime.UTC).
+FROM ubuntu:24.04 AS build-env
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -74,6 +75,10 @@ WORKDIR /chromium/src
 # Build arguments for optimization
 ARG NINJA_JOBS=0
 ARG IS_COMPONENT_BUILD=false
+# Set to 1 for the webdriver-absent ablation variant; must be visible to both
+# patch application and manifest generation so provenance matches the binary.
+ARG FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=
+ENV FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=${FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY}
 
 COPY patches/ /chromium/patches/
 COPY gn-args.txt /chromium/gn-args.txt
@@ -107,7 +112,10 @@ RUN mkdir -p /opt/chromium && \
     cp out/Release/*.pak /opt/chromium/ 2>/dev/null || true && \
     cp out/Release/icudtl.dat /opt/chromium/ 2>/dev/null || true && \
     cp -r out/Release/locales /opt/chromium/ 2>/dev/null || true && \
-    cp -r out/Release/resources /opt/chromium/ 2>/dev/null || true
+    cp -r out/Release/resources /opt/chromium/ 2>/dev/null || true && \
+    # Build provenance manifest — hashes effective out/Release/args.gn and the
+    # built binaries; the runtime reads it to gate patch-dependent features.
+    python3 /chromium/patches/apply.py --write-manifest /opt/chromium/.stealth-manifest.json
 
 # ---------------------------------------------------------------------------
 # Stage 4: Runtime (minimal image)

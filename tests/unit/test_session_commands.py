@@ -25,6 +25,9 @@ class _FakeSession:
         self.max_runtime = None
         self.idle_timeout = sessions.utils.get_config_session_idle_timeout()
 
+    def touch(self):
+        self.last_used_at = datetime.now()
+
 
 def _make_session_driver(return_values=None, **kwargs):
     """Create a MagicMock driver with common session-test defaults."""
@@ -481,3 +484,59 @@ class TestSessionsFetch:
         req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "/api"})
         with pytest.raises(Exception, match="sessions.fetch failed"):
             svc._cmd_sessions_fetch(req)
+
+    def test_fetch_cross_origin_redirect_rejected(self, _patch_sessions_storage):
+        driver = self._fetch_driver(
+            {
+                "status": 200,
+                "statusText": "OK",
+                "headers": {},
+                "body": "ok",
+                "redirected": True,
+                "url": "https://evil.example.net/api",
+            }
+        )
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "/api"})
+        with pytest.raises(Exception, match="redirected to a different origin"):
+            svc._cmd_sessions_fetch(req)
+
+    def test_fetch_same_origin_redirect_allowed(self, _patch_sessions_storage):
+        driver = self._fetch_driver(
+            {
+                "status": 200,
+                "statusText": "OK",
+                "headers": {},
+                "body": "ok",
+                "redirected": True,
+                "url": "https://example.com/api/v2",
+            }
+        )
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "/api"})
+        res = svc._cmd_sessions_fetch(req)
+        assert res.status == "ok"
+        assert res.solution.evalResult["url"] == "https://example.com/api/v2"
+
+    def test_fetch_updates_session_activity(self, _patch_sessions_storage):
+        driver = self._fetch_driver()
+        _register_session(_patch_sessions_storage, driver)
+        session = _patch_sessions_storage.sessions["s1"]
+
+        req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "/api"})
+        svc._cmd_sessions_fetch(req)
+
+        assert session.request_count == 1
+
+    def test_fetch_aligns_script_timeout(self, _patch_sessions_storage):
+        driver = self._fetch_driver()
+        _register_session(_patch_sessions_storage, driver)
+
+        req = V1RequestBase({"cmd": "sessions.fetch", "session": "s1", "url": "/api", "timeoutMs": 90000})
+        svc._cmd_sessions_fetch(req)
+
+        calls = [c[0][0] for c in driver.set_script_timeout.call_args_list]
+        assert calls[0] == 100.0  # 90s + 10s margin
+        assert calls[-1] == 30  # restored to the WebDriver default

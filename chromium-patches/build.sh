@@ -70,6 +70,16 @@ else
 fi
 
 # --- apply patches ---
+# On a reused checkout, revert files touched by any patch variant first so a
+# previous build's modifications cannot linger (e.g. default vs.
+# webdriver-absent touch different file sets).
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Reverting any previously applied patches..."
+    {
+        python3 "$SCRIPT_DIR/patches/apply.py" --list-files
+        FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=1 python3 "$SCRIPT_DIR/patches/apply.py" --list-files
+    } | sort -u | xargs -r git checkout -- 2>/dev/null || true
+fi
 echo "Applying FlareSolverr patches..."
 python3 "$SCRIPT_DIR/patches/apply.py"
 

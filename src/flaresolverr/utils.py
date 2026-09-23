@@ -126,10 +126,11 @@ def _get_custom_chromium_manifest() -> dict[str, Any]:
     if _CUSTOM_CHROMIUM_MANIFEST is not None:
         return _CUSTOM_CHROMIUM_MANIFEST
     _CUSTOM_CHROMIUM_MANIFEST = {}
-    candidates = ["/opt/chromium/.stealth-manifest.json"]
+    # Prefer the manifest adjacent to the binary actually being launched;
+    # a stale /opt/chromium copy must not gate flags for a different binary.
     chrome_dir = os.path.dirname(get_chrome_exe_path() or "")
-    if chrome_dir:
-        candidates.append(os.path.join(chrome_dir, ".stealth-manifest.json"))
+    candidates = [os.path.join(chrome_dir, ".stealth-manifest.json")] if chrome_dir else []
+    candidates.append("/opt/chromium/.stealth-manifest.json")
     for path in candidates:
         try:
             with open(path) as f:
@@ -1012,19 +1013,26 @@ def _get_main_frame_id(driver: WebDriver) -> str | None:
     return ((tree or {}).get("frameTree") or {}).get("frame", {}).get("id")
 
 
-def get_document_response_evidence(driver: WebDriver, max_failed_resources: int = 10) -> dict[str, Any]:
-    """Drain the performance log and summarize the most recent document exchange.
+def get_document_response_evidence(driver: WebDriver, max_failed_resources: int = 10, entries: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Summarize the most recent top-level document exchange.
 
     Returns a dict with the final document url/status/mimeType/protocol, the
-    redirect chain, Cloudflare response headers (cf-mitigated, cf-ray), a
-    navigation error (if the document load failed) and a bounded list of
-    failed sub-resources. Returns an empty dict when no document request is
-    found or performance logs are unavailable.
+    redirect chain, filtered response headers, Cloudflare response markers
+    (cf-mitigated, cf-ray), a navigation error (if the document load failed),
+    and a bounded list of failed sub-resources. Returns an empty dict when no
+    document request is found or performance logs are unavailable.
 
-    Note: this drains the performance log queue; call it only when the
-    exchange is complete (failure paths, postDataRaw completion).
+    `entries` may carry an already-drained performance log so callers can
+    share one drain between evidence and HAR collection; when omitted the log
+    is drained here. Note: draining empties the queue, so call it only when
+    the exchange is complete (failure paths, postDataRaw completion).
+
+    `mainFrameIdentified` reports whether the top-level frame was positively
+    identified; when False the result fell back to the latest Document chain,
+    which can be an iframe navigation — treat it as a hint, not authoritative.
     """
-    entries = get_performance_log(driver)
+    if entries is None:
+        entries = get_performance_log(driver)
     if not entries:
         return {}
 
@@ -1096,7 +1104,10 @@ def get_document_response_evidence(driver: WebDriver, max_failed_resources: int 
         current_url = getattr(driver, "current_url", None)
         if current_url:
             chain = next((c for c in reversed(doc_chains) if c["url"] == current_url), None)
+    identified = chain is not None
     if chain is None:
+        # Last resort: the latest Document chain. Can be an iframe navigation —
+        # callers must not treat this as authoritative top-level evidence.
         chain = doc_chains[-1]
 
     doc_request_id = chain["requestId"]
@@ -1114,15 +1125,19 @@ def get_document_response_evidence(driver: WebDriver, max_failed_resources: int 
         "statusText": response.get("statusText"),
         "mimeType": response.get("mimeType"),
         "protocol": response.get("protocol"),
+        # Cookie values stay out of the evidence record; they are already
+        # exposed via solution.cookies.
+        "headers": {str(k): v for k, v in headers.items() if str(k).lower() != "set-cookie"},
         "cfMitigated": _header_lookup(headers, "cf-mitigated"),
         "cfRay": _header_lookup(headers, "cf-ray"),
         "redirects": redirects,
         "navError": nav_error,
         "failedResources": failed_resources,
+        "mainFrameIdentified": identified,
     }
 
 
-def collect_failure_evidence(driver: WebDriver) -> dict[str, Any]:
+def collect_failure_evidence(driver: WebDriver, stealth_mode: str | None = None) -> dict[str, Any]:
     """Collect a bounded diagnostic snapshot of the browser after a failed request.
 
     Never raises; every field is best-effort. Sensitive values (cookie values,
@@ -1155,7 +1170,9 @@ def collect_failure_evidence(driver: WebDriver) -> dict[str, Any]:
     evidence["userAgent"] = _safe(lambda: get_user_agent(driver))
     evidence["launchArgs"] = getattr(driver, "_flaresolverr_launch_args", None)
     evidence["config"] = {
-        "stealthMode": get_config_stealth_mode(),
+        # The effective per-request/session mode when the caller knows it;
+        # env config can disagree with a request-level stealthMode override.
+        "stealthMode": stealth_mode or get_config_stealth_mode(),
         "headless": get_config_headless(),
         "customChromium": _is_custom_chromium(),
     }

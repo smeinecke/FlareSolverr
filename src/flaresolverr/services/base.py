@@ -42,6 +42,6 @@ class ChallengeService(ABC):
             logger.debug("Could not find html element during navigation")
             return None
 
-    def get_debug_info(self, driver: WebDriver) -> dict[str, Any] | None:
+    def get_debug_info(self, driver: WebDriver, stealth_mode: str | None = None) -> dict[str, Any] | None:
         """Return debug state dict for this service, or None if not available."""
         return None
