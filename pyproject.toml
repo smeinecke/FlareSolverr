@@ -57,7 +57,7 @@ dev = [
     "pytest-cov>=6.0.0",
     "radon>=6.0.1",
     "ruff>=0.16.8",
-    "tox>=4.61.5",
+    "tox>=4.64.1",
     "vulture>=2.14",
     "WebTest==3.0.7",
     "xenon>=0.9.3",
