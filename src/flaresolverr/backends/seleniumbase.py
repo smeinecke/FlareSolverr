@@ -14,7 +14,10 @@ class SeleniumBaseBackend:
         try:
             from seleniumbase import Driver  # pyright: ignore[reportMissingImports]
         except ImportError as e:
-            raise ImportError("seleniumbase is not installed. Install with: pip install flaresolverr[seleniumbase]") from e
+            raise ImportError(
+                "seleniumbase is not installed. Install with: pip install 'seleniumbase>=4.30' "
+                "(it pins selenium==4.49.x and cannot share the main dependency set)"
+            ) from e
 
         kwargs: dict[str, Any] = {
             "uc": stealth_mode != utils.STEALTH_MODE_OFF,

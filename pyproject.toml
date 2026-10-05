@@ -45,6 +45,16 @@ test = [
     "WebTest==3.0.7",
     "requests>=2.32.0",
 ]
+# Optional browser backends (DRIVER_BACKEND). seleniumbase is intentionally
+# not an extra: it pins selenium==4.49.0 which conflicts with our selenium
+# pin, so install it separately (it downgrades selenium in that env only).
+# camoufox upper bound excludes releases younger than a week.
+playwright = [
+    "playwright>=1.50",
+]
+camoufox = [
+    "camoufox[geoip]>=0.5,<0.5.7",
+]
 
 [dependency-groups]
 dev = [

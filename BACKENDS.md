@@ -71,7 +71,8 @@ A lightweight backend using [Playwright](https://playwright.dev/python/) Chromiu
 
 **Install:**
 ```bash
-pip install playwright
+pip install "flaresolverr[playwright]"
+playwright install chromium
 playwright install chromium
 ```
 
@@ -91,7 +92,7 @@ Uses [Camoufox](https://camoufox.com/), a Playwright-based browser with advanced
 
 **Install:**
 ```bash
-pip install "camoufox[geoip]"
+pip install "flaresolverr[camoufox]"
 ```
 
 ### SeleniumBase
@@ -108,9 +109,10 @@ Uses [SeleniumBase](https://github.com/mdmintz/SeleniumBase) Driver with UC mode
 
 **Install:**
 ```bash
-pip install flaresolverr[seleniumbase]
-# or directly
-pip install seleniumbase
+pip install "seleniumbase>=4.30"
+# Note: SeleniumBase pins selenium==4.49.x, which conflicts with the main
+# dependency set. Install it in a dedicated environment/container; it is
+# intentionally not a flaresolverr extra.
 ```
 
 ## Feature Matrix
@@ -152,13 +154,13 @@ ValueError: Unknown driver backend: 'playwright'. Valid backends: ['undetected_c
 **Fix:** Install the required package:
 ```bash
 # Playwright
-pip install playwright && playwright install chromium
+pip install "flaresolverr[playwright]" && playwright install chromium
 
 # Camoufox
-pip install "camoufox[geoip]"
+pip install "flaresolverr[camoufox]"
 
 # SeleniumBase
-pip install seleniumbase
+pip install "seleniumbase>=4.30"  # pins selenium==4.49.x; install separately
 ```
 
 ### CDP command not supported
