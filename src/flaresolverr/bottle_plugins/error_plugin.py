@@ -2,7 +2,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from bottle import response
+from bottle import HTTPResponse, response
 
 
 def error_plugin(callback):
@@ -14,6 +14,8 @@ def error_plugin(callback):
     def wrapper(*args, **kwargs):
         try:
             actual_response = callback(*args, **kwargs)
+        except HTTPResponse:
+            raise
         except Exception as e:  # noqa: BLE001
             logger.error(str(e))
             actual_response = {"error": str(e)}

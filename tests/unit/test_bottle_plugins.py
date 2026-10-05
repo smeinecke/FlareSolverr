@@ -1,5 +1,8 @@
 from types import SimpleNamespace
 
+import pytest
+from bottle import HTTPResponse
+
 from flaresolverr.bottle_plugins import error_plugin, logger_plugin, prometheus_plugin
 
 
@@ -25,6 +28,21 @@ def test_error_plugin_handles_exceptions(monkeypatch) -> None:
     assert result == {"error": "boom"}
     assert error_plugin.response.status == 500
     assert state["logged"] == "boom"
+
+
+def test_error_plugin_preserves_http_response_status(monkeypatch) -> None:
+    """Bottle uses HTTPResponse for control flow (e.g. malformed JSON -> 400)."""
+    monkeypatch.setattr(error_plugin, "response", SimpleNamespace(status=200))
+
+    def raise_bad_request():
+        raise HTTPResponse(status=400, body="malformed JSON")
+
+    wrapped = error_plugin.error_plugin(raise_bad_request)
+
+    with pytest.raises(HTTPResponse) as exc_info:
+        wrapped()
+    assert exc_info.value.status_code == 400
+    assert error_plugin.response.status == 200
 
 
 def test_logger_plugin_logs_non_health_requests(monkeypatch) -> None:
