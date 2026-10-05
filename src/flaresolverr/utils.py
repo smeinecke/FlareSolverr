@@ -494,6 +494,70 @@ def _limit_cpu_affinity() -> None:
         pass
 
 
+def _custom_chromium_launch_args(effective_stealth_mode: str) -> list[str]:
+    """Launch args for the stealth-patched Chromium build.
+
+    Shared between the UC ChromeOptions path and backends that take raw
+    args (SeleniumBase's ``chromium_arg``). Returns [] for stock Chromium.
+    """
+    if not _is_custom_chromium():
+        return []
+
+    omit_flags = get_config_stealth_omit_flags()
+
+    # --stealth-native-ua is only useful when the binary carries Patch 6b
+    # (advertised via the build manifest) and stealth is active. When it is
+    # NOT active, fall back to the legacy --user-agent switch so headless mode
+    # never exposes a HeadlessChrome UA.
+    native_ua_active = effective_stealth_mode != STEALTH_MODE_OFF and "stealth-native-ua" not in omit_flags and _custom_chromium_has_patch("native-ua")
+
+    args: list[str] = []
+    if not native_ua_active:
+        # Legacy fallback for binaries without Patch 6b: --user-agent sets a
+        # normalized UA for *all* browsing contexts (main, workers, shared
+        # workers) so UA stays coherent — at the cost of suppressing
+        # high-entropy UA client hints (GetUserAgentMetadata early-return).
+        full_version = get_chrome_full_version()
+        if not full_version:
+            full_version = f"{get_chrome_major_version()}.0.0.0"
+        machine = platform.machine()
+        user_agent = f"Mozilla/5.0 (X11; Linux {machine}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{full_version} Safari/537.36"
+        args.append(f"--user-agent={user_agent}")
+    # Native accept-language for HTTP headers; navigator.languages is still
+    # handled by --stealth-navigator-languages at the binary level.
+    args.append(f"--accept-lang={get_config_accept_language()}")
+    # The --lang switch sets the ICU default locale in renderer processes
+    # (Patch 10 in apply.py), keeping Intl.* defaults aligned with
+    # navigator.language across all execution contexts.
+    args.append(f"--lang={get_config_accept_language().split(',')[0]}")
+
+    if effective_stealth_mode != STEALTH_MODE_OFF:
+        # C++ flags; no JavaScript replacement needed.
+        # --enable-trusted-synthetic-events was removed: synthetic events must
+        # not be reported as trusted globally.
+        # The WebGL vendor/renderer spoof (Patch 3) has been removed as an
+        # ablation; the natural ANGLE/GPU identity is exposed instead.
+        # The value of this switch is the underlying navigator.languages state
+        # consumed by all execution contexts. The C++ patch in apply.py parses
+        # the comma-separated list so Window/Worker/SharedWorker stay coherent.
+        stealth_switches = [
+            f"--stealth-navigator-languages={get_config_accept_language()}",
+            "--stealth-viewport-size",
+            "--stealth-no-media-devices",
+        ]
+        if native_ua_active:
+            stealth_switches.append("--stealth-native-ua")
+        for switch in stealth_switches:
+            name = switch.lstrip("-").split("=", 1)[0]
+            if name not in omit_flags:
+                args.append(switch)
+            else:
+                logger.debug("STEALTH_OMIT_FLAGS: omitting %s", switch)
+        logger.debug("Applied custom Chromium stealth flags.")
+
+    return args
+
+
 def _build_chrome_options(effective_stealth_mode: str, load_extension: bool = False) -> ChromeOptions:
     """Build and configure ChromeOptions based on settings.
 
@@ -575,59 +639,8 @@ def _build_chrome_options(effective_stealth_mode: str, load_extension: bool = Fa
     if (custom or not minimal_fingerprint) and not _custom_chromium_has_patch("webdriver-false"):
         options.add_argument("--disable-blink-features=AutomationControlled")
 
-    omit_flags = get_config_stealth_omit_flags()
-
-    # --stealth-native-ua is only useful when the binary carries Patch 6b
-    # (advertised via the build manifest) and stealth is active. When it is
-    # NOT active, fall back to the legacy --user-agent switch so headless mode
-    # never exposes a HeadlessChrome UA.
-    native_ua_active = (
-        custom and effective_stealth_mode != STEALTH_MODE_OFF and "stealth-native-ua" not in omit_flags and _custom_chromium_has_patch("native-ua")
-    )
-
-    if custom:
-        if not native_ua_active:
-            # Legacy fallback for binaries without Patch 6b: --user-agent sets a
-            # normalized UA for *all* browsing contexts (main, workers, shared
-            # workers) so UA stays coherent — at the cost of suppressing
-            # high-entropy UA client hints (GetUserAgentMetadata early-return).
-            full_version = get_chrome_full_version()
-            if not full_version:
-                full_version = f"{get_chrome_major_version()}.0.0.0"
-            machine = platform.machine()
-            user_agent = f"Mozilla/5.0 (X11; Linux {machine}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{full_version} Safari/537.36"
-            options.add_argument(f"--user-agent={user_agent}")
-        # Native accept-language for HTTP headers; navigator.languages is still
-        # handled by --stealth-navigator-languages at the binary level.
-        options.add_argument(f"--accept-lang={get_config_accept_language()}")
-        # The --lang switch sets the ICU default locale in renderer processes
-        # (Patch 10 in apply.py), keeping Intl.* defaults aligned with
-        # navigator.language across all execution contexts.
-        options.add_argument(f"--lang={get_config_accept_language().split(',')[0]}")
-
-    if effective_stealth_mode != STEALTH_MODE_OFF and custom:
-        # C++ flags; no JavaScript replacement needed.
-        # --enable-trusted-synthetic-events was removed: synthetic events must
-        # not be reported as trusted globally.
-        # The WebGL vendor/renderer spoof (Patch 3) has been removed as an
-        # ablation; the natural ANGLE/GPU identity is exposed instead.
-        # The value of this switch is the underlying navigator.languages state
-        # consumed by all execution contexts. The C++ patch in apply.py parses
-        # the comma-separated list so Window/Worker/SharedWorker stay coherent.
-        stealth_switches = [
-            f"--stealth-navigator-languages={get_config_accept_language()}",
-            "--stealth-viewport-size",
-            "--stealth-no-media-devices",
-        ]
-        if native_ua_active:
-            stealth_switches.append("--stealth-native-ua")
-        for switch in stealth_switches:
-            name = switch.lstrip("-").split("=", 1)[0]
-            if name not in omit_flags:
-                options.add_argument(switch)
-            else:
-                logger.debug("STEALTH_OMIT_FLAGS: omitting %s", switch)
-        logger.debug("Applied custom Chromium stealth flags.")
+    for arg in _custom_chromium_launch_args(effective_stealth_mode):
+        options.add_argument(arg)
 
     if disabled_features:
         options.add_argument("--disable-features=" + ",".join(disabled_features))

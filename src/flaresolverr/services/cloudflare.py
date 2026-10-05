@@ -39,6 +39,60 @@ CLOUDFLARE_SELECTORS = [
     "div.vc div.text-box h2",
 ]
 
+# Single round-trip DOM probe for the visible challenge state.
+# All checks are visibility-aware: hidden template markup (which always
+# contains strings like "Verification successful. Waiting for") does not
+# count — only rendered, non-zero-size, non-display:none elements.
+CHALLENGE_PROBE_SCRIPT = """
+function isVisible(el) {
+    if (!el) { return false; }
+    var rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) { return false; }
+    var style = getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden';
+}
+function hasVisibleLeafText(marker) {
+    var els = document.querySelectorAll('div, span, p, h1, h2, h3, td, section');
+    for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        if (el.children.length === 0 && el.textContent.indexOf(marker) !== -1 && isVisible(el)) {
+            return true;
+        }
+    }
+    return false;
+}
+var verifyButton = document.querySelector("input[type='button'][value='Verify you are human']");
+var challengeIframes = document.querySelectorAll(
+    "iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile']"
+);
+var visibleIframe = false;
+for (var i = 0; i < challengeIframes.length; i++) {
+    if (isVisible(challengeIframes[i])) { visibleIframe = true; break; }
+}
+var wrapper = document.getElementById('turnstile-wrapper');
+var wrapperHasControl = !!(wrapper && isVisible(wrapper) && wrapper.querySelector('iframe, input'));
+var iframeSrcs = [];
+var allIframes = document.querySelectorAll('iframe');
+for (var j = 0; j < allIframes.length && j < 5; j++) {
+    iframeSrcs.push(allIframes[j].getAttribute('src') || '(no src)');
+}
+// window.frames counts every top-level child frame — including widgets
+// mounted inside closed shadow roots, which DOM queries cannot see
+// (observed on Camoufox/Firefox managed challenges).
+var hiddenFrameCount = Math.max(
+    0, window.frames.length - document.querySelectorAll('iframe, frame').length
+);
+return {
+    verifyButton: !!(verifyButton && isVisible(verifyButton)),
+    challengeIframe: visibleIframe,
+    turnstileWrapperWithControl: wrapperHasControl,
+    verifyingTextVisible: hasVisibleLeafText('Verifying you are human'),
+    successTextVisible: hasVisibleLeafText('Verification successful'),
+    iframeSrcs: iframeSrcs,
+    hiddenFrameCount: hiddenFrameCount
+};
+"""
+
 
 class CloudflareService(ChallengeService):
     name = "cloudflare"
@@ -196,63 +250,8 @@ class CloudflareService(ChallengeService):
         return info
 
     def _probe_challenge_state(self, driver: BrowserContext) -> dict[str, Any] | None:
-        """Evaluate the visible challenge DOM state in one round-trip.
-
-        All checks are visibility-aware: hidden template markup (which always
-        contains strings like "Verification successful. Waiting for") does not
-        count — only rendered, non-zero-size, non-display:none elements.
-        """
-        return driver.execute_script(
-            """
-            function isVisible(el) {
-                if (!el) { return false; }
-                var rect = el.getBoundingClientRect();
-                if (rect.width === 0 || rect.height === 0) { return false; }
-                var style = getComputedStyle(el);
-                return style.display !== 'none' && style.visibility !== 'hidden';
-            }
-            function hasVisibleLeafText(marker) {
-                var els = document.querySelectorAll('div, span, p, h1, h2, h3, td, section');
-                for (var i = 0; i < els.length; i++) {
-                    var el = els[i];
-                    if (el.children.length === 0 && el.textContent.indexOf(marker) !== -1 && isVisible(el)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-            var verifyButton = document.querySelector("input[type='button'][value='Verify you are human']");
-            var challengeIframes = document.querySelectorAll(
-                "iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile']"
-            );
-            var visibleIframe = false;
-            for (var i = 0; i < challengeIframes.length; i++) {
-                if (isVisible(challengeIframes[i])) { visibleIframe = true; break; }
-            }
-            var wrapper = document.getElementById('turnstile-wrapper');
-            var wrapperHasControl = !!(wrapper && isVisible(wrapper) && wrapper.querySelector('iframe, input'));
-            var iframeSrcs = [];
-            var allIframes = document.querySelectorAll('iframe');
-            for (var j = 0; j < allIframes.length && j < 5; j++) {
-                iframeSrcs.push(allIframes[j].getAttribute('src') || '(no src)');
-            }
-            // window.frames counts every top-level child frame — including
-            // widgets mounted inside closed shadow roots, which DOM queries
-            // cannot see (observed on Camoufox/Firefox managed challenges).
-            var hiddenFrameCount = Math.max(
-                0, window.frames.length - document.querySelectorAll('iframe, frame').length
-            );
-            return {
-                verifyButton: !!(verifyButton && isVisible(verifyButton)),
-                challengeIframe: visibleIframe,
-                turnstileWrapperWithControl: wrapperHasControl,
-                verifyingTextVisible: hasVisibleLeafText('Verifying you are human'),
-                successTextVisible: hasVisibleLeafText('Verification successful'),
-                iframeSrcs: iframeSrcs,
-                hiddenFrameCount: hiddenFrameCount
-            };
-            """
-        )
+        """Evaluate the visible challenge DOM state in one round-trip."""
+        return driver.execute_script(CHALLENGE_PROBE_SCRIPT)
 
     def _should_attempt_verify_click(self, driver: BrowserContext) -> bool:
         try:

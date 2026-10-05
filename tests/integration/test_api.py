@@ -9,6 +9,7 @@ import pytest
 import requests
 
 from flaresolverr.dtos import IndexResponse, HealthResponse, V1ResponseBase, STATUS_OK, STATUS_ERROR
+from flaresolverr.services.cloudflare import CHALLENGE_PROBE_SCRIPT
 from flaresolverr import utils
 
 import socket
@@ -664,6 +665,83 @@ class TestFlareSolverr(unittest.TestCase):
         )
         if body.message == "Challenge solved!":
             self.assertTrue(solution.turnstile_token, "Turnstile token should be present after captcha solve")
+
+    def test_v1_endpoint_challenge_probe_shadow_hidden_frame(self):
+        """The challenge probe must count frames mounted in closed shadow roots.
+
+        Regression test for the Camoufox managed-challenge failure: the
+        Turnstile iframe there lives in a closed shadow root, so
+        querySelectorAll('iframe') is empty while window.frames.length is 1.
+        Without hiddenFrameCount the probe reported "no markers" and the
+        verify click was never attempted.
+        """
+        session_id = "test_probe_hidden_frame"
+        self._request("POST", "/v1", {"cmd": "sessions.create", "session": session_id})
+        try:
+
+            def _eval(script):
+                res = self._request(
+                    "POST",
+                    "/v1",
+                    {"cmd": "sessions.eval", "session": session_id, "script": script},
+                )
+                self.assertEqual(res.status_code, 200)
+                body = V1ResponseBase(self._get_json(res))
+                self.assertEqual(STATUS_OK, body.status)
+                return body.solution.evalResult
+
+            baseline = _eval(CHALLENGE_PROBE_SCRIPT)
+            self.assertIsInstance(baseline, dict)
+            baseline_hidden = baseline.get("hiddenFrameCount", 0)
+
+            # A light-DOM iframe registers in window.frames AND in the DOM —
+            # it must not count as hidden.
+            _eval(
+                "(document.body || document.documentElement)"
+                ".appendChild(Object.assign(document.createElement('iframe'), {src: 'about:blank'}));"
+                "return window.frames.length;"
+            )
+            after_dom = _eval(CHALLENGE_PROBE_SCRIPT)
+            self.assertEqual(
+                baseline_hidden,
+                after_dom.get("hiddenFrameCount"),
+                f"light-DOM iframe counted as hidden: baseline={baseline} after={after_dom}",
+            )
+
+            # An iframe inside a closed shadow root is invisible to
+            # querySelectorAll. Whether window.frames still counts it is
+            # engine-specific: Firefox (Camoufox) does, Chromium does not —
+            # verified live on both. The probe must reflect that difference,
+            # since hiddenFrameCount is what saves the Camoufox managed
+            # challenge; on Chromium the CF widget mounts in light DOM anyway.
+            ua = _eval("return navigator.userAgent;")
+            _eval(
+                "var host = document.createElement('div');"
+                "(document.body || document.documentElement).appendChild(host);"
+                "host.attachShadow({mode: 'closed'})"
+                ".appendChild(Object.assign(document.createElement('iframe'), {src: 'about:blank'}));"
+                "return window.frames.length;"
+            )
+            after_shadow = _eval(CHALLENGE_PROBE_SCRIPT)
+            if "Firefox/" in ua:
+                self.assertEqual(
+                    baseline_hidden + 1,
+                    after_shadow.get("hiddenFrameCount"),
+                    f"shadow-hidden iframe not counted: baseline={baseline} after={after_shadow}",
+                )
+            else:
+                self.assertEqual(
+                    baseline_hidden,
+                    after_shadow.get("hiddenFrameCount"),
+                    f"Chromium counted a shadow iframe it cannot see: baseline={baseline} after={after_shadow}",
+                )
+            # The shadow iframe must not leak into the DOM iframe list.
+            self.assertEqual(
+                len(after_dom.get("iframeSrcs", [])),
+                len(after_shadow.get("iframeSrcs", [])),
+            )
+        finally:
+            self._request("POST", "/v1", {"cmd": "sessions.destroy", "session": session_id})
 
     def test_v1_endpoint_request_get_csrf_login(self):
         res = self._request(
