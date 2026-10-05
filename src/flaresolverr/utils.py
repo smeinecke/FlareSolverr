@@ -765,78 +765,6 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
     raise RuntimeError("Proxy extension did not acknowledge within timeout")
 
 
-def create_proxy_extension(proxy: dict[str, Any]) -> str:
-    parsed_url = urllib.parse.urlparse(proxy["url"])
-    scheme = parsed_url.scheme
-    host = parsed_url.hostname
-    port = parsed_url.port
-    username = proxy["username"]
-    password = proxy["password"]
-    manifest_json = """
-    {
-        "version": "1.0.0",
-        "manifest_version": 3,
-        "name": "Chrome Proxy",
-        "permissions": [
-            "proxy",
-            "tabs",
-            "storage",
-            "webRequest",
-            "webRequestAuthProvider"
-        ],
-        "host_permissions": [
-          "<all_urls>"
-        ],
-        "background": {
-          "service_worker": "background.js"
-        },
-        "minimum_chrome_version": "76.0.0"
-    }
-    """
-
-    background_js = """
-    var config = {
-        mode: "fixed_servers",
-        rules: {
-            singleProxy: {
-                scheme: "%s",
-                host: "%s",
-                port: %d
-            },
-            bypassList: ["localhost"]
-        }
-    };
-
-    chrome.proxy.settings.set({value: config, scope: "regular"}, function() {});
-
-    function callbackFn(details) {
-        return {
-            authCredentials: {
-                username: "%s",
-                password: "%s"
-            }
-        };
-    }
-
-    chrome.webRequest.onAuthRequired.addListener(
-        callbackFn,
-        { urls: ["<all_urls>"] },
-        ['blocking']
-    );
-    """ % (scheme, host, port, username, password)
-
-    proxy_extension_dir = tempfile.mkdtemp()
-
-    with open(os.path.join(proxy_extension_dir, "manifest.json"), "w") as f:
-        f.write(manifest_json)
-
-    with open(os.path.join(proxy_extension_dir, "background.js"), "w") as f:
-        # lgtm[py/clear-text-storage-sensitive-data] Proxy credentials must be in clear text for the Chrome proxy extension background script to authenticate.
-        f.write(background_js)
-
-    return proxy_extension_dir
-
-
 def _resolve_driver_paths() -> tuple[str | None, str | None]:
     """Return (driver_exe_path, version_main) tuple."""
     if os.path.exists("/app/chromedriver"):
@@ -1090,7 +1018,7 @@ def _header_lookup(headers: dict[str, Any], name: str) -> Any:
     return None
 
 
-def _get_main_frame_id(driver: WebDriver) -> str | None:
+def _get_main_frame_id(driver: WebDriver | BrowserContext) -> str | None:
     """Return the top-level frame id via CDP, or None if unavailable."""
     try:
         tree = driver.execute_cdp_cmd("Page.getFrameTree", {})  # type: ignore[attr-defined]
@@ -1099,7 +1027,7 @@ def _get_main_frame_id(driver: WebDriver) -> str | None:
     return ((tree or {}).get("frameTree") or {}).get("frame", {}).get("id")
 
 
-def _select_document_chain(doc_chains: list[dict[str, Any]], root_frame_ids: list[str], driver: WebDriver) -> tuple[dict[str, Any], bool]:
+def _select_document_chain(doc_chains: list[dict[str, Any]], root_frame_ids: list[str], driver: WebDriver | BrowserContext) -> tuple[dict[str, Any], bool]:
     """Pick the Document chain belonging to the top-level frame.
 
     Returns (chain, identified). identified=False means the last-resort
@@ -1122,7 +1050,9 @@ def _select_document_chain(doc_chains: list[dict[str, Any]], root_frame_ids: lis
     return chain, True
 
 
-def get_document_response_evidence(driver: WebDriver, max_failed_resources: int = 10, entries: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def get_document_response_evidence(
+    driver: WebDriver | BrowserContext, max_failed_resources: int = 10, entries: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """Summarize the most recent top-level document exchange.
 
     Returns a dict with the final document url/status/mimeType/protocol, the
@@ -1231,7 +1161,7 @@ def get_document_response_evidence(driver: WebDriver, max_failed_resources: int 
     }
 
 
-def collect_failure_evidence(driver: WebDriver, stealth_mode: str | None = None) -> dict[str, Any]:
+def collect_failure_evidence(driver: WebDriver | BrowserContext, stealth_mode: str | None = None) -> dict[str, Any]:
     """Collect a bounded diagnostic snapshot of the browser after a failed request.
 
     Never raises; every field is best-effort. Sensitive values (cookie values,
@@ -1706,7 +1636,7 @@ def extract_version_nt_folder() -> str:
     return ""
 
 
-def wait_for_page_stable(driver: WebDriver, timeout: float = 15.0, poll: float = 0.5) -> None:
+def wait_for_page_stable(driver: WebDriver | BrowserContext, timeout: float = 15.0, poll: float = 0.5) -> None:
     """Wait until document.readyState is 'complete' and the execution context is stable.
 
     After a navigation triggered by a challenge resolver the new page may not be

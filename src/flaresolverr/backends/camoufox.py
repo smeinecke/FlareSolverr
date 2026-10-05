@@ -10,6 +10,8 @@ from selenium.webdriver.common.keys import Keys
 
 from flaresolverr.backends.browser_context import ActionChainBuilder, BrowserContext, Element
 
+logger = logging.getLogger(__name__)
+
 
 class _SyncExecutor:
     """Runs Playwright sync API calls in a dedicated thread to avoid greenlet issues."""
@@ -232,7 +234,7 @@ class CamoufoxBrowserContext(BrowserContext):
                 selector = _playwright_selector(by, value)
                 handle = self._page.query_selector(selector)
             if handle is None:
-                raise Exception(f"Element not found: {by}={value}")
+                raise RuntimeError(f"Element not found: {by}={value}")
             return CamoufoxElement(handle, self._executor)
 
         return self._executor.submit(_find)
@@ -301,6 +303,21 @@ class CamoufoxBrowserContext(BrowserContext):
     def delete_all_cookies(self) -> None:
         self._executor.submit(self._page.context.clear_cookies)
 
+    @property
+    def capabilities(self) -> dict[str, Any]:
+        def _caps():
+            return {
+                "browserName": "firefox",
+                "browserVersion": self._browser.version,
+            }
+
+        return self._executor.submit(_caps)
+
+    def set_script_timeout(self, seconds: float) -> None:
+        # page.evaluate has no per-call timeout; map to Playwright's default
+        # timeout so at least internal waits honor the bound.
+        self._executor.submit(self._page.set_default_timeout, seconds * 1000)
+
     def get_log(self, log_type: str) -> list[dict[str, Any]]:
         raise NotImplementedError("Performance logs are not supported by the Camoufox backend.")
 
@@ -341,12 +358,12 @@ class CamoufoxBrowserContext(BrowserContext):
             try:
                 with self._page_lock:
                     self._browser.close()
-            except Exception:  # nosec B110
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Camoufox browser close failed: %s", e)
             try:
                 self._camoufox.__exit__(None, None, None)
-            except Exception:  # nosec B110
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Camoufox context exit failed: %s", e)
 
         self._executor.submit(_quit)
         self._executor.shutdown()
@@ -443,7 +460,7 @@ class CamoufoxBrowserContext(BrowserContext):
                 try:
                     with self._page_lock:
                         element._handle.evaluate("() => true")
-                except Exception:
+                except Exception:  # noqa: BLE001
                     return True
                 time.sleep(0.1)
             raise TimeoutException("Timeout waiting for element staleness")
@@ -454,14 +471,14 @@ class CamoufoxBrowserContext(BrowserContext):
         return self.execute_script("return navigator.userAgent")
 
     def apply_user_agent_override(self, user_agent: str) -> None:
-        logging.debug("User agent override skipped for Camoufox")
+        logger.debug("User agent override skipped for Camoufox")
 
     def apply_proxy(self, proxy: dict[str, Any] | None) -> None:
         def _update():
             with self._page_lock:
                 proxy_config: dict[str, str] = {}
                 if proxy is not None:
-                    if "url" in proxy and proxy["url"]:
+                    if proxy.get("url"):
                         proxy_config["server"] = proxy["url"]
                     elif "host" in proxy and "port" in proxy:
                         proxy_config["server"] = f"http://{proxy['host']}:{proxy['port']}"
@@ -478,7 +495,7 @@ class CamoufoxBrowserContext(BrowserContext):
                 new_context = self._browser.new_context(**context_kwargs)
                 self._page = new_context.new_page()
                 self._page.on("dialog", self._on_dialog)
-                logging.debug("Camoufox context recreated with updated proxy.")
+                logger.debug("Camoufox context recreated with updated proxy.")
 
         self._executor.submit(_update)
 
@@ -520,17 +537,19 @@ class CamoufoxBackend:
             for attempt in range(3):
                 camoufox = Camoufox(**kwargs)
                 try:
-                    browser = camoufox.__enter__()
+                    # Camoufox.__enter__() is typed Browser | BrowserContext but
+                    # the default (non-persistent) launch always returns Browser.
+                    browser = cast(Any, camoufox.__enter__())
                     page = browser.new_context(no_viewport=True).new_page()
                     return camoufox, browser, page
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     last_error = e
                     try:
                         camoufox.__exit__(None, None, None)
-                    except Exception:  # nosec B110
-                        pass
+                    except Exception as cleanup_err:  # noqa: BLE001
+                        logger.debug("Camoufox cleanup after failed launch: %s", cleanup_err)
                     if "cannot open display" in str(e).lower() and attempt < 2:
-                        logging.debug("Camoufox display not ready, retrying in 0.5s (attempt %d/3)", attempt + 1)
+                        logger.debug("Camoufox display not ready, retrying in 0.5s (attempt %d/3)", attempt + 1)
                         time.sleep(0.5)
                     else:
                         raise last_error

@@ -5,10 +5,12 @@ from typing import Any
 
 from flaresolverr import utils
 
+logger = logging.getLogger(__name__)
+
 
 class SeleniumBaseBackend:
     def create_driver(self, proxy: dict[str, Any] | None, stealth_mode: str) -> Any:
-        logging.debug("Launching web browser (seleniumbase)...")
+        logger.debug("Launching web browser (seleniumbase)...")
         try:
             from seleniumbase import Driver  # pyright: ignore[reportMissingImports]
         except ImportError as e:
@@ -37,7 +39,7 @@ class SeleniumBaseBackend:
         try:
             driver = Driver(**kwargs)
         except Exception as e:
-            logging.error("Error starting SeleniumBase driver: %s", e)
+            logger.error("Error starting SeleniumBase driver: %s", e)
             raise
 
         return driver

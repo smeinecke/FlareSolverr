@@ -1092,7 +1092,7 @@ def _failure_details(
         svc = SERVICE_MANAGER.get_service(detected)
         if svc is not None:
             try:
-                details = svc.get_debug_info(driver, stealth_mode=req_stealth_mode)
+                details = svc.get_debug_info(get_browser_context(driver), stealth_mode=req_stealth_mode)
             except Exception:  # noqa: BLE001
                 details = None
     if details is None:
@@ -1331,7 +1331,7 @@ def _execute_actions(driver: BrowserContext, actions: list) -> list[Any | None]:
         selector = action.get("selector")
         if action_type == "fill":
             if selector is None:
-                raise Exception("Action 'fill' requires a 'selector' field.")
+                raise RuntimeError("Action 'fill' requires a 'selector' field.")
             el = _find_and_scroll_element(driver, selector, default_action_timeout, 0.3, 0.6)
             # Click with a random non-zero offset from center so that
             # hasClickedEmailFieldExactCenter / hasClickedFieldSmallMargin
@@ -1352,7 +1352,7 @@ def _execute_actions(driver: BrowserContext, actions: list) -> list[Any | None]:
             logger.debug(f"Action fill: selector={selector}")
         elif action_type == "click":
             if selector is None:
-                raise Exception("Action 'click' requires a 'selector' field.")
+                raise RuntimeError("Action 'click' requires a 'selector' field.")
             logger.debug(f"Action click: waiting for selector={selector}")
             el = _find_and_scroll_element(driver, selector, default_action_timeout, 0.2, 0.4)
             logger.debug("Action click: element found, scrolling")
@@ -1368,7 +1368,7 @@ def _execute_actions(driver: BrowserContext, actions: list) -> list[Any | None]:
                     _dx = random.uniform(2, _max_dx) * random.choice([-1, 1])  # nosec B311
                     _dy = random.uniform(-_max_dy, _max_dy)  # nosec B311
                     driver.action_chain().move_to_element_with_offset(el, int(_dx), int(_dy)).pause(_random_delay(0.05, 0.15)).click().perform()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     try:
                         alert_text = driver.get_alert_text()
                         logger.debug(f"Action click: dismissing alert: {alert_text!r}")

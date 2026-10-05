@@ -14,7 +14,6 @@ from flaresolverr.client.client import _SessionManager
 from flaresolverr.client.models import ChallengeSolution
 from flaresolverr.dtos import ChallengeResolutionResultT
 from flaresolverr.sessions import SessionsStorage
-from flaresolverr.utils import create_proxy_extension
 
 # Public _SessionManager API methods (called by users of the client library)
 _SessionManager.cdp  # noqa: B018
@@ -54,7 +53,6 @@ Options.binary_location  # noqa: B018
 
 # Proxy extension attributes stored on WebDriver instances
 WebDriver._proxy_ext_id  # noqa: B018
-create_proxy_extension  # noqa: B018
 
 # Agent-check TCP server (handle is called by socketserver framework, daemon_threads by ThreadingMixIn)
 from flaresolverr.agent_check import AgentCheckHandler, ThreadedTCPServer

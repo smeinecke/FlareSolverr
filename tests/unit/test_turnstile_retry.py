@@ -228,6 +228,12 @@ class TestTurnstileIntegration:
                     return [MagicMock()]
                 return []
 
+            def wait_for_presence(self, by, value, timeout):
+                elements = self.find_elements(by, value)
+                if not elements:
+                    raise TimeoutError("Element not found")
+                return elements[0]
+
             def find_element(self, by, value):
                 if "cf-turnstile-response" in value:
                     class MockInput:
@@ -280,6 +286,9 @@ class TestTurnstileEdgeCases:
 
             def find_elements(self, by, value):
                 return []
+
+            def wait_for_presence(self, by, value, timeout):
+                raise TimeoutError("Element not found")
 
             def switch_to_default_content(self):
                 pass

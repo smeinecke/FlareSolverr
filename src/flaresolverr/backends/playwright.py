@@ -11,6 +11,8 @@ from selenium.webdriver.common.keys import Keys
 
 from flaresolverr.backends.browser_context import ActionChainBuilder, BrowserContext, Element
 
+logger = logging.getLogger(__name__)
+
 
 class _SyncExecutor:
     """Runs Playwright sync API calls in a dedicated thread to avoid greenlet issues."""
@@ -237,7 +239,7 @@ class PlaywrightBrowserContext(BrowserContext):
                 selector = _playwright_selector(by, value)
                 handle = self._page.query_selector(selector)
             if handle is None:
-                raise Exception(f"Element not found: {by}={value}")
+                raise RuntimeError(f"Element not found: {by}={value}")
             return PlaywrightElement(handle, self._executor)
 
         return self._executor.submit(_find)
@@ -306,6 +308,21 @@ class PlaywrightBrowserContext(BrowserContext):
     def delete_all_cookies(self) -> None:
         self._executor.submit(self._page.context.clear_cookies)
 
+    @property
+    def capabilities(self) -> dict[str, Any]:
+        def _caps():
+            return {
+                "browserName": "chromium",
+                "browserVersion": self._browser.version,
+            }
+
+        return self._executor.submit(_caps)
+
+    def set_script_timeout(self, seconds: float) -> None:
+        # page.evaluate has no per-call timeout; map to Playwright's default
+        # timeout so at least internal waits honor the bound.
+        self._executor.submit(self._page.set_default_timeout, seconds * 1000)
+
     def get_log(self, log_type: str) -> list[dict[str, Any]]:
         raise NotImplementedError("Performance logs are not supported by the Playwright backend.")
 
@@ -347,12 +364,12 @@ class PlaywrightBrowserContext(BrowserContext):
             try:
                 with self._page_lock:
                     self._browser.close()
-            except Exception:  # nosec B110
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Playwright browser close failed: %s", e)
             try:
                 self._pw.stop()
-            except Exception:  # nosec B110
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Playwright stop failed: %s", e)
 
         self._executor.submit(_quit)
         self._executor.shutdown()
@@ -407,8 +424,8 @@ class PlaywrightBrowserContext(BrowserContext):
                 selector = _playwright_selector(by, value)
                 try:
                     self._page.wait_for_selector(selector, state="detached", timeout=timeout * 1000)
-                except Exception:  # nosec B110
-                    pass
+                except Exception as e:  # noqa: BLE001
+                    logger.debug("wait_for_selector(detached) timed out or failed: %s", e)
                 handles = self._page.query_selector_all(selector)
             return len(handles) == 0
 
@@ -457,7 +474,7 @@ class PlaywrightBrowserContext(BrowserContext):
                 try:
                     with self._page_lock:
                         element._handle.evaluate("() => true")
-                except Exception:
+                except Exception:  # noqa: BLE001
                     return True
                 time.sleep(0.1)
             raise TimeoutException("Timeout waiting for element staleness")
@@ -475,7 +492,7 @@ class PlaywrightBrowserContext(BrowserContext):
             with self._page_lock:
                 proxy_config: dict[str, str] = {}
                 if proxy is not None:
-                    if "url" in proxy and proxy["url"]:
+                    if proxy.get("url"):
                         proxy_config["server"] = proxy["url"]
                     elif "host" in proxy and "port" in proxy:
                         proxy_config["server"] = f"http://{proxy['host']}:{proxy['port']}"
@@ -492,7 +509,7 @@ class PlaywrightBrowserContext(BrowserContext):
                 new_context = self._browser.new_context(**context_kwargs)
                 self._page = new_context.new_page()
                 self._page.on("dialog", self._on_dialog)
-                logging.debug("Playwright context recreated with updated proxy.")
+                logger.debug("Playwright context recreated with updated proxy.")
 
         self._executor.submit(_update)
 
@@ -512,64 +529,88 @@ class PlaywrightBackend:
 
         def _create():
             pw = sync_playwright().start()
-            headless = utils.get_config_headless()
+            try:
+                headless = utils.get_config_headless()
 
-            launch_kwargs: dict[str, Any] = {"headless": headless}
+                launch_kwargs: dict[str, Any] = {"headless": headless}
 
-            args = [
-                "--window-size=1920,1080",
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-blink-features=AutomationControlled",
-            ]
+                args = [
+                    "--window-size=1920,1080",
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                ]
 
-            if utils.PLATFORM_VERSION == "nt":
-                args.append("--disable-gpu")
+                if utils.PLATFORM_VERSION == "nt":
+                    args.append("--disable-gpu")
 
-            if os.environ.get("DISABLE_WEB_SECURITY", "false").lower() == "true":
-                args.append("--disable-web-security")
-                args.append("--disable-features=BlockInsecurePrivateNetworkRequests")
+                if os.environ.get("DISABLE_WEB_SECURITY", "false").lower() == "true":
+                    args.append("--disable-web-security")
+                    args.append("--disable-features=BlockInsecurePrivateNetworkRequests")
 
-            if stealth_mode != utils.STEALTH_MODE_OFF:
-                args.append("--disable-blink-features=AutomationControlled")
+                if stealth_mode != utils.STEALTH_MODE_OFF:
+                    args.append("--disable-blink-features=AutomationControlled")
 
-            launch_kwargs["args"] = args
+                launch_kwargs["args"] = args
 
-            if proxy is not None:
-                proxy_config: dict[str, str] = {}
-                if "url" in proxy:
-                    proxy_config["server"] = proxy["url"]
-                elif "host" in proxy and "port" in proxy:
-                    proxy_config["server"] = f"http://{proxy['host']}:{proxy['port']}"
-                if "username" in proxy:
-                    proxy_config["username"] = proxy["username"]
-                if "password" in proxy:
-                    proxy_config["password"] = proxy["password"]
-                if proxy_config:
-                    launch_kwargs["proxy"] = proxy_config
+                # Optional explicit browser binary; otherwise playwright's own
+                # chromium is used and a missing download falls back to the
+                # bundled/system Chrome so the backend also works in images that
+                # do not ship the playwright browser build.
+                executable_path = os.environ.get("PLAYWRIGHT_CHROME_EXECUTABLE_PATH") or None
+                if executable_path:
+                    launch_kwargs["executable_path"] = executable_path
 
-            browser = pw.chromium.launch(**launch_kwargs)
-            context = browser.new_context(viewport={"width": 1920, "height": 1080})
-            page = context.new_page()
+                if proxy is not None:
+                    proxy_config: dict[str, str] = {}
+                    if "url" in proxy:
+                        proxy_config["server"] = proxy["url"]
+                    elif "host" in proxy and "port" in proxy:
+                        proxy_config["server"] = f"http://{proxy['host']}:{proxy['port']}"
+                    if "username" in proxy:
+                        proxy_config["username"] = proxy["username"]
+                    if "password" in proxy:
+                        proxy_config["password"] = proxy["password"]
+                    if proxy_config:
+                        launch_kwargs["proxy"] = proxy_config
 
-            if stealth_mode != utils.STEALTH_MODE_OFF:
-                default_ua = page.evaluate("navigator.userAgent")
-                if isinstance(default_ua, str):
-                    normalized_ua = utils.sanitize_user_agent(default_ua)
-                    if normalized_ua != default_ua:
-                        page.set_extra_http_headers({"User-Agent": normalized_ua})
-                        ua_script = (
-                            "Object.defineProperty(navigator, 'userAgent', {"
-                            f"  get: function() {{ return '{normalized_ua.replace(chr(39), chr(92) + chr(39))}'; }}"
-                            "});"
-                        )
-                        page.add_init_script(ua_script)
-                        page.evaluate(ua_script)
-                        logging.info("Normalized default user-agent by removing HeadlessChrome token.")
+                try:
+                    browser = pw.chromium.launch(**launch_kwargs)
+                except Exception as e:
+                    if executable_path or "Executable doesn't exist" not in str(e):
+                        raise
+                    fallback_path = utils.get_chrome_exe_path()
+                    if not fallback_path:
+                        raise
+                    logger.warning("Playwright chromium not installed; falling back to %s", fallback_path)
+                    browser = pw.chromium.launch(executable_path=fallback_path, **launch_kwargs)
+                context = browser.new_context(viewport={"width": 1920, "height": 1080})
+                page = context.new_page()
 
-            logging.debug("Playwright Chromium browser launched (stealth_mode=%s).", stealth_mode)
-            return pw, browser, page
+                if stealth_mode != utils.STEALTH_MODE_OFF:
+                    default_ua = page.evaluate("navigator.userAgent")
+                    if isinstance(default_ua, str):
+                        normalized_ua = utils.sanitize_user_agent(default_ua)
+                        if normalized_ua != default_ua:
+                            page.set_extra_http_headers({"User-Agent": normalized_ua})
+                            ua_script = (
+                                "Object.defineProperty(navigator, 'userAgent', {"
+                                f"  get: function() {{ return '{normalized_ua.replace(chr(39), chr(92) + chr(39))}'; }}"
+                                "});"
+                            )
+                            page.add_init_script(ua_script)
+                            page.evaluate(ua_script)
+                            logger.info("Normalized default user-agent by removing HeadlessChrome token.")
+
+                logger.debug("Playwright Chromium browser launched (stealth_mode=%s).", stealth_mode)
+                return pw, browser, page
+            except Exception:
+                try:
+                    pw.stop()
+                except Exception as stop_err:  # noqa: BLE001
+                    logger.debug("Playwright stop after failed launch: %s", stop_err)
+                raise
 
         pw, browser, page = executor.submit(_create)
         return PlaywrightBrowserContext(executor, pw, browser, page, stealth_mode=stealth_mode)

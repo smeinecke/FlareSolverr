@@ -147,6 +147,13 @@ class SeleniumBrowserContext(BrowserContext):
     def delete_all_cookies(self) -> None:
         self._driver.delete_all_cookies()
 
+    @property
+    def capabilities(self) -> dict[str, Any]:
+        return dict(self._driver.capabilities or {})
+
+    def set_script_timeout(self, seconds: float) -> None:
+        self._driver.set_script_timeout(seconds)
+
     def get_log(self, log_type: str) -> list[dict[str, Any]]:
         return self._driver.get_log(log_type)
 

@@ -225,14 +225,14 @@ if __name__ == "__main__":
     flaresolverr_service.SESSIONS_STORAGE.start_cleanup(interval_seconds=30)
 
     # register signal handlers to gracefully destroy all sessions on shutdown
-    def _shutdown_handler(signum, frame) -> None:  # noqa: ARG001
+    def _shutdown_handler(signum, frame) -> None:
         sig_name = signal.Signals(signum).name
-        logging.info(f"Received {sig_name}, shutting down and cleaning up sessions...")
+        logger.info(f"Received {sig_name}, shutting down and cleaning up sessions...")
         flaresolverr_service.SESSIONS_STORAGE.stop_cleanup()
         destroyed = flaresolverr_service.SESSIONS_STORAGE.destroy_all()
         if destroyed:
-            logging.info(f"Destroyed {len(destroyed)} session(s) during shutdown.")
-        logging.info("Shutdown complete.")
+            logger.info(f"Destroyed {len(destroyed)} session(s) during shutdown.")
+        logger.info("Shutdown complete.")
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, _shutdown_handler)

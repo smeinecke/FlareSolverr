@@ -3,7 +3,7 @@ import os
 from flaresolverr.backends.base import BackendBase
 from flaresolverr.backends.browser_context import BrowserContext, get_browser_context
 
-__all__ = ["BackendBase", "BrowserContext", "get_browser_context", "register_backend", "get_backend"]
+__all__ = ["BackendBase", "BrowserContext", "get_backend", "get_browser_context", "register_backend"]
 
 _BACKENDS: dict[str, type[BackendBase]] = {}
 

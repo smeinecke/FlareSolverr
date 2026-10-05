@@ -71,7 +71,7 @@ class BraveService(ChallengeService):
             driver._flaresolverr_brave_debug = self._collect_debug_state(driver, attempt)  # pyright: ignore[reportAttributeAccessIssue]
             button = self._find_clickable_verify_button(driver)
             if button is not None:
-                logging.debug("Brave Verify/Try again button clickable, clicking...")
+                logger.debug("Brave Verify/Try again button clickable, clicking...")
                 try:
                     button.click()
                 except Exception:  # noqa: BLE001
@@ -79,14 +79,14 @@ class BraveService(ChallengeService):
                     if html_element is None:
                         break
                     continue
-                logging.debug("Brave button clicked, waiting for it to become clickable again or challenge to resolve...")
+                logger.debug("Brave button clicked, waiting for it to become clickable again or challenge to resolve...")
                 end_time = time.time() + SHORT_TIMEOUT
                 while time.time() < end_time:
                     if not self._page_has_captcha(driver) or self._find_clickable_verify_button(driver) is not None:
                         break
                     time.sleep(0.5)
                 else:
-                    logging.debug("Timeout waiting for Brave button state change or challenge resolution, retrying...")
+                    logger.debug("Timeout waiting for Brave button state change or challenge resolution, retrying...")
                 html_element = self._get_html_element(driver)
                 if html_element is None:
                     continue

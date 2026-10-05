@@ -35,8 +35,8 @@ def _wait_for_title_change(driver: BrowserContext, title: str, timeout: float) -
         try:
             if (driver.title or "").lower() != title.lower():
                 return True
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Title read failed while waiting for change: %s", e)
         time.sleep(0.1)
     return False
 
