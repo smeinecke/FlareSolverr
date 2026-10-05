@@ -1,13 +1,14 @@
-import pytest
-from selenium.common import TimeoutException, WebDriverException
 from unittest.mock import MagicMock, PropertyMock, patch
+
+import pytest
+from selenium.common import WebDriverException
 
 from flaresolverr.backends.browser_context import BrowserContext
 from flaresolverr.services.base import ChallengeService
-from flaresolverr.services.manager import ServiceManager
+from flaresolverr.services.brave import BraveService
 from flaresolverr.services.cloudflare import CloudflareService
 from flaresolverr.services.ddos_guard import DDoSGuardManualCaptchaError, DDoSGuardService, _wait_for_title_change
-from flaresolverr.services.brave import BraveService
+from flaresolverr.services.manager import ServiceManager
 
 
 def _make_driver(title="Some Page", find_elements=None, **kwargs):
@@ -83,15 +84,19 @@ class TestServiceManager:
 
         class SvcA(ChallengeService):
             name = "a"
+
             def detect(self, driver):
                 return False
+
             def resolve(self, driver):
                 pass
 
         class SvcB(ChallengeService):
             name = "b"
+
             def detect(self, driver):
                 return True
+
             def resolve(self, driver):
                 pass
 
@@ -152,9 +157,7 @@ class TestCloudflareService:
 
     @patch("flaresolverr.services.cloudflare.time.sleep")
     @patch("flaresolverr.services.cloudflare._random_delay", return_value=0.01)
-    def test_resolve_clicks_verify_and_waits(
-        self, mock_delay, mock_sleep, svc
-    ):
+    def test_resolve_clicks_verify_and_waits(self, mock_delay, mock_sleep, svc):
         driver = MagicMock()
         driver.title = "Just a moment..."
         driver.page_source = ""
@@ -165,9 +168,7 @@ class TestCloudflareService:
 
         def side_effect(title, timeout):
             call_count[0] += 1
-            if call_count[0] <= 2:
-                return False
-            return True
+            return not call_count[0] <= 2
 
         driver.wait_for_title_not.side_effect = side_effect
         driver.wait_for_absence.return_value = True
@@ -285,9 +286,27 @@ class TestCloudflareService:
                 "verifyingTextVisible": False,
                 "successTextVisible": False,
                 "iframeSrcs": [],
+                "hiddenFrameCount": 0,
             }
         )
         assert svc._should_attempt_verify_click(driver) is False
+
+    def test_click_on_shadow_hidden_frame(self, svc):
+        """A frame in window.frames with no DOM iframe element is a widget in a
+        closed shadow root — observed on Camoufox's managed challenge, where
+        querySelectorAll('iframe') is empty but window.frames.length == 1."""
+        driver = self._probe_driver(
+            {
+                "verifyButton": False,
+                "challengeIframe": False,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": False,
+                "successTextVisible": False,
+                "iframeSrcs": [],
+                "hiddenFrameCount": 1,
+            }
+        )
+        assert svc._should_attempt_verify_click(driver) is True
 
     def test_click_suppressed_on_probe_error(self, svc):
         driver = MagicMock()
@@ -380,11 +399,13 @@ class TestBraveService:
     @patch("flaresolverr.services.brave.BraveService._find_clickable_verify_button")
     @patch("flaresolverr.services.brave.time.sleep")
     def test_resolve_clicks_and_waits(self, mock_sleep, mock_find, svc):
-        driver = _BraveDriverMock([
-            "Brave Search decided to schedule a captcha",
-            "Brave Search decided to schedule a captcha",
-            "",
-        ])
+        driver = _BraveDriverMock(
+            [
+                "Brave Search decided to schedule a captcha",
+                "Brave Search decided to schedule a captcha",
+                "",
+            ]
+        )
 
         mock_button = MagicMock()
         mock_find.return_value = mock_button
@@ -395,10 +416,12 @@ class TestBraveService:
     @patch("flaresolverr.services.brave.BraveService._find_clickable_verify_button")
     @patch("flaresolverr.services.brave.time.sleep")
     def test_resolve_clicks_visible_button(self, mock_sleep, mock_find, svc):
-        driver = _BraveDriverMock([
-            "Brave Search decided to schedule a captcha",
-            "",
-        ])
+        driver = _BraveDriverMock(
+            [
+                "Brave Search decided to schedule a captcha",
+                "",
+            ]
+        )
 
         mock_button = MagicMock()
         mock_button.is_displayed.return_value = True

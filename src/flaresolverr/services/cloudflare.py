@@ -236,13 +236,20 @@ class CloudflareService(ChallengeService):
             for (var j = 0; j < allIframes.length && j < 5; j++) {
                 iframeSrcs.push(allIframes[j].getAttribute('src') || '(no src)');
             }
+            // window.frames counts every top-level child frame — including
+            // widgets mounted inside closed shadow roots, which DOM queries
+            // cannot see (observed on Camoufox/Firefox managed challenges).
+            var hiddenFrameCount = Math.max(
+                0, window.frames.length - document.querySelectorAll('iframe, frame').length
+            );
             return {
                 verifyButton: !!(verifyButton && isVisible(verifyButton)),
                 challengeIframe: visibleIframe,
                 turnstileWrapperWithControl: wrapperHasControl,
                 verifyingTextVisible: hasVisibleLeafText('Verifying you are human'),
                 successTextVisible: hasVisibleLeafText('Verification successful'),
-                iframeSrcs: iframeSrcs
+                iframeSrcs: iframeSrcs,
+                hiddenFrameCount: hiddenFrameCount
             };
             """
         )
@@ -266,13 +273,27 @@ class CloudflareService(ChallengeService):
             logger.debug("_should_attempt_verify_click: True (interactive control present)")
             return True
 
+        # A top-level frame with no matching DOM element is a widget mounted
+        # inside a shadow root (Camoufox/Firefox managed challenge): invisible
+        # to DOM probes but still an interactive control reachable via TAB+SPACE.
+        if state.get("hiddenFrameCount"):
+            logger.debug(
+                "_should_attempt_verify_click: True (shadow-hidden top-level frame, count=%s)",
+                state.get("hiddenFrameCount"),
+            )
+            return True
+
         # Visible "Verifying..." text with no control = automatic managed
         # challenge; blind clicks would hit arbitrary page elements.
         if state.get("verifyingTextVisible"):
             logger.debug("_should_attempt_verify_click: False (automatic verification in progress)")
             return False
 
-        logger.debug("_should_attempt_verify_click: False (no markers). iframes=%s", state.get("iframeSrcs"))
+        logger.debug(
+            "_should_attempt_verify_click: False (no markers). iframes=%s hiddenFrames=%s",
+            state.get("iframeSrcs"),
+            state.get("hiddenFrameCount"),
+        )
         return False
 
     def _click_verify(self, driver: BrowserContext, num_tabs: int = 1) -> None:

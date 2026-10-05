@@ -139,17 +139,23 @@ pip install "seleniumbase>=4.30"
 | Cookie handling | ✅ | ✅ | ✅ | ✅ |
 | Browser actions | ✅ | ✅ | ✅ | ✅ |
 | Stealth mode | Custom patches | Basic flags | Built-in | UC mode |
-| Cloudflare managed challenge | ✅ | ❌ ¹ | ❌ ¹ | ✅ |
-| Embedded Turnstile widget | ✅ | ❌ ² | ✅ | ❌ ² |
+| Cloudflare managed challenge | ✅ | ❌ ¹ | ✅ ² | ✅ |
+| Embedded Turnstile widget | ✅ | ❌ ³ | ✅ | ❌ ³ |
 
 * `postDataRaw` on Playwright/Camoufox uses JavaScript XHR fallback instead of CDP `Fetch.continueRequest`.
 
-¹ On Playwright/Camoufox the interstitial's Turnstile iframe never mounts
-(`iframes=[]` in the challenge-state probe), so nothing can be clicked and
-automatic verification never completes — the request times out. Verified
-against scrapingcourse.com's managed challenge.
+¹ On Playwright the interstitial's Turnstile frame never mounts
+(`window.frames.length == 0` in the challenge-state probe), so nothing can be
+clicked and automatic verification never completes — the request times out.
+Verified against scrapingcourse.com's managed challenge.
 
-² Widget is detected (`input[name='cf-turnstile-response']`) but no token is
+² Camoufox mounts the interstitial widget inside a closed shadow root — it is
+invisible to `document.querySelectorAll('iframe')` but visible via
+`window.frames`. The challenge-state probe detects this case
+(`hiddenFrameCount`) and the TAB+SPACE verify click clears the challenge;
+verified against scrapingcourse.com's managed challenge.
+
+³ Widget is detected (`input[name='cf-turnstile-response']`) but no token is
 produced within the timeout. Verified against scrapingcourse.com's
 `/login/cf-turnstile` target. Camoufox obtained a token in ~8s on the same target.
 
