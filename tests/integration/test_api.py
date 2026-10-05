@@ -1,25 +1,23 @@
 import json
 import os
 import re
+import socket
 import subprocess
+import time
 import unittest
-from typing import Optional
+import urllib.parse
 
 import pytest
 import requests
 
-from flaresolverr.dtos import IndexResponse, HealthResponse, V1ResponseBase, STATUS_OK, STATUS_ERROR
-from flaresolverr.services.cloudflare import CHALLENGE_PROBE_SCRIPT
 from flaresolverr import utils
-
-import socket
-import time
-import urllib.parse
+from flaresolverr.dtos import STATUS_ERROR, STATUS_OK, HealthResponse, IndexResponse, V1ResponseBase
+from flaresolverr.services.cloudflare import CHALLENGE_PROBE_SCRIPT
 
 pytestmark = pytest.mark.integration
 
 
-def _find_obj_by_key(key: str, value: str, _list: list) -> Optional[dict]:
+def _find_obj_by_key(key: str, value: str, _list: list) -> dict | None:
     for obj in _list:
         if obj[key] == value:
             return obj
@@ -91,6 +89,7 @@ class TestFlareSolverr(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 timeout=5,
+                check=False,
             )
             return len((result.stdout + result.stderr).splitlines())
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
@@ -105,6 +104,7 @@ class TestFlareSolverr(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 timeout=5,
+                check=False,
             )
             logs = result.stdout + result.stderr
             lines = logs.splitlines()
@@ -152,8 +152,8 @@ class TestFlareSolverr(unittest.TestCase):
             body = res.json()
             for sid in body.get("sessions", []):
                 requests.post(f"{cls.base_url}/v1", json={"cmd": "sessions.destroy", "session": sid}, timeout=10)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - teardown cleanup must never fail the suite
+            print(f"tearDownClass: session cleanup failed: {exc}")
 
     def _request(self, method: str, path: str, json=None, status=None, timeout=180, params=None):
         url = f"{self.base_url}{path}"
@@ -722,19 +722,20 @@ class TestFlareSolverr(unittest.TestCase):
                 ".appendChild(Object.assign(document.createElement('iframe'), {src: 'about:blank'}));"
                 "return window.frames.length;"
             )
+            # window.frames registers the new browsing context asynchronously
+            # (a later task), so the probe may need a moment to observe it —
+            # poll until the count settles instead of reading once.
+            expected_hidden = baseline_hidden + (1 if "Firefox/" in ua else 0)
+            deadline = time.time() + 5
             after_shadow = _eval(CHALLENGE_PROBE_SCRIPT)
-            if "Firefox/" in ua:
-                self.assertEqual(
-                    baseline_hidden + 1,
-                    after_shadow.get("hiddenFrameCount"),
-                    f"shadow-hidden iframe not counted: baseline={baseline} after={after_shadow}",
-                )
-            else:
-                self.assertEqual(
-                    baseline_hidden,
-                    after_shadow.get("hiddenFrameCount"),
-                    f"Chromium counted a shadow iframe it cannot see: baseline={baseline} after={after_shadow}",
-                )
+            while after_shadow.get("hiddenFrameCount") != expected_hidden and time.time() < deadline:
+                time.sleep(0.25)
+                after_shadow = _eval(CHALLENGE_PROBE_SCRIPT)
+            self.assertEqual(
+                expected_hidden,
+                after_shadow.get("hiddenFrameCount"),
+                f"shadow-hidden iframe count wrong: baseline={baseline} after={after_shadow} ua={ua}",
+            )
             # The shadow iframe must not leak into the DOM iframe list.
             self.assertEqual(
                 len(after_dom.get("iframeSrcs", [])),
