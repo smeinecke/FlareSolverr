@@ -73,7 +73,7 @@ class TestFlareSolverr(unittest.TestCase):
     scrapingcourse_turnstile_url = "https://www.scrapingcourse.com/login/cf-turnstile"
     scrapingcourse_csrf_url = "https://www.scrapingcourse.com/login/csrf"
     cloudflare_blocked_url = "https://www.cpasbiens3.fr/"
-    turnstile_workers_url = "https://browser-compat.turnstile.workers.dev/"
+    turnstile_workers_url = "https://debug.challenges.cloudflare.com/"  # browser-compat.turnstile.workers.dev now 301s here
 
     base_url = None
 
@@ -273,6 +273,8 @@ class TestFlareSolverr(unittest.TestCase):
 
     def test_v1_endpoint_request_get_are_you_a_bot_reports_result(self):
         _skip_unless_custom_chromium(self)
+        if os.environ.get("GITHUB_ACTIONS"):
+            self.skipTest("deviceandbrowserinfo flags all automation from CI runner IPs, including stock Chrome")
         res = self._request(
             "POST",
             "/v1",
@@ -308,6 +310,8 @@ class TestFlareSolverr(unittest.TestCase):
         backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
         if backend != "custom_chromium":
             self.skipTest("Behavioral action detection requires patched Chromium; skipping on non-custom backends.")
+        if os.environ.get("GITHUB_ACTIONS"):
+            self.skipTest("deviceandbrowserinfo flags all automation from CI runner IPs, including stock Chrome")
         res = self._request(
             "POST",
             "/v1",
@@ -951,7 +955,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.cloudflare_url, solution.url)
-        self._assert_status_ok(solution)
+        # nowsecure.nl rejects POSTs outright; the real document status is 405.
+        self._assert_status_ok(solution, 405)
         self._assert_headers_nonempty(solution)
         self.assertIn("<title>405 Not Allowed</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
