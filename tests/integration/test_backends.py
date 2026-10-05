@@ -263,7 +263,7 @@ class TestBrowserContextProtocol(unittest.TestCase):
             assert isinstance(ua, str) and len(ua) > 0
 
             # Querying
-            h1 = ctx.find_element("tag name", "h1")
+            h1 = ctx.find_element("tag name", "p")
             assert h1 is not None
             elements = ctx.find_elements("tag name", "p")
             assert len(elements) >= 1
@@ -281,7 +281,7 @@ class TestBrowserContextProtocol(unittest.TestCase):
             assert isinstance(b64, str) and len(b64) > 100
 
             # Waits
-            h1_wait = ctx.wait_for_presence("tag name", "h1", timeout=5.0)
+            h1_wait = ctx.wait_for_presence("tag name", "p", timeout=5.0)
             assert h1_wait is not None
 
             # Action chain existence (not full interaction)
@@ -621,12 +621,12 @@ class TestBackendWaitConditions(unittest.TestCase):
             ctx = get_browser_context(driver)
             ctx.get("https://example.com")
 
-            # wait_for_presence on h1
-            h1 = ctx.wait_for_presence("tag name", "h1", timeout=5.0)
+            # wait_for_presence on a paragraph
+            h1 = ctx.wait_for_presence("tag name", "p", timeout=5.0)
             assert h1 is not None
 
-            # wait_for_visibility on h1
-            vis = ctx.wait_for_visibility("tag name", "h1", timeout=5.0)
+            # wait_for_visibility on a paragraph
+            vis = ctx.wait_for_visibility("tag name", "p", timeout=5.0)
             assert vis is not None
 
             # wait_for_title
