@@ -139,8 +139,22 @@ pip install "seleniumbase>=4.30"
 | Cookie handling | ✅ | ✅ | ✅ | ✅ |
 | Browser actions | ✅ | ✅ | ✅ | ✅ |
 | Stealth mode | Custom patches | Basic flags | Built-in | UC mode |
+| Cloudflare managed challenge | ✅ | ❌ ¹ | ❌ ¹ | ✅ |
+| Embedded Turnstile widget | ✅ | ❌ ² | ✅ | ❌ ² |
 
 * `postDataRaw` on Playwright/Camoufox uses JavaScript XHR fallback instead of CDP `Fetch.continueRequest`.
+
+¹ On Playwright/Camoufox the interstitial's Turnstile iframe never mounts
+(`iframes=[]` in the challenge-state probe), so nothing can be clicked and
+automatic verification never completes — the request times out. Verified
+against scrapingcourse.com's managed challenge.
+
+² Widget is detected (`input[name='cf-turnstile-response']`) but no token is
+produced within the timeout. Verified against scrapingcourse.com's
+`/login/cf-turnstile` target. Camoufox obtained a token in ~8s on the same target.
+
+Challenge-solving results are empirical (scrapingcourse.com targets) and
+site-dependent — treat them as the current known state, not a guarantee.
 
 ## Troubleshooting
 
