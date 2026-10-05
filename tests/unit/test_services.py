@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 from flaresolverr.services.base import ChallengeService
 from flaresolverr.services.manager import ServiceManager
 from flaresolverr.services.cloudflare import CloudflareService
-from flaresolverr.services.ddos_guard import DDoSGuardService
+from flaresolverr.services.ddos_guard import DDoSGuardManualCaptchaError, DDoSGuardService, _title_matches_ignoring_case
 from flaresolverr.services.brave import BraveService
 
 from selenium.common import TimeoutException
@@ -320,6 +320,27 @@ class TestDDoSGuardService:
     def test_detect_no_challenge(self, svc):
         driver = _make_driver()
         assert svc.detect(driver) is False
+
+    def test_detect_by_challenge_script(self, svc):
+        driver = _make_driver(title="Loading")
+        driver.find_elements.side_effect = lambda _by, selector: [object()] if "ddos-guard/js-challenge" in selector else []
+        assert svc.detect(driver) is True
+
+    def test_detect_by_manual_captcha_script(self, svc):
+        driver = _make_driver(title="Loading")
+        driver.find_elements.side_effect = lambda _by, selector: [object()] if "ddg-captcha-page" in selector else []
+        assert svc.detect(driver) is True
+
+    def test_resolve_raises_on_manual_captcha(self, svc):
+        driver = _make_driver(title="DDOS-GUARD")
+        driver.find_elements.side_effect = lambda _by, selector: [object()] if "ddg-captcha-page" in selector else []
+        with pytest.raises(DDoSGuardManualCaptchaError, match="manual captcha"):
+            svc.resolve(driver)
+
+    def test_title_wait_is_case_insensitive(self):
+        predicate = _title_matches_ignoring_case("DDoS-Guard")
+        assert predicate(_make_driver(title="DDOS-GUARD")) is True
+        assert predicate(_make_driver(title="Solved")) is False
 
     @patch("flaresolverr.services.ddos_guard.WebDriverWait")
     def test_resolve_waits_for_redirect(self, mock_wait, svc):
