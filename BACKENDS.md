@@ -26,14 +26,16 @@ DRIVER_BACKEND=seleniumbase flaresolverr
 | ------- | ------ | ---- | ----------- | ------- | ----- |
 | `undetected_chromedriver` | Selenium | Chrome/Chromium | Full | Custom C++ patches + CDP JS | Default. Best compatibility. Custom Chromium hardening on amd64. |
 | `playwright` | Playwright | Chromium | None | `--disable-blink-features=AutomationControlled` | Lightweight, fast startup. No CDP-dependent features. |
-| `camoufox` | Playwright | Camoufox | None | Built-in anti-detect | Requires `camoufox` Python package. Premium anti-fingerprinting. |
-| `seleniumbase` | Selenium | Chrome | Partial | UC mode | Requires `seleniumbase` package. Simpler setup for some users. |
+| `camoufox` | Playwright | Camoufox | None | Built-in anti-detect | Requires `camoufox` Python package (MIT, open-source). Advanced anti-fingerprinting. |
+| `seleniumbase` | Selenium | Chrome | Full (passthrough) | UC mode | Requires `seleniumbase` package installed separately (pins `selenium==4.49.x`). |
 
 ## Environment Variable
 
 | Name | Default | Description |
 | ---- | ------- | ----------- |
-| `DRIVER_BACKEND` | `undetected_chromedriver` | Selects the browser backend. Valid values: `undetected_chromedriver`, `playwright`, `camoufox`, `seleniumbase`. |
+| `DRIVER_BACKEND` | `undetected_chromedriver` | Selects the browser backend. Valid values: `undetected_chromedriver`, `custom_chromium` (alias for the same built-in Chromium path), `playwright`, `camoufox`, `seleniumbase`. |
+| `PLAYWRIGHT_CHROME_EXECUTABLE_PATH` | none | Playwright backend only: launch this browser binary instead of Playwright's downloaded Chromium. If unset and no Playwright browser is installed, the bundled/system Chrome is used as a fallback. |
+| `FLARESOLVERR_SINGLE_THREADED` | false | Run the API server on the single-threaded wsgiref adapter instead of waitress. Intended for testing Playwright-family backends whose contexts are not thread-safe. |
 
 ## Backend Details
 
@@ -73,7 +75,6 @@ A lightweight backend using [Playwright](https://playwright.dev/python/) Chromiu
 ```bash
 pip install "flaresolverr[playwright]"
 playwright install chromium
-playwright install chromium
 ```
 
 ### Camoufox
@@ -88,7 +89,6 @@ Uses [Camoufox](https://camoufox.com/), a Playwright-based browser with advanced
 **Limitations:**
 - **No arbitrary CDP support** — same translation layer as Playwright (see above)
 - Requires `camoufox` Python package
-- Premium feature (paid license for some use cases)
 
 **Install:**
 ```bash
@@ -102,10 +102,11 @@ Uses [SeleniumBase](https://github.com/mdmintz/SeleniumBase) Driver with UC mode
 **Features:**
 - Simpler setup for users already familiar with SeleniumBase
 - UC mode provides basic anti-detection
+- Full CDP support — `sessions.cdp`, `scriptInject`, `disableMedia`, and custom headers pass through to the real ChromeDriver
 
 **Limitations:**
-- Partial CDP support (depends on SeleniumBase version)
 - Less tested than the default backend
+- Pins `selenium==4.49.x`, which conflicts with the main dependency set (`selenium==4.50.0`) — it must be installed in a dedicated environment
 
 **Install:**
 ```bash
@@ -129,11 +130,11 @@ pip install "seleniumbase>=4.30"
 | `sessions.click` | ✅ | ✅ | ✅ | ✅ |
 | `sessions.action` | ✅ | ✅ | ✅ | ✅ |
 | `sessions.screenshot` | ✅ | ✅ | ✅ | ✅ |
-| `sessions.network` | ✅ | ⚠️ | ⚠️ | ⚠️ |
-| `sessions.cdp` | ✅ | ⚠️ | ⚠️ | ⚠️ |
-| `scriptInject` | ✅ | ✅ | ✅ | ⚠️ |
-| `disableMedia` | ✅ | ✅ | ✅ | ⚠️ |
-| Custom headers via `headers` | ✅ | ✅ | ✅ | ⚠️ |
+| `sessions.network` | ✅ | ⚠️ | ⚠️ | ✅ |
+| `sessions.cdp` | ✅ | ⚠️ | ⚠️ | ✅ |
+| `scriptInject` | ✅ | ✅ | ✅ | ✅ |
+| `disableMedia` | ✅ | ✅ | ✅ | ✅ |
+| Custom headers via `headers` | ✅ | ✅ | ✅ | ✅ |
 | Proxy support | ✅ | ✅ | ✅ | ✅ |
 | Cookie handling | ✅ | ✅ | ✅ | ✅ |
 | Browser actions | ✅ | ✅ | ✅ | ✅ |
@@ -146,10 +147,10 @@ pip install "seleniumbase>=4.30"
 ### Backend not found
 
 ```
-ValueError: Unknown driver backend: 'playwright'. Valid backends: ['undetected_chromedriver']
+ValueError: Unknown driver backend: 'playwright'. Valid backends: ['custom_chromium', 'undetected_chromedriver']
 ```
 
-**Cause:** The backend package is not installed.
+**Cause:** The backend package is not installed (uninstalled optional backends do not register, so they do not appear in the valid list).
 
 **Fix:** Install the required package:
 ```bash
@@ -173,6 +174,7 @@ NotImplementedError: CDP command 'Debugger.enable' is not supported by the Playw
 
 **Fix:** The Playwright and Camoufox backends translate the most common CDP commands to Playwright equivalents:
 - `Page.addScriptToEvaluateOnNewDocument` → `page.add_init_script()`
+- `Emulation.setUserAgentOverride` → `page.set_extra_http_headers()` + `navigator.userAgent` init-script override
 - `Network.setBlockedURLs` → `page.route()` with abort
 - `Network.setExtraHTTPHeaders` → `page.set_extra_http_headers()`
 - `Network.enable` → no-op
@@ -185,22 +187,33 @@ Arbitrary CDP commands (e.g., `Debugger.enable`, `Runtime.evaluate`) still raise
 browserType.launch: Executable doesn't exist at /home/user/.cache/ms-playwright/chromium-...
 ```
 
-**Fix:** Run `playwright install chromium` to download browser binaries.
+**Fix:** Run `playwright install chromium` to download browser binaries. If Playwright's
+Chromium is not installed, the backend automatically falls back to the bundled/system
+Chrome (`utils.get_chrome_exe_path()`); set `PLAYWRIGHT_CHROME_EXECUTABLE_PATH` to pick
+a specific binary.
 
-### Camoufox license errors
+### Camoufox browser fails to launch
 
-Camoufox may require a license key for some features. See the [Camoufox documentation](https://camoufox.com/) for licensing details.
+Camoufox ships its own patched Firefox build, downloaded on first use. If launch fails
+with a missing-executable error, run `python -m camoufox fetch` (or reinstall the
+package) to fetch the browser binary.
 
 ## Docker
 
 Backend-specific Dockerfiles are available for CI/testing:
 
 ```bash
-# Build Playwright backend image
+# Default UC backend image
+docker build -f Dockerfile.backend-uc -t flaresolverr:uc .
+
+# Playwright backend image
 docker build -f Dockerfile.backend-playwright -t flaresolverr:playwright .
 
-# Build Camoufox backend image
+# Camoufox backend image
 docker build -f Dockerfile.backend-camoufox -t flaresolverr:camoufox .
+
+# SeleniumBase backend image
+docker build -f Dockerfile.backend-seleniumbase -t flaresolverr:seleniumbase .
 ```
 
 See `docker-compose.local.yml` for multi-backend orchestration examples.

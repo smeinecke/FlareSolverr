@@ -91,7 +91,7 @@ The `GET /health` endpoint returns the service status along with runtime metrics
 | Name               | Default                | Notes                                                                                                                                    |
 | ------------------ | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | LOG_LEVEL          | info                   | Verbosity of the logging. Use `LOG_LEVEL=debug` for more information.                                                                    |
-| DRIVER_BACKEND     | undetected_chromedriver | Browser automation backend. Valid values: `undetected_chromedriver`, `playwright`, `camoufox`, `seleniumbase`. See [BACKENDS.md](./BACKENDS.md). |
+| DRIVER_BACKEND     | undetected_chromedriver | Browser automation backend. Valid values: `undetected_chromedriver`, `custom_chromium`, `playwright`, `camoufox`, `seleniumbase`. See [BACKENDS.md](./BACKENDS.md). |
 | LOG_FILE           | none                   | Path to capture log to file. Example: `/config/flaresolverr.log`.                                                                         |
 | LOG_HTML           | false                  | Only for debugging. If `true` all HTML that passes through the proxy will be logged to the console in `debug` level.                     |
 | PROXY_URL          | none                   | URL for proxy. Will be overwritten by `request` or `sessions` proxy, if used. Example: `http://127.0.0.1:8080`. May embed credentials (`http://user:pass@host:port`) — percent-encoded userinfo is decoded; explicit `PROXY_USERNAME`/`PROXY_PASSWORD` take precedence. |
