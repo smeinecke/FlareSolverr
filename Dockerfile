@@ -100,7 +100,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # patched binaries; for 386/armv7 the directory is empty and Debian's
 # chromium remains in place.
 COPY --from=custom-chrome /opt/chromium-dist/ /opt/chromium-dist/
-RUN mkdir -p /opt/chromium && \
+RUN mkdir -p /opt/chromium /usr/lib/chromium && \
     if [ -f /opt/chromium-dist/chrome ]; then \
         cp -r /opt/chromium-dist/* /usr/lib/chromium/ && \
         ln -sf /usr/lib/chromium/chrome /usr/bin/chromium && \
@@ -110,10 +110,13 @@ RUN mkdir -p /opt/chromium && \
         cp /opt/chromium/.stealth-patched /usr/lib/chromium/.stealth-patched && \
         cp /opt/chromium-dist/.stealth-manifest.json /usr/lib/chromium/.stealth-manifest.json 2>/dev/null || true; \
         rm -rf /opt/chromium-dist; \
-    fi
+    else \
+        ln -sf /usr/bin/chromium /usr/lib/chromium/chrome; \
+    fi \
+    && test -x /usr/lib/chromium/chrome
 
-# Use the custom-patched Chromium binary installed above instead of the
-# (possibly stale) binary bundled in the source tree.
+# Keep one stable default path: the custom build uses the patched binary
+# above, while other architectures get the distro Chromium fallback.
 ENV CHROME_EXE_PATH=/usr/lib/chromium/chrome
 
 VOLUME /config
