@@ -218,23 +218,71 @@ def health_endpoint(details: bool = False) -> HealthResponse:
     return res
 
 
-def _redact_request_for_log(req_dict: dict) -> dict:
-    """Return a copy of the request dict with proxy credentials redacted.
+def _redact_headers_for_log(headers: list[Any] | None) -> list[Any] | None:
+    if headers is None:
+        return None
+    redacted = []
+    for header in headers:
+        if isinstance(header, dict) and "name" in header:
+            item = dict(header)
+            if "value" in item:
+                item["value"] = "***"
+            redacted.append(item)
+        elif isinstance(header, str) and ":" in header:
+            name, _value = header.split(":", 1)
+            redacted.append(f"{name}: ***")
+        else:
+            redacted.append(header)
+    return redacted
 
-    Masks the explicit `password` field as well as credentials embedded in
-    the proxy URL userinfo (scheme://user:pass@host).
-    """
-    proxy = req_dict.get("proxy")
+
+def _redact_request_for_log(req_dict: dict) -> dict:
+    """Return a request copy with credentials, bodies, and token material redacted."""
+    redacted = dict(req_dict)
+
+    proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
-        redacted = dict(proxy)
-        if "password" in redacted:
-            redacted["password"] = "***"  # nosec B105
-        url = redacted.get("url")
+        proxy = dict(proxy)
+        for key in ("username", "password"):
+            if key in proxy:
+                proxy[key] = "***"  # nosec B105
+        url = proxy.get("url")
         if isinstance(url, str):
-            redacted["url"] = utils._redact_url_credentials(url)
-        if redacted != proxy:
-            req_dict = {**req_dict, "proxy": redacted}
-    return req_dict
+            proxy["url"] = utils._redact_url_credentials(url)
+        redacted["proxy"] = proxy
+
+    url = redacted.get("url")
+    if isinstance(url, str):
+        redacted["url"] = utils._redact_url_credentials(url)
+
+    if "headers" in redacted:
+        redacted["headers"] = _redact_headers_for_log(redacted.get("headers"))
+    if isinstance(redacted.get("cookies"), list):
+        redacted["cookies"] = [{**cookie, "value": "***"} if isinstance(cookie, dict) and "value" in cookie else cookie for cookie in redacted["cookies"]]
+    for key in ("postData", "postDataRaw", "body", "script"):
+        if redacted.get(key) is not None:
+            redacted[key] = "***"
+    if isinstance(redacted.get("actions"), list):
+        redacted["actions"] = [
+            {
+                **action,
+                **({"value": "***"} if action.get("value") is not None else {}),
+                **({"script": "***"} if action.get("script") is not None else {}),
+            }
+            if isinstance(action, dict)
+            else action
+            for action in redacted["actions"]
+        ]
+    if isinstance(redacted.get("scriptInject"), list):
+        redacted["scriptInject"] = [
+            {**item, "script": "***"} if isinstance(item, dict) and item.get("script") is not None else item for item in redacted["scriptInject"]
+        ]
+    if isinstance(redacted.get("cdp"), dict):
+        cdp = dict(redacted["cdp"])
+        if cdp.get("params") is not None:
+            cdp["params"] = "***"
+        redacted["cdp"] = cdp
+    return redacted
 
 
 def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
@@ -1110,7 +1158,7 @@ def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
             cloudflare_svc._click_verify(driver, num_tabs=tabs)
         turnstile_token = token_input.get_attribute("value")
         if turnstile_token and turnstile_token != current_value:
-            logger.info(f"Turnstile token: {turnstile_token}")
+            logger.info("Turnstile token obtained")
             return turnstile_token
         logger.debug("Failed to extract token possibly click failed")
 
@@ -1182,7 +1230,7 @@ def _set_custom_headers(req: V1RequestBase, driver: WebDriver) -> None:
     if req.headers is None or len(req.headers) == 0:
         return
     try:
-        logger.debug(f"Setting custom headers: {req.headers}")
+        logger.debug(f"Setting custom headers: {_redact_headers_for_log(req.headers)}")
         # Convert headers list to dict for CDP
         headers_dict = {}
         for header in req.headers:
