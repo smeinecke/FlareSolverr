@@ -289,7 +289,7 @@ class TestEvilLogicInjectionPoints:
         monkeypatch.setattr(svc, "_raise_if_navigation_error", lambda _d: None)
         monkeypatch.setattr(svc, "_raise_if_access_denied", lambda _d, _t: None)
         monkeypatch.setattr(svc.SERVICE_MANAGER, "detect", lambda _d, _s: None)
-        monkeypatch.setattr(svc, "_build_challenge_result", lambda _req, _d, _t, _h=None: MagicMock())
+        monkeypatch.setattr(svc, "_build_challenge_result", lambda *a, **kw: MagicMock())
 
         req = V1RequestBase({"cmd": "request.get", "url": "https://x.com"})
         svc._evil_logic(req, MagicMock(), "GET", ["cloudflare"])
@@ -319,7 +319,7 @@ class TestEvilLogicInjectionPoints:
         monkeypatch.setattr(svc, "_raise_if_navigation_error", lambda _d: None)
         monkeypatch.setattr(svc, "_raise_if_access_denied", lambda _d, _t: None)
         monkeypatch.setattr(svc.SERVICE_MANAGER, "detect", lambda _d, _s: None)
-        monkeypatch.setattr(svc, "_build_challenge_result", lambda _req, _d, _t, _h=None: MagicMock())
+        monkeypatch.setattr(svc, "_build_challenge_result", lambda *a, **kw: MagicMock())
 
         req = V1RequestBase({"cmd": "request.get", "url": "https://x.com"})
         svc._evil_logic(req, driver, "GET", ["cloudflare"])

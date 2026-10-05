@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 from flaresolverr.services.base import ChallengeService
 from flaresolverr.services.manager import ServiceManager
 from flaresolverr.services.cloudflare import CloudflareService
-from flaresolverr.services.ddos_guard import DDoSGuardService
+from flaresolverr.services.ddos_guard import DDoSGuardManualCaptchaError, DDoSGuardService, _title_matches_ignoring_case
 from flaresolverr.services.brave import BraveService
 
 from selenium.common import TimeoutException
@@ -180,6 +180,130 @@ class TestCloudflareService:
         svc.resolve(driver)
         assert mock_wait_instance.until_not.call_count >= 2
 
+    def _single_timeout_resolve(self, svc, monkeypatch, mock_wait, grace: str):
+        """Run resolve() with exactly one TimeoutException cycle, then success."""
+        driver = MagicMock()
+        driver.title = "Just a moment..."
+        driver.page_source = ""
+        driver.find_elements.return_value = []
+
+        calls = [0]
+
+        def side_effect(*a, **k):
+            calls[0] += 1
+            if calls[0] == 1:
+                raise TimeoutException()
+            return True
+
+        mock_wait_instance = MagicMock()
+        mock_wait_instance.until_not.side_effect = side_effect
+        mock_wait.return_value = mock_wait_instance
+
+        monkeypatch.setenv("CHALLENGE_PROBE_GRACE", grace)
+        probe = MagicMock(return_value=False)
+        monkeypatch.setattr(svc, "_should_attempt_verify_click", probe)
+        svc.resolve(driver)
+        return probe
+
+    @patch("flaresolverr.services.cloudflare.WebDriverWait")
+    def test_resolve_skips_probe_during_grace_period(self, mock_wait, svc, monkeypatch):
+        """The challenge-state probe forces layout + a full DOM walk, which
+        stalls Turnstile auto-verification — it must not run during grace."""
+        probe = self._single_timeout_resolve(svc, monkeypatch, mock_wait, "9999")
+        probe.assert_not_called()
+
+    @patch("flaresolverr.services.cloudflare.WebDriverWait")
+    def test_resolve_probes_after_grace_period(self, mock_wait, svc, monkeypatch):
+        """Once the grace window elapses, probing resumes so interactive
+        challenges can still be detected and clicked."""
+        probe = self._single_timeout_resolve(svc, monkeypatch, mock_wait, "0")
+        probe.assert_called_once()
+
+    @staticmethod
+    def _probe_driver(state):
+        """Driver mock whose execute_script returns a canned challenge probe."""
+        driver = MagicMock()
+
+        def execute_script(script, *args):
+            return state
+
+        driver.execute_script = execute_script
+        return driver
+
+    def test_click_suppressed_by_hidden_success_template(self, svc):
+        """Hidden 'Verification successful' template text must not suppress clicks
+        when a real interactive control is rendered."""
+        driver = self._probe_driver(
+            {
+                "verifyButton": False,
+                "challengeIframe": True,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": False,
+                "successTextVisible": False,
+                "iframeSrcs": ["https://challenges.cloudflare.com/x"],
+            }
+        )
+        assert svc._should_attempt_verify_click(driver) is True
+
+    def test_click_suppressed_on_visible_success(self, svc):
+        """A *visible* success state means the challenge passed — never click."""
+        driver = self._probe_driver(
+            {
+                "verifyButton": True,
+                "challengeIframe": True,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": False,
+                "successTextVisible": True,
+                "iframeSrcs": [],
+            }
+        )
+        assert svc._should_attempt_verify_click(driver) is False
+
+    def test_click_on_verify_button(self, svc):
+        driver = self._probe_driver(
+            {
+                "verifyButton": True,
+                "challengeIframe": False,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": False,
+                "successTextVisible": False,
+                "iframeSrcs": [],
+            }
+        )
+        assert svc._should_attempt_verify_click(driver) is True
+
+    def test_no_click_on_automatic_challenge(self, svc):
+        """Visible 'Verifying...' text with no control = managed challenge; no blind clicks."""
+        driver = self._probe_driver(
+            {
+                "verifyButton": False,
+                "challengeIframe": False,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": True,
+                "successTextVisible": False,
+                "iframeSrcs": [],
+            }
+        )
+        assert svc._should_attempt_verify_click(driver) is False
+
+    def test_no_click_without_markers(self, svc):
+        driver = self._probe_driver(
+            {
+                "verifyButton": False,
+                "challengeIframe": False,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": False,
+                "successTextVisible": False,
+                "iframeSrcs": [],
+            }
+        )
+        assert svc._should_attempt_verify_click(driver) is False
+
+    def test_click_suppressed_on_probe_error(self, svc):
+        driver = MagicMock()
+        driver.execute_script.side_effect = RuntimeError("driver dead")
+        assert svc._should_attempt_verify_click(driver) is False
+
 
 class TestDDoSGuardService:
     @pytest.fixture
@@ -196,6 +320,27 @@ class TestDDoSGuardService:
     def test_detect_no_challenge(self, svc):
         driver = _make_driver()
         assert svc.detect(driver) is False
+
+    def test_detect_by_challenge_script(self, svc):
+        driver = _make_driver(title="Loading")
+        driver.find_elements.side_effect = lambda _by, selector: [object()] if "ddos-guard/js-challenge" in selector else []
+        assert svc.detect(driver) is True
+
+    def test_detect_by_manual_captcha_script(self, svc):
+        driver = _make_driver(title="Loading")
+        driver.find_elements.side_effect = lambda _by, selector: [object()] if "ddg-captcha-page" in selector else []
+        assert svc.detect(driver) is True
+
+    def test_resolve_raises_on_manual_captcha(self, svc):
+        driver = _make_driver(title="DDOS-GUARD")
+        driver.find_elements.side_effect = lambda _by, selector: [object()] if "ddg-captcha-page" in selector else []
+        with pytest.raises(DDoSGuardManualCaptchaError, match="manual captcha"):
+            svc.resolve(driver)
+
+    def test_title_wait_is_case_insensitive(self):
+        predicate = _title_matches_ignoring_case("DDoS-Guard")
+        assert predicate(_make_driver(title="DDOS-GUARD")) is True
+        assert predicate(_make_driver(title="Solved")) is False
 
     @patch("flaresolverr.services.ddos_guard.WebDriverWait")
     def test_resolve_waits_for_redirect(self, mock_wait, svc):

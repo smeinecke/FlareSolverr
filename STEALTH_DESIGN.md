@@ -4,6 +4,10 @@ This document is the living design note for the custom Chromium stealth layer.
 It records the inventory of stealth mechanisms and the ownership model
 (native Blink/Chromium vs. launch/CDP configuration vs. JavaScript fallback).
 
+The [Cloudflare detection review](docs/cloudflare-detection-review.md) records
+the September 2026 runtime audit, including the UA client-hint gap, the active
+unified-Chrome UA path, and proposed corrections to assumptions in this inventory.
+
 ## Design rule
 
 ```text
@@ -25,11 +29,11 @@ compatibility workarounds because the binary is not under our control.
 
 | Signal | Custom-build ownership | Current implementation | Classification | Notes |
 |--------|------------------------|------------------------|----------------|-------|
-| `navigator.webdriver` | Native (Blink) | C++ patch gates IDL attribute on `[RuntimeEnabled=AutomationControlled]`; `--disable-blink-features=AutomationControlled` | A | Must be absent/undefined in all realms. No JS getters. |
+| `navigator.webdriver` | Native (Blink) | C++ patch makes `Navigator::webdriver()` return `false`; IDL left stock so the property exists | A | Must be present and `false` in all realms — the exact stock non-automated shape. An absent property is impossible on a real browser and was measured to fail Cloudflare managed challenges even with real human clicks. No JS getters. |
 | `navigator.language` / `navigator.languages` | Native (Blink) + config | C++ patch `--stealth-navigator-languages=<list>`; `--accept-lang` and `--lang` also forwarded | A/B | Patch parses the switch value as the underlying language state for all contexts. `--lang` (Patch 10) keeps Intl.* defaults aligned with navigator.language. |
-| `navigator.userAgent` | Config | `--user-agent` CLI switch (custom); CDP `Emulation.setUserAgentOverride` (fallback) | B | `--user-agent` propagates to all execution contexts. |
+| `navigator.userAgent` | Native + config | Patch 6b: `--stealth-native-ua` suppresses the `Headless` product token inside `GetUserAgentInternal`, so no `--user-agent` switch is needed once the binary advertises it via `.stealth-manifest.json`; `--user-agent` remains the fallback for older binaries, and CDP `Emulation.setUserAgentOverride` for stock Chromium | A/B | The native path derives the UA from the real version/brand state, keeping it coherent across main frame, iframes, dedicated and shared workers. |
 | `navigator.platform` | Native | Derived from UA / OS | A | No override. |
-| `navigator.userAgentData` / UA-CH | Config + native propagation | `--user-agent` provides legacy UA; fallback JS patches brands | B/A | CDP metadata does not reach SharedWorkers; `--user-agent` covers legacy UA. UA-CH propagation gaps should be fixed natively, not via JS. |
+| `navigator.userAgentData` / UA-CH | Native | With Patch 6b active there is no `--user-agent` switch, so `GetUserAgentMetadata` no longer early-returns and high-entropy `sec-ch-ua-*` request headers and `navigator.userAgentData` are emitted coherently with the UA. The CDP override path sets `userAgentMetadata` explicitly. | A | This was the gap in the 2026 audit: `--user-agent` suppressed high-entropy UA-CH entirely, so the JS brand shims are no longer needed for the custom build. |
 | DedicatedWorker identity | Native / config | Same process/flags as main; no custom JS prelude | A/B | `--user-agent` and `--accept-lang` propagate. |
 | SharedWorker identity | Native / config | No custom JS wrapper | A/B | UA/languages should derive from common browser state. |
 | Permissions API | Native / config | Fallback JS overrides `navigator.permissions.query` for notifications; custom build uses no JS | B | Use Chromium profile / CDP permissions. No fabricated objects. |
@@ -87,8 +91,11 @@ host (NVIDIA GeForce RTX 2080, driver 610.57.04).
 
 ## Upgrade maintenance notes
 
-- The `[RuntimeEnabled=AutomationControlled]` webdriver gate depends on Blink
-  IDL runtime features. If upstream moves the file, update `apply.py`.
+- The default Patch 2 shape is `navigator.webdriver` present-but-false
+  (`Navigator::webdriver()` returns `false`, IDL stock). This replaced the
+  absent-property shape after live Cloudflare testing showed the absent
+  property is a patched-binary tell. If upstream moves `navigator.cc` or the
+  automation-information IDL, update `apply.py`.
 - GPU identity is now coherent. In `--headless=new` the GPU process is
   disabled, so WebGL/WebGPU are unavailable and the identity is consistently
   "no GPU". With a real display the WebGL `UNMASKED_VENDOR/RENDERER` values
@@ -102,3 +109,20 @@ host (NVIDIA GeForce RTX 2080, driver 610.57.04).
   removed in this audit; confirm during the next full integration run.
 - `mediaDevices.enumerateDevices` is now handled by the `--stealth-no-media-devices`
   native patch (Patch 11). No JS fallback should be re-added.
+- Launch configuration: Chrome treats repeated `--disable-features` switches as
+  replace-not-merge, so `_build_chrome_options` collects every intended feature
+  into one switch. The proxy-manager extension is only loaded when a proxy is
+  configured (or the driver is session-scoped).
+- `STEALTH_OMIT_FLAGS` (comma-separated switch names without dashes) omits
+  switch-gated patches at runtime — ablation of `--stealth-viewport-size`,
+  `--stealth-navigator-languages`, `--stealth-no-media-devices` and
+  `--stealth-native-ua` needs no rebuild.
+- Build provenance: the self-hosted build writes `.stealth-manifest.json`
+  next to the binary (Chromium version/revision, patch IDs, `apply.py` and GN
+  args hashes, binary hashes). The runtime reads it to gate binary-dependent
+  behaviour such as `--stealth-native-ua`, so the Python side is safe to deploy
+  before the rebuilt binary exists.
+- `FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=1` build variant (ablation only):
+  Patch 2 gates the IDL attribute on `[RuntimeEnabled=AutomationControlled]`
+  so the property is absent entirely; the manifest then lists `webdriver-idl`
+  and the runtime passes `--disable-blink-features=AutomationControlled`.

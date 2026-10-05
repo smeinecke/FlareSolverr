@@ -43,7 +43,7 @@ def test_create_returns_new_then_existing_session(monkeypatch) -> None:
     driver = DummyDriver()
     calls = {"count": 0}
 
-    def fake_get_webdriver(proxy, stealth_mode=None, logging_prefs=None):
+    def fake_get_webdriver(proxy, stealth_mode=None, logging_prefs=None, for_session=False):
         calls["count"] += 1
         assert proxy == {"url": "http://proxy"}
         assert stealth_mode == "off"
@@ -67,7 +67,7 @@ def test_create_with_force_new_recreates_existing_session(monkeypatch) -> None:
     second = DummyDriver()
     drivers = iter([first, second])
 
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: next(drivers))
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: next(drivers))
     monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
 
     old_session, _ = storage.create("recreate")
@@ -89,7 +89,7 @@ def test_destroy_closes_driver_on_windows(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
     driver = DummyDriver()
 
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: driver)
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: driver)
     monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "nt")
 
     storage.create("win")
@@ -105,7 +105,7 @@ def test_get_recreates_expired_session(monkeypatch) -> None:
     second = DummyDriver()
     drivers = iter([first, second])
 
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: next(drivers))
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: next(drivers))
     monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
 
     initial_session, _ = storage.create("ttl")
@@ -122,7 +122,7 @@ def test_get_returns_existing_when_not_expired(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
     driver = DummyDriver()
 
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: driver)
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: driver)
 
     created, _ = storage.create("ok")
     created.created_at = datetime.now() - timedelta(seconds=10)
@@ -135,7 +135,7 @@ def test_get_returns_existing_when_not_expired(monkeypatch) -> None:
 
 def test_session_ids_lists_all_ids(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
 
     storage.create("one")
     storage.create("two")
@@ -145,7 +145,7 @@ def test_session_ids_lists_all_ids(monkeypatch) -> None:
 
 def test_create_rejects_stealth_mismatch_for_existing_session(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "get_config_stealth_mode", lambda: "off")
 
     storage.create("s1", stealth_mode="off")
@@ -159,7 +159,7 @@ def test_create_rejects_stealth_mismatch_for_existing_session(monkeypatch) -> No
 
 def test_create_rejects_user_agent_mismatch_for_existing_session(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "apply_user_agent_override", lambda _driver, _ua, _al=None: None)
 
     storage.create("ua-session", user_agent="UA-1")
@@ -175,7 +175,7 @@ def test_create_accepts_legacy_boolean_stealth_mode(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
     seen = {}
 
-    def fake_get_webdriver(_proxy, stealth_mode=None, logging_prefs=None):
+    def fake_get_webdriver(_proxy, stealth_mode=None, logging_prefs=None, for_session=False):
         seen["mode"] = stealth_mode
         return DummyDriver()
 
@@ -187,7 +187,7 @@ def test_create_accepts_legacy_boolean_stealth_mode(monkeypatch) -> None:
 
 def test_cleanup_removes_expired_by_max_runtime(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
     monkeypatch.setattr(sessions.utils, "get_config_session_idle_timeout", lambda: timedelta(minutes=60))
     monkeypatch.setattr(sessions.utils, "get_config_session_max_count", lambda: None)
@@ -203,7 +203,7 @@ def test_cleanup_removes_expired_by_max_runtime(monkeypatch) -> None:
 
 def test_cleanup_removes_expired_by_idle_timeout(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
     monkeypatch.setattr(sessions.utils, "get_config_session_idle_timeout", lambda: timedelta(minutes=60))
     monkeypatch.setattr(sessions.utils, "get_config_session_max_count", lambda: None)
@@ -219,7 +219,7 @@ def test_cleanup_removes_expired_by_idle_timeout(monkeypatch) -> None:
 
 def test_cleanup_noop_when_nothing_expired(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
     monkeypatch.setattr(sessions.utils, "get_config_session_idle_timeout", lambda: timedelta(minutes=60))
     monkeypatch.setattr(sessions.utils, "get_config_session_max_count", lambda: None)
@@ -232,7 +232,7 @@ def test_cleanup_noop_when_nothing_expired(monkeypatch) -> None:
 
 def test_cleanup_skips_locked_sessions(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
     monkeypatch.setattr(sessions.utils, "get_config_session_idle_timeout", lambda: timedelta(minutes=60))
     monkeypatch.setattr(sessions.utils, "get_config_session_max_count", lambda: None)
@@ -251,7 +251,7 @@ def test_cleanup_skips_locked_sessions(monkeypatch) -> None:
 def test_cleanup_does_not_destroy_for_max_count(monkeypatch) -> None:
     """cleanup() must only destroy expired sessions, not enforce max_count."""
     storage = sessions.SessionsStorage()
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
     monkeypatch.setattr(sessions.utils, "get_config_session_idle_timeout", lambda: timedelta(minutes=60))
     monkeypatch.setattr(sessions.utils, "get_config_session_max_count", lambda: 2)
@@ -271,7 +271,7 @@ def test_cleanup_does_not_destroy_for_max_count(monkeypatch) -> None:
 def test_create_raises_when_max_count_exceeded(monkeypatch) -> None:
     """create() must raise SessionLimitExceededError when max_count is reached."""
     storage = sessions.SessionsStorage()
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
     monkeypatch.setattr(sessions.utils, "get_config_session_max_count", lambda: 2)
 
@@ -376,7 +376,7 @@ def test_destroy_verifies_browser_pid_dead(monkeypatch) -> None:
         verified["called"] = True
         assert pid == 12345
 
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: driver)
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: driver)
     monkeypatch.setattr(sessions, "_ensure_process_dead", fake_ensure_dead)
     monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
 
@@ -387,7 +387,7 @@ def test_destroy_verifies_browser_pid_dead(monkeypatch) -> None:
 
 def test_create_stores_proxy_on_session(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
 
     session, _ = storage.create("s1", proxy={"url": "http://proxy:8080"})
     assert session.proxy == {"url": "http://proxy:8080"}
@@ -397,7 +397,7 @@ def test_reuse_updates_proxy_when_changed(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
     applied: list[dict | None] = []
 
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "apply_proxy_to_session", lambda driver, proxy: applied.append(proxy))
 
     storage.create("s1", proxy={"url": "http://proxy1:8080"})
@@ -411,7 +411,7 @@ def test_reuse_clears_proxy_with_empty(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
     applied: list[dict | None] = []
 
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "apply_proxy_to_session", lambda driver, proxy: applied.append(proxy))
 
     storage.create("s1", proxy={"url": "http://proxy:8080"})
@@ -425,7 +425,7 @@ def test_reuse_keeps_proxy_when_omitted(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
     applied: list[dict | None] = []
 
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "apply_proxy_to_session", lambda driver, proxy: applied.append(proxy))
 
     storage.create("s1", proxy={"url": "http://proxy:8080"})
@@ -438,7 +438,7 @@ def test_reuse_skips_proxy_update_when_same(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
     applied: list[dict | None] = []
 
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "apply_proxy_to_session", lambda driver, proxy: applied.append(proxy))
 
     storage.create("s1", proxy={"url": "http://proxy:8080"})
@@ -452,7 +452,7 @@ def test_reuse_updates_proxy_when_auth_changes(monkeypatch) -> None:
     storage = sessions.SessionsStorage()
     applied: list[dict | None] = []
 
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
     monkeypatch.setattr(sessions.utils, "apply_proxy_to_session", lambda driver, proxy: applied.append(proxy))
 
     storage.create("s1", proxy={"url": "http://proxy:8080", "username": "user1", "password": "pass1"})
@@ -466,7 +466,7 @@ def test_reuse_raises_on_invalid_proxy(monkeypatch) -> None:
     """Invalid proxy on a reused session must raise RuntimeError (not silently keep old proxy)."""
     storage = sessions.SessionsStorage()
 
-    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+    monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
 
     storage.create("s1", proxy={"url": "http://proxy:8080"})
     with pytest.raises(RuntimeError, match="schema required"):

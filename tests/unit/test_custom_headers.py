@@ -291,6 +291,52 @@ class TestHeadersIntegration:
         assert params["headers"]["Referer"] == "https://page2.com"
 
 
+class TestRequestLogRedaction:
+    """Ensure request logging preserves structure without exposing secrets."""
+
+    def test_request_log_redacts_sensitive_fields(self):
+        req = {
+            "cmd": "request.post",
+            "url": "https://user:pass@example.com/api",
+            "headers": [
+                {"name": "Authorization", "value": "Bearer secret"},
+                "Cookie: session=secret",
+            ],
+            "cookies": [{"name": "sid", "value": "cookie-secret"}],
+            "proxy": {"url": "http://proxy-user:proxy-pass@proxy.local:8080", "username": "proxy-user", "password": "proxy-pass"},
+            "postData": "token=secret",
+            "postDataRaw": '{"api_key":"secret"}',
+            "body": "secret-body",
+            "actions": [{"type": "fill", "selector": "//input", "value": "typed-secret"}],
+            "script": "return localStorage.token",
+            "scriptInject": [{"point": "document_start", "script": "window.token='secret'"}],
+            "cdp": {"method": "Network.setExtraHTTPHeaders", "params": {"headers": {"Authorization": "Bearer secret"}}},
+        }
+
+        redacted = service._redact_request_for_log(req)
+
+        serialized = str(redacted)
+        for secret in (
+            "Bearer secret",
+            "session=secret",
+            "cookie-secret",
+            "proxy-pass",
+            "token=secret",
+            "api_key",
+            "secret-body",
+            "typed-secret",
+            "localStorage.token",
+            "window.token",
+        ):
+            assert secret not in serialized
+        assert redacted["headers"][0]["name"] == "Authorization"
+        assert redacted["headers"][1] == "Cookie: ***"
+        assert redacted["cookies"][0]["name"] == "sid"
+        assert redacted["proxy"]["url"] == "http://***:***@proxy.local:8080"
+        assert redacted["url"] == "https://***:***@example.com/api"
+        assert req["postData"] == "token=secret"
+
+
 class TestHeadersEdgeCases:
     """Edge case tests for headers handling."""
 

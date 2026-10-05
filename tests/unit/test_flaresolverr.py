@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from bottle import HTTPResponse
 
 pytest.importorskip("func_timeout")
 from flaresolverr import flaresolverr
@@ -451,3 +452,46 @@ def test_controller_v1_request_post_explicit_route(monkeypatch) -> None:
     flaresolverr.controller_v1_request_post()
 
     assert captured["req"].cmd == "request.post"
+
+
+def test_v1_auth_disabled_by_default(monkeypatch) -> None:
+    called = {"value": False}
+    monkeypatch.setattr(flaresolverr, "api_token", None)
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={"cmd": "request.get"}, get_header=lambda _name: None))
+    monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "controller_v1_endpoint", lambda _req: called.__setitem__("value", True) or SimpleNamespace(__error_500__=False))
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda _res: {"ok": True})
+
+    flaresolverr.controller_v1()
+
+    assert called["value"] is True
+
+
+def test_v1_auth_rejects_missing_or_wrong_bearer(monkeypatch) -> None:
+    monkeypatch.setattr(flaresolverr, "api_token", "secret-token")
+    monkeypatch.setattr(flaresolverr, "request", SimpleNamespace(json={"cmd": "request.get"}, get_header=lambda _name, _default=None: "Bearer wrong"))
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "controller_v1_endpoint", lambda _req: pytest.fail("unauthorized request reached dispatcher"))
+
+    with pytest.raises(HTTPResponse) as exc_info:
+        flaresolverr.controller_v1()
+
+    assert exc_info.value.status_code == 401
+    assert json.loads(exc_info.value.body)["status_code"] == 401
+
+
+def test_v1_auth_accepts_configured_bearer(monkeypatch) -> None:
+    called = {"value": False}
+    monkeypatch.setattr(flaresolverr, "api_token", "secret-token")
+    monkeypatch.setattr(
+        flaresolverr,
+        "request",
+        SimpleNamespace(json={"cmd": "request.get"}, get_header=lambda name, _default=None: "Bearer secret-token" if name == "Authorization" else None),
+    )
+    monkeypatch.setattr(flaresolverr, "env_proxy_url", None)
+    monkeypatch.setattr(flaresolverr.flaresolverr_service, "controller_v1_endpoint", lambda _req: called.__setitem__("value", True) or SimpleNamespace(__error_500__=False))
+    monkeypatch.setattr(flaresolverr.utils, "object_to_dict", lambda _res: {"ok": True})
+
+    result = flaresolverr.controller_v1()
+
+    assert called["value"] is True
+    assert result == {"ok": True}

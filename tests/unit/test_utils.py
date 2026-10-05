@@ -115,6 +115,66 @@ def test_apply_proxy_to_session_sends_auth_when_present(monkeypatch) -> None:
     assert '"mode": "fixed_servers"' in script
 
 
+def test_apply_proxy_to_session_extracts_auth_from_url(monkeypatch) -> None:
+    """Credentials embedded in the proxy URL should populate the auth payload."""
+    driver = _make_ack_driver("abc123")
+    monkeypatch.setattr(utils, "_check_proxy_reachable", lambda url: None)
+
+    utils.apply_proxy_to_session(driver, {"url": "http://user:pass@proxy:8080"})
+
+    injected = [c[0][0] for c in driver.execute_script.call_args_list if "chrome.runtime.sendMessage" in c[0][0]]
+    assert len(injected) == 1
+    assert '"username": "user"' in injected[0]
+    assert '"password": "pass"' in injected[0]
+
+
+def test_apply_proxy_to_session_url_auth_percent_decoded(monkeypatch) -> None:
+    """Percent-encoded credentials in the URL must be decoded before use."""
+    driver = _make_ack_driver("abc123")
+    monkeypatch.setattr(utils, "_check_proxy_reachable", lambda url: None)
+
+    utils.apply_proxy_to_session(driver, {"url": "http://us%40er:p%40ss%3A1@proxy:8080"})
+
+    injected = [c[0][0] for c in driver.execute_script.call_args_list if "chrome.runtime.sendMessage" in c[0][0]]
+    assert len(injected) == 1
+    assert '"username": "us@er"' in injected[0]
+    assert '"password": "p@ss:1"' in injected[0]
+
+
+def test_apply_proxy_to_session_explicit_fields_win_over_url(monkeypatch) -> None:
+    """Explicit username/password fields take precedence over URL userinfo."""
+    driver = _make_ack_driver("abc123")
+    monkeypatch.setattr(utils, "_check_proxy_reachable", lambda url: None)
+
+    utils.apply_proxy_to_session(driver, {"url": "http://urluser:urlpass@proxy:8080", "username": "explicit", "password": "explicitpass"})
+
+    injected = [c[0][0] for c in driver.execute_script.call_args_list if "chrome.runtime.sendMessage" in c[0][0]]
+    assert len(injected) == 1
+    assert '"username": "explicit"' in injected[0]
+    assert '"password": "explicitpass"' in injected[0]
+
+
+def test_apply_proxy_to_session_url_without_password(monkeypatch) -> None:
+    """URL userinfo with only a username sends an empty password."""
+    driver = _make_ack_driver("abc123")
+    monkeypatch.setattr(utils, "_check_proxy_reachable", lambda url: None)
+
+    utils.apply_proxy_to_session(driver, {"url": "socks5://user@proxy:1080"})
+
+    injected = [c[0][0] for c in driver.execute_script.call_args_list if "chrome.runtime.sendMessage" in c[0][0]]
+    assert len(injected) == 1
+    assert '"username": "user"' in injected[0]
+    assert '"password": ""' in injected[0]
+
+
+def test_invalid_proxy_error_redacts_url_credentials() -> None:
+    """Error messages must not leak credentials embedded in the proxy URL."""
+    driver = _make_ack_driver("abc123")
+    with pytest.raises(RuntimeError, match="cannot parse host/port") as exc_info:
+        utils.apply_proxy_to_session(driver, {"url": "http://user:secretpass@"})
+    assert "secretpass" not in str(exc_info.value)
+
+
 def test_apply_proxy_to_session_raises_on_invalid_proxy() -> None:
     """An invalid proxy (missing schema) must raise RuntimeError."""
     driver = _make_ack_driver("abc123")
@@ -292,8 +352,9 @@ def test_get_webdriver_cleans_proxy_ext_dir_on_failure(monkeypatch) -> None:
 
     monkeypatch.setattr(subprocess, "Popen", failing_popen)
 
+    # A proxy is required for the proxy-manager extension to be loaded.
     with pytest.raises(OSError, match="No space left on device"):
-        utils.get_webdriver()
+        utils.get_webdriver(proxy={"url": "http://127.0.0.1:9"})
     assert not os.path.exists(ext_dir)
 
 
@@ -488,3 +549,77 @@ def test_performance_logs_to_har_filters_internal_chrome_urls() -> None:
 
     assert len(har["log"]["entries"]) == 1
     assert har["log"]["entries"][0]["request"]["url"] == "https://example.com/"
+
+
+class TestChromeOptionsConsolidation:
+    @pytest.fixture(autouse=True)
+    def _env(self, monkeypatch):
+        for var in [
+            "CHROME_EXTRA_FLAGS",
+            "STEALTH_OMIT_FLAGS",
+            "CHROME_DISABLE_OPTIMIZATIONS",
+            "MINIMAL_FINGERPRINT",
+            "DISABLE_QUIC",
+            "DISABLE_WEB_SECURITY",
+        ]:
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(utils, "_CUSTOM_CHROMIUM_MANIFEST", None)
+        # Avoid spawning `chrome --version` for the --user-agent fallback path.
+        monkeypatch.setattr(utils, "get_chrome_full_version", lambda: "151.0.0.0")
+        monkeypatch.setattr(utils, "get_chrome_major_version", lambda: "151")
+
+    def _options(self, monkeypatch, stealth_mode="off", custom=False, patches=None):
+        monkeypatch.setattr(utils, "_is_custom_chromium", lambda: custom)
+        monkeypatch.setattr(utils, "_get_custom_chromium_manifest", lambda: {"patches": list(patches or [])})
+        return utils._build_chrome_options(stealth_mode)
+
+    def test_single_disable_features_argument(self, monkeypatch):
+        options = self._options(monkeypatch)
+        disable_args = [a for a in options.arguments if a.startswith("--disable-features=")]
+        assert len(disable_args) == 1
+        features = disable_args[0].removeprefix("--disable-features=").split(",")
+        for expected in [
+            "MediaRouter",
+            "OptimizationHints",
+            "Translate",
+            "LocalNetworkAccessChecks",
+        ]:
+            assert expected in features
+
+    def test_disable_features_merges_all_sources(self, monkeypatch):
+        monkeypatch.setenv("DISABLE_WEB_SECURITY", "true")
+        monkeypatch.setenv("MINIMAL_FINGERPRINT", "false")
+        options = self._options(monkeypatch)
+        disable_args = [a for a in options.arguments if a.startswith("--disable-features=")]
+        assert len(disable_args) == 1
+        features = set(disable_args[0].removeprefix("--disable-features=").split(","))
+        assert {"BlockInsecurePrivateNetworkRequests", "StrictOriginIsolation"} <= features
+
+    def test_omit_flags_removes_stealth_switch(self, monkeypatch):
+        monkeypatch.setenv("STEALTH_OMIT_FLAGS", "stealth-viewport-size")
+        options = self._options(monkeypatch, stealth_mode="standard", custom=True, patches=["native-ua"])
+        assert "--stealth-viewport-size" not in options.arguments
+        assert "--stealth-no-media-devices" in options.arguments
+
+    def test_native_ua_flag_from_manifest(self, monkeypatch):
+        options = self._options(monkeypatch, stealth_mode="standard", custom=True, patches=["native-ua"])
+        assert "--stealth-native-ua" in options.arguments
+        # Native UA makes the --user-agent fallback unnecessary.
+        assert not [a for a in options.arguments if a.startswith("--user-agent=")]
+
+    def test_native_ua_flag_absent_without_manifest(self, monkeypatch):
+        options = self._options(monkeypatch, stealth_mode="standard", custom=True, patches=[])
+        assert "--stealth-native-ua" not in options.arguments
+        # Legacy fallback keeps --user-agent for binaries without Patch 6b.
+        assert [a for a in options.arguments if a.startswith("--user-agent=")]
+
+    def test_extra_flags_added_once(self, monkeypatch):
+        monkeypatch.setenv("CHROME_EXTRA_FLAGS", "--foo=1,--bar")
+        options = self._options(monkeypatch)
+        assert options.arguments.count("--foo=1") == 1
+        assert "--bar" in options.arguments
+
+    def test_webdriver_false_property_variant(self, monkeypatch):
+        options = self._options(monkeypatch, stealth_mode="standard", custom=True, patches=["webdriver-false"])
+        # False-property variant: property must stay present -> no AutomationControlled removal.
+        assert "--disable-blink-features=AutomationControlled" not in options.arguments

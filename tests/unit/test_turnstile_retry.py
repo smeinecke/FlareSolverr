@@ -213,9 +213,11 @@ class TestTurnstileIntegration:
                 self.current_url = "https://example.com"
                 self._token_value = ""
                 self._attempts = 0
+                self._get_urls = []
                 self.switch_to = MagicMock()
 
             def get(self, url):
+                self._get_urls.append(url)
                 self.current_url = url
 
             def find_elements(self, by, value):
@@ -253,13 +255,15 @@ class TestTurnstileIntegration:
 
         assert token is not None
         assert token == "token_abc123"
+        assert driver._get_urls == ["about:blank", "https://example.com"]
 
 
 class TestTurnstileEdgeCases:
     """Edge case tests for turnstile handling."""
 
-    def test_turnstile_not_found_returns_none(self):
+    def test_turnstile_not_found_returns_none(self, monkeypatch):
         """Test that missing turnstile returns None."""
+        monkeypatch.setattr(service, "TURNSTILE_WAIT_TIMEOUT_SECONDS", 0)
 
         class NoTurnstileDriver:
             def __init__(self):

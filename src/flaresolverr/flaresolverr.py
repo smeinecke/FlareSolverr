@@ -4,11 +4,12 @@ import logging
 logger = logging.getLogger(__name__)
 import multiprocessing
 import os
+import secrets
 import sys
 from typing import Any, cast
 
 import certifi
-from bottle import Bottle, ServerAdapter, request, response, run
+from bottle import Bottle, HTTPResponse, ServerAdapter, request, response, run
 from waitress import serve
 
 from flaresolverr import agent_check, flaresolverr_service, utils
@@ -20,6 +21,7 @@ from flaresolverr.dtos import V1RequestBase
 env_proxy_url = os.environ.get("PROXY_URL", None)
 env_proxy_username = os.environ.get("PROXY_USERNAME", None)
 env_proxy_password = os.environ.get("PROXY_PASSWORD", None)
+api_token = os.environ.get("API_TOKEN", None)
 
 
 class JSONErrorBottle(Bottle):
@@ -56,8 +58,23 @@ def health() -> dict[str, Any]:
     return utils.object_to_dict(res)
 
 
+def _require_v1_auth() -> None:
+    """Enforce optional bearer auth for /v1 without changing the default API."""
+    if not api_token:
+        return
+    supplied = request.get_header("Authorization", "")
+    expected = f"Bearer {api_token}"
+    if not supplied or not secrets.compare_digest(supplied, expected):
+        raise HTTPResponse(
+            status=401,
+            body=json.dumps({"error": 'Unauthorized. Send a valid token as "Authorization: Bearer <token>".', "status_code": 401}),
+            headers={"Content-Type": "application/json"},
+        )
+
+
 def _process_v1_request(data: dict[str, Any]) -> dict[str, Any]:
     """Process a v1 API request: inject headers/env, dispatch, and return response."""
+    _require_v1_auth()
     if not data.get("session"):
         session_header = request.get_header("X-FlareSolverr-Session")
         if session_header:
@@ -188,6 +205,8 @@ if __name__ == "__main__":
     logging.getLogger("undetected_chromedriver").setLevel(logging.WARNING)
 
     logger.info(f"FlareSolverr {utils.get_flaresolverr_version()}")
+    if not api_token and server_host not in ("127.0.0.1", "localhost", "::1"):
+        logger.warning("API_TOKEN is not set; the /v1 command API is unauthenticated. Configure API_TOKEN when exposing this service beyond localhost.")
     logger.debug("Debug log enabled")
 
     # Get current OS for global variable

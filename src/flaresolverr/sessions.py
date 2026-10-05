@@ -274,10 +274,20 @@ class SessionsStorage:
                 proxy,
                 stealth_mode=effective_stealth_mode,
                 logging_prefs={"performance": "ALL"},
+                for_session=True,
             )
             effective_accept_language = accept_language if accept_language is not None else utils.get_config_accept_language()
-            if user_agent is not None:
-                utils.apply_user_agent_override(driver, user_agent, effective_accept_language)
+            try:
+                if user_agent is not None:
+                    utils.apply_user_agent_override(driver, user_agent, effective_accept_language)
+            except Exception:
+                # Post-launch setup failed — tear down the browser so a failed
+                # create() never leaks a running Chromium process.
+                try:
+                    driver.quit()
+                except Exception:
+                    logger.exception("Failed to quit driver after setup failure")
+                raise
             created_at = datetime.now()  # noqa: DTZ005
             effective_enabled_services = enabled_services if enabled_services is not None else ["cloudflare"]
             effective_max_runtime = max_runtime if max_runtime is not None else utils.get_config_session_max_runtime()
@@ -314,25 +324,29 @@ class SessionsStorage:
                 return False
             session = self.sessions.pop(session_id)
 
-        if utils.PLATFORM_VERSION == "nt":
-            session.driver.close()
-        session.driver.quit()
+        try:
+            if utils.PLATFORM_VERSION == "nt":
+                session.driver.close()
+            session.driver.quit()
+        finally:
+            # Even when quit() blows up (dead browser, wedged driver) the
+            # zombie reaper and temp-dir cleanup must still run — otherwise a
+            # single failed destroy leaks processes and dirs for the session's
+            # whole lifetime.
+            browser_pid = getattr(session.driver, "browser_pid", None)
+            _ensure_process_dead(browser_pid)
 
-        # Verify the browser process is really gone; escalate to SIGKILL if needed
-        browser_pid = getattr(session.driver, "browser_pid", None)
-        _ensure_process_dead(browser_pid)
-
-        # Broad reap: clean up any other zombie children left behind by the browser
-        while True:
-            try:
-                reaped_pid, _ = os.waitpid(-1, os.WNOHANG)
-                if reaped_pid == 0:
+            # Broad reap: clean up any other zombie children left behind by the browser
+            while True:
+                try:
+                    reaped_pid, _ = os.waitpid(-1, os.WNOHANG)
+                    if reaped_pid == 0:
+                        break
+                except (ChildProcessError, OSError):
                     break
-            except (ChildProcessError, OSError):
-                break
 
-        # Clean up any leaked temp dirs from crashed or failed sessions
-        utils._cleanup_orphaned_temp_dirs()
+            # Clean up any leaked temp dirs from crashed or failed sessions
+            utils._cleanup_orphaned_temp_dirs()
 
         return True
 

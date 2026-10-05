@@ -42,7 +42,7 @@ class TestSessionLocking:
 
     def test_session_has_lock_attribute(self, monkeypatch):
         """Test that Session objects have a lock attribute."""
-        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
 
         storage = sessions.SessionsStorage()
         session, _ = storage.create("test-session")
@@ -52,7 +52,7 @@ class TestSessionLocking:
 
     def test_session_lock_can_be_acquired(self, monkeypatch):
         """Test that session lock can be acquired and released."""
-        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
 
         storage = sessions.SessionsStorage()
         session, _ = storage.create("test-session")
@@ -67,7 +67,7 @@ class TestSessionLocking:
         This simulates the issue described in #1685 where concurrent requests
         using the same session could interfere with each other.
         """
-        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
         monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
 
         storage = sessions.SessionsStorage()
@@ -112,7 +112,7 @@ class TestSessionLocking:
         This specifically tests the bug from #1685 where the WebDriver URL
         could be overwritten by concurrent requests.
         """
-        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
 
         storage = sessions.SessionsStorage()
         session, _ = storage.create("race-session")
@@ -147,7 +147,7 @@ class TestSessionLocking:
 
     def test_session_lock_release_on_exception(self, monkeypatch):
         """Test that session lock is released even if exception occurs."""
-        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
 
         storage = sessions.SessionsStorage()
         session, _ = storage.create("exception-session")
@@ -174,7 +174,7 @@ class TestSessionsStorageWithLocking:
 
     def test_get_session_returns_same_lock(self, monkeypatch):
         """Test that getting existing session returns same lock object."""
-        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
 
         storage = sessions.SessionsStorage()
         session1, _ = storage.create("session-id")
@@ -185,7 +185,7 @@ class TestSessionsStorageWithLocking:
 
     def test_session_still_usable_after_exception(self, monkeypatch):
         """Test that session remains usable after request with exception."""
-        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None: DummyDriver())
+        monkeypatch.setattr(sessions.utils, "get_webdriver", lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: DummyDriver())
         monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
 
         storage = sessions.SessionsStorage()
@@ -221,7 +221,7 @@ class TestSessionLockIntegration:
         monkeypatch.setattr(
             sessions.utils,
             "get_webdriver",
-            lambda _proxy, stealth_mode=None, logging_prefs=None: mock_webdriver
+            lambda _proxy, stealth_mode=None, logging_prefs=None, for_session=False: mock_webdriver
         )
         monkeypatch.setattr(sessions.utils, "PLATFORM_VERSION", "posix")
 

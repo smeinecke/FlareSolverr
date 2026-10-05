@@ -120,7 +120,7 @@ class BraveService(ChallengeService):
         state["button_found"] = self._find_clickable_verify_button(driver) is not None
         return state
 
-    def get_debug_info(self, driver: WebDriver) -> dict[str, Any] | None:
+    def get_debug_info(self, driver: WebDriver, stealth_mode: str | None = None) -> dict[str, Any] | None:
         return getattr(driver, "_flaresolverr_brave_debug", None)
 
     def _find_clickable_verify_button(self, driver: WebDriver):

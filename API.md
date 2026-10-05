@@ -4,6 +4,8 @@
 
 Send a POST request to `/v1` with a JSON body containing the `cmd` and parameters.
 
+If `API_TOKEN` is configured, every `/v1` route requires `Authorization: Bearer <token>`. Leaving `API_TOKEN` unset preserves the historical unauthenticated API behavior; `/` and `/health` are not protected.
+
 **Bash:**
 
 ```bash
@@ -114,6 +116,7 @@ All commands work via the generic `POST /v1/<group>/<command>` path:
 | `POST /v1/sessions/screenshot` | `sessions.screenshot` |
 | `POST /v1/sessions/clear` | `sessions.clear` |
 | `POST /v1/sessions/cdp` | `sessions.cdp` |
+| `POST /v1/sessions/fetch` | `sessions.fetch` |
 | `POST /v1/request/get` | `request.get` |
 | `POST /v1/request/post` | `request.post` |
 
@@ -223,7 +226,7 @@ This also speeds up the requests since it won't have to launch a new browser ins
 | Parameter | Notes |
 | --------- | ----- |
 | session | Optional. The session ID that you want to be assigned to the instance. If isn't set a random UUID will be assigned. |
-| proxy | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. You must include the proxy schema in the URL: `http://`, `socks4://` or `socks5://`. Authorization (username/password) is supported. Proxy can also be changed dynamically when reusing a session via `request.get` / `request.post`. |
+| proxy | Optional, default disabled. Eg: `"proxy": {"url": "http://127.0.0.1:8888"}`. You must include the proxy schema in the URL: `http://`, `socks4://` or `socks5://`. Authorization (username/password) is supported either as explicit fields (`"username"`, `"password"`) or embedded in the URL (`"url": "http://user:pass@host:port"`) — explicit fields take precedence, and URL credentials are percent-decoded. Proxy can also be changed dynamically when reusing a session via `request.get` / `request.post`. |
 | stealth | Optional, default uses `STEALTH_MODE`. Enables/disables stealth patches for this session. |
 | stealthMode | Optional enum override: `"off"`, `"standard"`, `"csp-safe"`. Preferred over `stealth` for explicit behavior. |
 | userAgent | Optional. Custom browser user agent for the session. |
@@ -368,6 +371,39 @@ Example:
   }
 }
 ```
+
+### + `sessions.fetch`
+
+Performs an in-page `fetch()` inside the session's currently loaded page, so the request inherits the page's cookies (`credentials: "include"`), origin, and browser request context. Restricted to **same-origin** URLs — relative URLs are resolved against the current page URL.
+
+| Parameter | Notes |
+| --------- | ----- |
+| session | The session ID to target. |
+| url | Same-origin URL (absolute or relative to the page). |
+| method | HTTP method (default `GET`). A body is rejected for `GET`/`HEAD`. |
+| body | Optional request body string. |
+| headers | Optional dictionary of request headers. |
+| timeoutMs | Optional fetch timeout in milliseconds. |
+| allowCrossOriginRedirect | Optional (default `false`). When `true`, redirects may leave the page origin — the fetch runs in CORS mode, so the redirect target must permit the cross-origin exchange; the result's `crossOriginRedirect` field reports whether the final URL left the page origin. |
+
+Example:
+
+```json
+{
+  "cmd": "sessions.fetch",
+  "session": "my-session",
+  "url": "/api",
+  "method": "POST",
+  "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+  "body": "action=newemail"
+}
+```
+
+The response `solution` contains `status`, `statusText`, `headers` (dict), `response` (body text), `url` (final URL), `redirected`, and `challenged` — `true` when the response carries `cf-mitigated: challenge` or its body resembles a Cloudflare challenge page.
+
+By default the same-origin restriction is also enforced **through redirects**: the fetch runs with `mode: 'same-origin'`, so a redirect to another origin fails as a network error before the request — including any body or custom headers — is ever sent there. Set `allowCrossOriginRedirect: true` to let redirects cross origins; the redirect target must then pass CORS checks, and `evalResult.crossOriginRedirect` marks the response. `timeoutMs` bounds the fetch via an in-page `AbortController`; the driver's script timeout is raised to match so larger values actually take effect. Successful fetches count toward the session's request count and refresh its activity timestamp.
+
+**Limitation:** `fetch` receives a challenge response as plain HTML — it cannot execute a returned challenge interstitial. It preserves request context but does not bypass endpoint-level WAF rules.
 
 ### + `request.get`
 
@@ -531,8 +567,7 @@ Example response from a `request.get`:
       "server": "gws",
       "content-length": "61587",
       "x-xss-protection": "0",
-      "x-frame-options": "SAMEORIGIN",
-      "set-cookie": "1P_JAR=2020-07-16-04; expires=Sat..."
+      "x-frame-options": "SAMEORIGIN"
     },
     "response": "<!DOCTYPE html>...",
     "cookies": [
@@ -572,6 +607,7 @@ Example response from a `request.get`:
 ```
 
 > **Note:** Response fields are populated depending on the command and parameters used:
+> - `status` / `headers` — the real top-level document response captured from the browser's network log (the `postDataRaw` XHR response for raw POST). `status` is `null` when the document exchange cannot be determined — it is never fabricated. `set-cookie` is excluded from `headers`; cookie values are exposed under `cookies`.
 > - `title` — present in `sessions.get`, `sessions.screenshot`, and `sessions.action` responses.
 > - `screenshot` — present when `returnScreenshot=true` (requests) or from `sessions.screenshot`.
 > - `evalResult` — present when an `eval` action is used or from `sessions.eval` / `sessions.action`.

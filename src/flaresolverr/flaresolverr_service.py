@@ -12,10 +12,10 @@ import time
 from datetime import timedelta
 from html import escape
 from typing import Any, cast
-from urllib.parse import parse_qsl, quote, urlparse
+from urllib.parse import parse_qsl, quote, urljoin, urlparse
 
 from func_timeout import FunctionTimedOut, func_timeout
-from selenium.common import UnexpectedAlertPresentException
+from selenium.common import TimeoutException, UnexpectedAlertPresentException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
@@ -54,6 +54,7 @@ ACCESS_DENIED_SELECTORS = [
 ]
 
 TURNSTILE_SELECTORS = ["input[name='cf-turnstile-response']"]
+TURNSTILE_WAIT_TIMEOUT_SECONDS = 10
 
 BLOCK_MEDIA_URL_PATTERNS = [
     # Images
@@ -217,12 +218,71 @@ def health_endpoint(details: bool = False) -> HealthResponse:
     return res
 
 
+def _redact_headers_for_log(headers: list[Any] | None) -> list[Any] | None:
+    if headers is None:
+        return None
+    redacted = []
+    for header in headers:
+        if isinstance(header, dict) and "name" in header:
+            item = dict(header)
+            if "value" in item:
+                item["value"] = "***"
+            redacted.append(item)
+        elif isinstance(header, str) and ":" in header:
+            name, _value = header.split(":", 1)
+            redacted.append(f"{name}: ***")
+        else:
+            redacted.append(header)
+    return redacted
+
+
 def _redact_request_for_log(req_dict: dict) -> dict:
-    """Return a copy of the request dict with proxy password redacted."""
-    proxy = req_dict.get("proxy")
-    if isinstance(proxy, dict) and "password" in proxy:
-        req_dict = {**req_dict, "proxy": {**proxy, "password": "***"}}  # nosec B105
-    return req_dict
+    """Return a request copy with credentials, bodies, and token material redacted."""
+    redacted = dict(req_dict)
+
+    proxy = redacted.get("proxy")
+    if isinstance(proxy, dict):
+        proxy = dict(proxy)
+        for key in ("username", "password"):
+            if key in proxy:
+                proxy[key] = "***"  # nosec B105
+        url = proxy.get("url")
+        if isinstance(url, str):
+            proxy["url"] = utils._redact_url_credentials(url)
+        redacted["proxy"] = proxy
+
+    url = redacted.get("url")
+    if isinstance(url, str):
+        redacted["url"] = utils._redact_url_credentials(url)
+
+    if "headers" in redacted:
+        redacted["headers"] = _redact_headers_for_log(redacted.get("headers"))
+    if isinstance(redacted.get("cookies"), list):
+        redacted["cookies"] = [{**cookie, "value": "***"} if isinstance(cookie, dict) and "value" in cookie else cookie for cookie in redacted["cookies"]]
+    for key in ("postData", "postDataRaw", "body", "script"):
+        if redacted.get(key) is not None:
+            redacted[key] = "***"
+    if isinstance(redacted.get("actions"), list):
+        redacted["actions"] = [
+            {
+                **action,
+                **({"value": "***"} if action.get("value") is not None else {}),
+                **({"script": "***"} if action.get("script") is not None else {}),
+            }
+            if isinstance(action, dict)
+            else action
+            for action in redacted["actions"]
+        ]
+    if isinstance(redacted.get("scriptInject"), list):
+        redacted["scriptInject"] = [
+            {**item, "script": "***"} if isinstance(item, dict) and item.get("script") is not None else item for item in redacted["scriptInject"]
+        ]
+    if isinstance(redacted.get("cdp"), dict):
+        cdp = dict(redacted["cdp"])
+        if cdp.get("params") is not None:
+            cdp["params"] = "***"
+        redacted["cdp"] = cdp
+    return redacted
 
 
 def controller_v1_endpoint(req: V1RequestBase) -> V1ResponseBase:
@@ -339,6 +399,8 @@ def _controller_v1_handler(req: V1RequestBase) -> V1ResponseBase:
         res = _cmd_sessions_clear(req)
     elif req.cmd == "sessions.cdp":
         res = _cmd_sessions_cdp(req)
+    elif req.cmd == "sessions.fetch":
+        res = _cmd_sessions_fetch(req)
     elif req.cmd == "request.get":
         res = _cmd_request_get(req)
     elif req.cmd == "request.post":
@@ -768,6 +830,150 @@ def _cmd_sessions_cdp(req: V1RequestBase) -> V1ResponseBase:
         session.lock.release()
 
 
+def _cmd_sessions_fetch(req: V1RequestBase) -> V1ResponseBase:
+    """Same-origin fetch() executed in the session's current page context.
+
+    Unlike request.post there is no navigation: the request runs with the
+    page's real origin, cookies and request metadata. A challenged endpoint
+    returns the challenge HTML as the body (challenged=true) — the client
+    cannot execute the interstitial, this command only preserves honest
+    request context and response semantics.
+    """
+    session_id = req.session
+    if session_id is None:
+        raise RuntimeError("Request parameter 'session' is mandatory in 'sessions.fetch' command.")
+    if req.url is None:
+        raise RuntimeError("Request parameter 'url' is mandatory in 'sessions.fetch' command.")
+
+    session = _get_session_locked(session_id)
+    try:
+        driver = session.driver
+        current_url = driver.current_url or ""
+        fetch_url = urljoin(current_url, req.url)
+        current_origin = urlparse(current_url)
+        fetch_origin = urlparse(fetch_url)
+        if (fetch_origin.scheme, fetch_origin.netloc) != (current_origin.scheme, current_origin.netloc):
+            raise RuntimeError(f"'sessions.fetch' only supports same-origin URLs (page origin: {current_origin.scheme}://{current_origin.netloc}).")
+
+        method = (req.method or "GET").upper()
+        if method in ("GET", "HEAD") and req.body is not None:
+            raise RuntimeError(f"Cannot send a body with {method} in 'sessions.fetch'.")
+
+        headers_dict: dict[str, str] = {}
+        for header in req.headers or []:
+            if isinstance(header, dict) and "name" in header and "value" in header:
+                headers_dict[str(header["name"])] = str(header["value"])
+            elif isinstance(header, str) and ":" in header:
+                name, value = header.split(":", 1)
+                headers_dict[name.strip()] = value.strip()
+
+        timeout_ms = int(req.timeoutMs) if req.timeoutMs else 30000
+        allow_cross_origin = bool(req.allowCrossOriginRedirect)
+        logger.debug(f"sessions.fetch (session_id={session_id}, {method} {fetch_url}, allowCrossOriginRedirect={allow_cross_origin})")
+
+        # The sync script endpoint awaits the returned promise under the
+        # WebDriver script timeout (default ~30s); align it so timeoutMs is the
+        # real bound instead of the driver killing the script first.
+        script_timeout_seconds = timeout_ms / 1000 + 10
+        try:
+            driver.set_script_timeout(script_timeout_seconds)
+        except Exception:  # noqa: BLE001
+            logger.debug("sessions.fetch: could not set script timeout; fetch may be bounded by the driver default")
+        try:
+            fetch_result = driver.execute_script(
+                """
+                var url = arguments[0], method = arguments[1], headers = arguments[2], body = arguments[3], timeoutMs = arguments[4], sameOrigin = arguments[5];
+                var controller = new AbortController();
+                var timer = setTimeout(function() { controller.abort(); }, timeoutMs);
+                // mode:'same-origin' makes a cross-origin redirect a network
+                // error, so a 307/308 cannot forward body/headers to another
+                // origin before the Python-side final-URL check runs.
+                // allowCrossOriginRedirect requests use CORS mode instead —
+                // the target must then permit the cross-origin exchange.
+                var opts = {method: method, headers: headers, credentials: 'include', signal: controller.signal};
+                if (sameOrigin) { opts.mode = 'same-origin'; }
+                if (body !== null && method !== 'GET' && method !== 'HEAD') { opts.body = body; }
+                return fetch(url, opts).then(function(r) {
+                    return r.text().then(function(t) {
+                        clearTimeout(timer);
+                        var h = {};
+                        r.headers.forEach(function(v, k) { h[k] = v; });
+                        return {status: r.status, statusText: r.statusText, headers: h, body: t, redirected: r.redirected, url: r.url};
+                    });
+                }).catch(function(e) {
+                    clearTimeout(timer);
+                    return {error: e.toString()};
+                });
+                """,
+                fetch_url,
+                method,
+                headers_dict,
+                req.body,
+                timeout_ms,
+                not allow_cross_origin,
+            )
+        finally:
+            try:
+                driver.set_script_timeout(30)
+            except Exception:  # noqa: BLE001
+                logger.debug("sessions.fetch: could not restore script timeout")
+        if not isinstance(fetch_result, dict):
+            raise TypeError("sessions.fetch returned an unexpected result.")
+        if fetch_result.get("error"):
+            raise RuntimeError(f"sessions.fetch failed: {fetch_result['error']}")
+
+        # With same-origin mode the browser already refuses cross-origin
+        # redirects; this check is a defensive assertion. With
+        # allowCrossOriginRedirect the redirect may legitimately land on
+        # another origin — it is reported, not rejected.
+        final_url = fetch_result.get("url") or fetch_url
+        final_origin = urlparse(final_url)
+        cross_origin_redirect = (final_origin.scheme, final_origin.netloc) != (current_origin.scheme, current_origin.netloc)
+        if cross_origin_redirect and not allow_cross_origin:
+            raise RuntimeError(
+                f"'sessions.fetch' response redirected to a different origin ({final_origin.scheme}://{final_origin.netloc}); "
+                f"page origin is {current_origin.scheme}://{current_origin.netloc}."
+            )
+        if cross_origin_redirect:
+            logger.warning(
+                f"sessions.fetch response redirected cross-origin to {final_origin.scheme}://{final_origin.netloc} (allowed by allowCrossOriginRedirect)"
+            )
+
+        body = fetch_result.get("body") or ""
+        resp_headers = fetch_result.get("headers") or {}
+        challenged = utils._header_lookup(resp_headers, "cf-mitigated") == "challenge" or _looks_like_challenge_html(body)
+        if challenged:
+            logger.warning("sessions.fetch response is a Cloudflare challenge, not the application response.")
+
+        result = ChallengeResolutionResultT({})
+        result.url = driver.current_url
+        result.status = fetch_result.get("status")
+        result.headers = resp_headers
+        result.response = body
+        result.challenged = challenged
+        result.evalResult = {
+            "status": fetch_result.get("status"),
+            "statusText": fetch_result.get("statusText"),
+            "headers": resp_headers,
+            "body": body,
+            "redirected": fetch_result.get("redirected"),
+            "url": fetch_result.get("url"),
+            "challenged": challenged,
+            "crossOriginRedirect": cross_origin_redirect,
+        }
+        result.cookies = _safe_driver_call(driver.get_cookies, [])
+
+        res = V1ResponseBase({})
+        res.status = STATUS_OK
+        res.message = "Fetch executed successfully."
+        res.solution = result
+        session.request_count += 1
+        session.touch()
+        return res
+    finally:
+        session.lock.release()
+
+
 def _get_session_driver(session_id: str, req: V1RequestBase, req_stealth_mode: str | None) -> tuple[Any, bool]:
     """Retrieve or create a session and return it along with the lock state."""
     ttl = timedelta(minutes=req.session_ttl_minutes) if req.session_ttl_minutes is not None else None
@@ -833,23 +1039,20 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         return cast(ChallengeResolutionT, challenge_result)
     except FunctionTimedOut:
         msg = f"Error solving the challenge. Timeout after {timeout} seconds."
-        detected = None
-        try:
-            detected = getattr(driver, "_flaresolverr_detected_service", None)
-        except Exception:  # noqa: BLE001
-            logger.debug("Could not read detected service from driver after timeout")
-        if detected is not None:
-            svc = SERVICE_MANAGER.get_service(detected)
-            if svc is not None and driver is not None:
-                try:
-                    debug_info = svc.get_debug_info(driver)
-                except Exception:  # noqa: BLE001
-                    debug_info = None
-                if debug_info is not None:
-                    raise ChallengeError(msg, details=debug_info)
+        _abort_pending_raw_post(driver)
+        details = _failure_details(driver, req, method, session, req_stealth_mode)
+        if details is not None:
+            raise ChallengeError(msg, details=details)
         raise RuntimeError(msg)
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError("Error solving the challenge. " + str(e).replace("\n", "\\n"))
+    except Exception as e:
+        msg = "Error solving the challenge. " + str(e).replace("\n", "\\n")
+        _abort_pending_raw_post(driver)
+        # Generic errors lose evidence today; attach a bounded snapshot when a
+        # driver exists so crash/navigation failures are diagnosable too.
+        details = _failure_details(driver, req, method, session, req_stealth_mode)
+        if details is not None:
+            raise ChallengeError(msg, details=details) from e
+        raise RuntimeError(msg) from e
     finally:
         # Release session lock only if this thread acquired it
         if lock_acquired and session is not None:
@@ -869,6 +1072,75 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             utils._cleanup_orphaned_temp_dirs()
 
 
+def _failure_details(
+    driver: WebDriver | None,
+    req: V1RequestBase,
+    method: str,
+    session: Any,
+    req_stealth_mode: str | None,
+) -> dict[str, Any] | None:
+    """Collect bounded failure evidence for a failed request, if possible.
+
+    Prefers service-specific debug info over the generic browser snapshot.
+    Never raises.
+    """
+    if driver is None:
+        return None
+    try:
+        detected = getattr(driver, "_flaresolverr_detected_service", None)
+    except Exception:  # noqa: BLE001
+        detected = None
+    details: dict[str, Any] | None = None
+    if detected is not None:
+        svc = SERVICE_MANAGER.get_service(detected)
+        if svc is not None:
+            try:
+                details = svc.get_debug_info(driver, stealth_mode=req_stealth_mode)
+            except Exception:  # noqa: BLE001
+                details = None
+    if details is None:
+        try:
+            details = utils.collect_failure_evidence(driver, stealth_mode=req_stealth_mode)
+        except Exception:  # noqa: BLE001
+            return None
+    try:
+        details["failureKind"] = _classify_failure(driver, detected, details)
+    except Exception:  # noqa: BLE001
+        logger.debug("Could not classify failure kind")
+    details["request"] = {
+        "cmd": req.cmd,
+        "method": method,
+        "url": req.url,
+        "hasPostData": req.postData is not None or req.postDataRaw is not None,
+        "postDataContentType": req.postDataContentType,
+    }
+    details["session"] = session.session_id if session is not None else None
+    return details
+
+
+def _classify_failure(driver: WebDriver, detected_service: str | None, evidence: dict[str, Any]) -> str:
+    """Classify a request failure into a coarse category for diagnostics.
+
+    Categories: browser_crash (driver unresponsive), nav_error (Chrome net
+    error or failed document load), challenge_denied (the last document
+    response carried cf-mitigated: challenge), challenge_timeout (a challenge
+    was detected and is still present), solver_timeout (anything else).
+    """
+    try:
+        driver.execute_script("return 1")
+    except Exception:  # noqa: BLE001
+        return "browser_crash"
+
+    response = evidence.get("response") or {}
+    if response.get("navError") or (evidence.get("currentUrl") or "").startswith("chrome-error://"):
+        return "nav_error"
+    if response.get("cfMitigated") == "challenge":
+        return "challenge_denied"
+    if detected_service is not None:
+        return "challenge_timeout"
+    return "solver_timeout"
+
+
 def _resolve_request_stealth_mode(req: V1RequestBase) -> str | None:
     if req.stealthMode is not None:
         return utils.normalize_stealth_mode(req.stealthMode)
@@ -886,7 +1158,7 @@ def _get_turnstile_token(driver: WebDriver, tabs: int) -> str | None:
             cloudflare_svc._click_verify(driver, num_tabs=tabs)
         turnstile_token = token_input.get_attribute("value")
         if turnstile_token and turnstile_token != current_value:
-            logger.info(f"Turnstile token: {turnstile_token}")
+            logger.info("Turnstile token obtained")
             return turnstile_token
         logger.debug("Failed to extract token possibly click failed")
 
@@ -916,15 +1188,22 @@ def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver) -> str | N
         if req.url is None:
             raise RuntimeError("Request parameter 'url' is mandatory in request commands.")
         logger.debug(f"Navigating to... {req.url} in order to pass the turnstile challenge")
+        # Reused sessions can retain a stale token when a URL only changes its
+        # fragment; force a clean document before navigating to the target.
+        driver.get("about:blank")
         driver.get(req.url)
 
+        # Single-page applications can render the Turnstile widget after the
+        # initial document load; bound the wait so missing widgets do not hang.
         turnstile_challenge_found = False
-        for selector in TURNSTILE_SELECTORS:
-            found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
-            if len(found_elements) > 0:
-                turnstile_challenge_found = True
-                logger.info("Turnstile challenge detected. Selector found: " + selector)
-                break
+        try:
+            WebDriverWait(driver, TURNSTILE_WAIT_TIMEOUT_SECONDS).until(
+                lambda d: any(d.find_elements(By.CSS_SELECTOR, selector) for selector in TURNSTILE_SELECTORS)
+            )
+            turnstile_challenge_found = True
+            logger.info("Turnstile challenge detected. Selector found: " + TURNSTILE_SELECTORS[0])
+        except TimeoutException:
+            logger.debug("Turnstile challenge not found")
         if turnstile_challenge_found:
             turnstile_token = _get_turnstile_token(driver=driver, tabs=req.tabs_till_verify)
         else:
@@ -951,7 +1230,7 @@ def _set_custom_headers(req: V1RequestBase, driver: WebDriver) -> None:
     if req.headers is None or len(req.headers) == 0:
         return
     try:
-        logger.debug(f"Setting custom headers: {req.headers}")
+        logger.debug(f"Setting custom headers: {_redact_headers_for_log(req.headers)}")
         # Convert headers list to dict for CDP
         headers_dict = {}
         for header in req.headers:
@@ -1200,19 +1479,30 @@ def _build_challenge_result(
     req: V1RequestBase,
     driver: WebDriver,
     turnstile_token: str | None,
-    har_entries: list[dict[str, Any]] | None = None,
+    doc_evidence: dict[str, Any] | None = None,
 ) -> ChallengeResolutionResultT:
     challenge_res = ChallengeResolutionResultT({})
-    logger.debug("_build_challenge_result: reading current_url")
-    challenge_res.url = utils.retry_driver_read(lambda: driver.current_url)
-    logger.debug("_build_challenge_result: reading userAgent")
-    challenge_res.userAgent = utils.retry_driver_read(lambda: utils.get_user_agent(driver))
     challenge_res.turnstile_token = turnstile_token
-    challenge_res.status = 200  # todo: fix, selenium not provides this info
 
+    # postDataRaw stashes the real XHR result on the driver object (immune to
+    # later navigation); window globals remain the fallback for flows where
+    # the stash is absent. Read it first — actions below may navigate.
+    raw_post = _read_raw_post_result(req, driver)
+
+    # Challenge classification is independent of body output so
+    # returnOnlyCookies responses are still flagged honestly.
+    raw_headers: dict[str, str] = {}
+    if isinstance(raw_post, dict):
+        raw_headers = _parse_raw_headers(raw_post.get("headers"))
+        raw_body = raw_post.get("body")
+        if utils._header_lookup(raw_headers, "cf-mitigated") == "challenge" or _looks_like_challenge_html(raw_body):
+            logger.warning("Raw POST response is a Cloudflare challenge, not the application response.")
+            challenge_res.challenged = True
+
+    # Actions and waits run BEFORE capturing the final URL/status/body so a
+    # navigation triggered by an action (or during waitInSeconds) is reflected
+    # consistently across all result fields.
     if not req.returnOnlyCookies:
-        challenge_res.headers = {}  # todo: fix, selenium not provides this info
-
         if req.actions:
             action_results = _execute_actions(driver, req.actions)
             eval_values = [r for r in action_results if r is not None]
@@ -1223,6 +1513,34 @@ def _build_challenge_result(
             logger.info("Waiting " + str(req.waitInSeconds) + " seconds before returning the response...")
             time.sleep(req.waitInSeconds)
 
+    logger.debug("_build_challenge_result: reading current_url")
+    challenge_res.url = utils.retry_driver_read(lambda: driver.current_url)
+    logger.debug("_build_challenge_result: reading userAgent")
+    challenge_res.userAgent = utils.retry_driver_read(lambda: utils.get_user_agent(driver))
+
+    # Drain the performance log once, after actions/waits, so status, headers
+    # and HAR all describe the final document exchange (draining empties the
+    # queue — later consumers would see nothing).
+    try:
+        perf_entries = utils.get_performance_log(driver)
+    except Exception:  # noqa: BLE001
+        logger.debug("Performance log unavailable; response status/headers will be unknown")
+        perf_entries = []
+    if doc_evidence is None:
+        try:
+            doc_evidence = utils.get_document_response_evidence(driver, entries=perf_entries)
+        except Exception:  # noqa: BLE001
+            doc_evidence = {}
+    challenge_res.status, doc_headers = _resolve_document_result(doc_evidence)
+
+    if isinstance(raw_post, dict) and raw_post.get("status") is not None:
+        # The XHR response is the answer; the bootstrap document GET only
+        # established origin context.
+        challenge_res.status = raw_post["status"]
+
+    if not req.returnOnlyCookies:
+        challenge_res.headers = dict(doc_headers)
+
         if req.download:
             logger.debug("_build_challenge_result: reading download content")
             content, is_binary, download_headers = _get_download_content(driver, challenge_res.url)
@@ -1230,6 +1548,13 @@ def _build_challenge_result(
             challenge_res.isBinary = is_binary
             if download_headers:
                 challenge_res.headers = download_headers
+        elif isinstance(raw_post, dict) and raw_post.get("body") is not None:
+            # An empty string body is legitimate (e.g. 204) — `is not None`
+            # keeps it instead of falling back to page_source.
+            logger.debug("_build_challenge_result: reading raw POST result")
+            challenge_res.response = raw_post["body"]
+            if raw_headers:
+                challenge_res.headers = raw_headers
         else:
             logger.debug("_build_challenge_result: reading page_source")
             challenge_res.response = utils.retry_driver_read(lambda: driver.page_source)
@@ -1241,10 +1566,67 @@ def _build_challenge_result(
     if req.returnScreenshot:
         challenge_res.screenshot = driver.get_screenshot_as_base64()
 
-    if req.recordHar and har_entries is not None:
-        challenge_res.har = utils.performance_logs_to_har(har_entries)
+    if req.recordHar:
+        challenge_res.har = utils.performance_logs_to_har(perf_entries)
 
     return challenge_res
+
+
+def _read_raw_post_result(req: V1RequestBase, driver: WebDriver) -> dict[str, Any] | None:
+    """Read the completed postDataRaw XHR result.
+
+    The Python-side stash written by _post_request_raw survives later
+    navigation; the window globals remain the fallback for flows where the
+    stash is absent. `typeof` guards preserve legitimate empty bodies.
+    """
+    if req.postDataRaw is None:
+        return None
+    result = getattr(driver, "_flaresolverr_raw_post_result", None)
+    if result is None:
+        result = utils.retry_driver_read(
+            lambda: driver.execute_script(
+                "return {"
+                "status: typeof window.__flaresolverr_raw_post_status === 'undefined' ? null : window.__flaresolverr_raw_post_status, "
+                "headers: typeof window.__flaresolverr_raw_post_headers === 'undefined' ? null : window.__flaresolverr_raw_post_headers, "
+                "body: typeof window.__flaresolverr_raw_post_body === 'undefined' ? null : window.__flaresolverr_raw_post_body};"
+            )
+        )
+    return result if isinstance(result, dict) else None
+
+
+def _resolve_document_result(doc_evidence: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    """Turn document evidence into (status, headers) for the API result.
+
+    When the selected exchange could not be tied to the top-level frame it
+    may describe an iframe — keep it for diagnostics but report status as
+    unknown and attribute no document headers. Cookie values never reach the
+    header map (already exposed via solution.cookies).
+    """
+    if doc_evidence.get("mainFrameIdentified", True) is False:
+        logger.debug("Document evidence could not be tied to the main frame; reporting status as unknown")
+        return None, {}
+    status = doc_evidence.get("status")
+    headers = {k: v for k, v in (doc_evidence.get("headers") or {}).items() if str(k).lower() != "set-cookie"}
+    return status, headers
+
+
+def _parse_raw_headers(raw_headers: Any) -> dict[str, str]:
+    """Parse an XMLHttpRequest.getAllResponseHeaders() block into a dict."""
+    parsed: dict[str, str] = {}
+    if not isinstance(raw_headers, str):
+        return parsed
+    for line in raw_headers.splitlines():
+        name, sep, value = line.partition(":")
+        if sep and name.strip():
+            parsed[name.strip()] = value.strip()
+    return parsed
+
+
+def _looks_like_challenge_html(body: Any) -> bool:
+    """Heuristic: does a response body contain a Cloudflare challenge page?"""
+    if not isinstance(body, str):
+        return False
+    return "_cf_chl_opt" in body or "cf-challenge" in body or "Just a moment" in body
 
 
 def _remove_js_injection(driver: WebDriver, identifiers: list[str]) -> None:
@@ -1317,12 +1699,15 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
     res.status = STATUS_OK
     res.message = ""
 
-    if req.recordHar:
-        # Drain any stale performance log entries so the captured HAR contains
-        # only this request's traffic. driver.get_log() is destructive, so this
-        # also prevents leftover entries from prior commands on the same session
-        # from appearing in the result.
+    # Drain any stale performance log entries so failure-evidence and HAR
+    # capture only cover this request's traffic. driver.get_log() is
+    # destructive, so this also prevents leftover entries from prior commands
+    # on the same session from accumulating. Best-effort: backends or test
+    # doubles without performance logs must not fail the request.
+    try:
         utils.get_performance_log(driver)
+    except Exception:  # noqa: BLE001
+        logger.debug("Performance log drain skipped (backend has no performance log)")
 
     _configure_blocked_media(req, driver)
     _set_custom_headers(req, driver)
@@ -1372,8 +1757,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str, enabled_serv
 
         _apply_js_injection(req, driver, "document_idle")
         logger.debug("_evil_logic: building challenge result")
-        har_entries = utils.get_performance_log(driver) if req.recordHar else None
-        res.result = _build_challenge_result(req, driver, turnstile_token, har_entries)
+        res.result = _build_challenge_result(req, driver, turnstile_token)
         logger.debug("_evil_logic: challenge result built successfully")
         return res
     finally:
@@ -1432,8 +1816,10 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
     headers_json = json.dumps(headers_dict)
 
     # Navigate to the target URL first to establish the correct origin,
-    # then perform the raw POST via asynchronous XHR and replace the document
-    # content so driver.current_url stays correct.
+    # then perform the raw POST via asynchronous XHR. The response is kept in
+    # window globals (status, headers, body) instead of being written into the
+    # document, so the application page state is preserved and the real HTTP
+    # status is available for the result.
     driver.get(target_url)
 
     script = f"""
@@ -1446,15 +1832,19 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
                 xhr.setRequestHeader(name, headers[name]);
             }}
         }}
+        window.__flaresolverr_raw_post_xhr = xhr;
         xhr.onload = function() {{
-            document.open();
-            document.write(xhr.responseText);
-            document.close();
             window.__flaresolverr_raw_post_status = xhr.status;
+            window.__flaresolverr_raw_post_headers = xhr.getAllResponseHeaders();
+            window.__flaresolverr_raw_post_body = xhr.responseText;
             window.__flaresolverr_raw_post_done = true;
         }};
         xhr.onerror = function() {{
             window.__flaresolverr_raw_post_error = 'Network error';
+            window.__flaresolverr_raw_post_done = true;
+        }};
+        xhr.onabort = function() {{
+            window.__flaresolverr_raw_post_error = 'Aborted';
             window.__flaresolverr_raw_post_done = true;
         }};
         try {{
@@ -1471,18 +1861,56 @@ def _post_request_raw(req: V1RequestBase, driver: WebDriver) -> None:
     # Wait for the script to complete
     wait_timeout = 60
     wait_start = time.time()
+    completed = False
     while time.time() - wait_start < wait_timeout:
         try:
             done = driver.execute_script("return window.__flaresolverr_raw_post_done")
         except Exception:  # noqa: BLE001
             done = None
         if done:
+            completed = True
             break
         time.sleep(0.1)
+
+    if not completed:
+        # Abort the in-flight XHR so a retained session does not keep a
+        # still-running request, then surface an explicit timeout failure.
+        _abort_pending_raw_post(driver)
+        raise RuntimeError(f"Raw POST request did not complete within {wait_timeout} seconds.")
 
     error = driver.execute_script("return window.__flaresolverr_raw_post_error")
     if error:
         raise RuntimeError(f"Raw POST request failed: {error}")
+
+    # Stash the completed result on the Python-side driver object so a later
+    # challenge-resolution navigation cannot wipe the window globals holding
+    # the response. `typeof` guards preserve a legitimate empty body, which
+    # `|| null` would collapse into the page-source fallback.
+    result = utils.retry_driver_read(
+        lambda: driver.execute_script(
+            "return {"
+            "status: typeof window.__flaresolverr_raw_post_status === 'undefined' ? null : window.__flaresolverr_raw_post_status, "
+            "headers: typeof window.__flaresolverr_raw_post_headers === 'undefined' ? null : window.__flaresolverr_raw_post_headers, "
+            "body: typeof window.__flaresolverr_raw_post_body === 'undefined' ? null : window.__flaresolverr_raw_post_body};"
+        )
+    )
+    if isinstance(result, dict):
+        driver._flaresolverr_raw_post_result = result  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def _abort_pending_raw_post(driver: WebDriver | None) -> None:
+    """Abort a still-running postDataRaw XHR, if any.
+
+    Called on request timeout/failure before the session lock is released —
+    an XHR left running could still mutate session state after the API call
+    already returned an error.
+    """
+    if driver is None:
+        return
+    try:
+        driver.execute_script("try { if (window.__flaresolverr_raw_post_xhr) window.__flaresolverr_raw_post_xhr.abort(); } catch (e) {}")
+    except Exception:  # noqa: BLE001
+        logger.debug("Could not abort in-flight raw POST XHR")
 
 
 def _post_request(req: V1RequestBase, driver: WebDriver) -> None:

@@ -47,14 +47,24 @@ npm run build
 - `src/flaresolverr/stealth.js` — minimal JS-only CDP-injected patches for custom Chromium.
 - `src/flaresolverr/stealth_fallback.js` — CDP/fingerprint evasion for stock Chromium (i386/ARM where custom binary is unavailable).
 - `src/flaresolverr/chrome/chrome` — default custom patched Chromium binary.
-- `chromium-patches/patches/apply.py` — applies C++ source patches for custom Chromium builds.
+- `chromium-patches/patches/apply.py` — applies C++ source patches for custom Chromium builds. `--print-patch-ids` lists patch IDs; `--write-manifest <path>` emits `.stealth-manifest.json` build provenance (the remote workflow writes it next to the binary; the runtime reads it to gate `--stealth-native-ua`).
+
+## Failure diagnostics
+
+- Challenge/resolve timeouts raise `ChallengeError` with a `details` object: `failureKind` (`challenge_timeout`, `challenge_denied`, `nav_error`, `browser_crash`, `solver_timeout`) plus bounded evidence — final document status/`cf-mitigated`/`cf-ray`/redirect chain from the performance log, `_cf_chl_opt` fields, cookie names (never values), browser/driver versions, launch args, screenshot.
+- Performance logging (`goog:loggingPrefs`) is enabled for every driver, not just sessions/`recordHar` requests. Keep `get_performance_log`/`get_document_response_evidence` best-effort — some drivers/test doubles don't expose `get_log`.
+- `request.post` + `postDataRaw` stores the XHR status/headers/body in window globals *and* stashes the completed result on the driver object (`_flaresolverr_raw_post_result`) so a later navigation cannot wipe it; empty bodies are preserved, and `cf-mitigated: challenge` responses are marked `challenged` rather than reported as solved (including under `returnOnlyCookies`).
+- `solution.status`/`solution.headers` for `request.get`/`request.post` come from the real top-level document exchange via `get_document_response_evidence` (one shared perf-log drain with HAR, captured *after* request actions/waits so action-triggered navigations are reflected). `status` is `null` when unknown or when the exchange cannot be tied to the main frame (`mainFrameIdentified: false`) — never a fabricated 200 — and `set-cookie` is filtered from `headers`.
+- `sessions.fetch` runs an in-page `fetch()` with `mode: 'same-origin'` by default (cross-origin redirects become network errors — a 307/308 cannot forward body/headers off-origin); `allowCrossOriginRedirect: true` switches to CORS mode and reports `crossOriginRedirect` instead of failing. It raises the driver script timeout to `timeoutMs + 10s` and updates `session.request_count`/`touch()` — see API.md.
+- On request timeout/failure, `_resolve_challenge` calls `_abort_pending_raw_post` so a still-running raw-POST XHR cannot mutate session state after the API returned.
 
 ## Learned Configuration
 
 - Set `STEALTH_MODE=standard` to use the custom patched Chromium with active stealth.
 - `get_webdriver()` starts custom Chromium manually (`subprocess.Popen`) and connects via the remote-debugging port to avoid `chromedriver` adding `--enable-automation`.
 - `proxy_ext_dir` and `user_data_dir` are cleaned up in `get_webdriver()` if Chrome fails to start.
-- `--user-agent` command-line switch is used instead of CDP `Emulation.setUserAgentOverride` so the UA is consistent across main, dedicated worker and shared worker contexts.
+- UA is handled natively once the binary advertises Patch 6b in `.stealth-manifest.json` (`--stealth-native-ua` removes the `Headless` token inside `GetUserAgentInternal`, restoring coherent high-entropy UA-CH). On older binaries the `--user-agent` CLI switch remains the fallback — it is used instead of CDP `Emulation.setUserAgentOverride` so the UA is consistent across main, dedicated worker and shared worker contexts.
+- The Cloudflare resolver must not run heavy challenge-state probes early: `_probe_challenge_state`'s DOM walk forces layout on the live challenge page and measurably stalls Turnstile auto-verification. `resolve()` waits `CHALLENGE_PROBE_GRACE` seconds (default 12) before probing or clicking, then rate-limits probes to once per 5s; automatic challenges pass in ~4s undisturbed. `page_source` reads are cheap enough to keep during grace (needed for early hard-block detection).
 - `--stealth-navigator-languages` and `--stealth-viewport-size` custom switches are forwarded by `apply.py` to renderer processes.
 - `navigator.hardwareConcurrency` is kept at a plausible value via CPU affinity (`_limit_cpu_affinity`) rather than JS patching.
 - `performance.now()` uses stock Chromium behavior. The native timing jitter patch (Patch 13) was removed after ablation showed no reproducible difference from stock Chrome on the external timing signal and no internal regression.
@@ -71,6 +81,11 @@ The `bot-web-challenge` integration tests (`test_bot_challenge.py`) pass with on
 Additional integration tests:
 
 ```bash
+# Cloudflare challenge matrix: same targets across attachment/display arms
+# (manual headless/headed, uc-chromedriver, zero-CDP --dump-dom); records
+# Ray-ID-level results to FLARESOLVERR_CF_MATRIX (default /tmp/cf_challenge_matrix.json)
+PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/integration/test_cf_challenge_matrix.py -m integration -s
+
 # Event.isTrusted regression and cross-realm browser consistency
 PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/integration/test_event_istrusted.py tests/integration/test_browser_consistency.py -m integration -s
 
@@ -95,9 +110,10 @@ Remaining native patches in `chromium-patches/patches/apply.py` and their status
 
 | Patch | Signal | Justification | Runtime ablatable? | Notes |
 |-------|--------|---------------|--------------------|-------|
-| 2 | `navigator.webdriver` absent | Strong bot-detection signal; stock headless exposes `navigator.webdriver = true` | No (IDL annotation) | Required. Absence is verified by critical checks. |
+| 2 | `navigator.webdriver` present, `false` | Stock non-automated browsers expose the property returning `false`; an absent property is impossible on a real browser and was measured to fail Cloudflare managed challenges even with real human clicks | No (C++ patch) | Required. Default since the wdfalse validation: `Navigator::webdriver()` returns `false`, IDL left stock (manifest `webdriver-false`). Ablation variant `FLARESOLVERR_WEBDRIVER_ABSENT_PROPERTY=1` restores the absent-property shape (manifest `webdriver-idl`) and requires `--disable-blink-features=AutomationControlled`. |
 | 3 | WebGL vendor/renderer | Was intended to hide headless/container GPU strings | No (C++ switch read) | **Removed after ablation.** In `--headless=new` the GPU process is disabled, so the patch is dormant. With a real display it forced an `Intel` identity over the actual NVIDIA/ANGLE backend, creating a cross-API incoherence. Removing it restores the natural ANGLE/GPU identity and the `bot-web-challenge` verdict did not change. |
 | 6 | `HeadlessChrome` → `Chrome` in UA | `HeadlessChrome` token in `navigator.userAgent` is a strong signal | No (constant string) | Required unless using non-headless mode. |
+| 6b | `Headless` product token in unified UA | `GetUserAgentInternal` prepends `Headless` to the UA product even when `HeadlessChrome` is renamed; also `--user-agent` suppresses `GetUserAgentMetadata` (no high-entropy UA-CH) | Yes (`--stealth-native-ua`) | Gated at runtime by the binary manifest (`native-ua` patch ID). Only passed when the manifest advertises it; otherwise `--user-agent` fallback stays. |
 | 7 | `visualViewport` matches `innerWidth/Height` | Headless can expose visual/layout viewport mismatch | Yes (`--stealth-viewport-size`) | Ablate by not passing the switch. |
 | 8/10 | `navigator.languages` / ICU locale | Headless may return `[]` or OS-only locale, mismatching `Accept-Language` and `Intl` | Yes (`--stealth-navigator-languages`) | Ablate by not passing the switch; watch `navigator.languages` and `Intl` consistency. |
 | 9 | Forward stealth switches to renderers | Required for any switch-based patch to reach workers/iframes | No (mechanical) | Required infrastructure. |
@@ -119,7 +135,8 @@ Run `tests/integration/test_gpu_architecture.py` to collect the data saved to
   `--webgl-unmasked-*` spoof has been removed, so the graphics stack is
   internally coherent.
 - **Headless stock Chrome 151.0.7922.108**: same disabled GPU state;
-  `navigator.webdriver` is `false` (not `undefined/null` as in custom) and
+  `navigator.webdriver` is `false` (same as the current custom build's
+  present-but-false shape) and
   `enumerateDevices` returns 3 default devices unless the fallback JS is active.
 - **Headed custom build (`HEADLESS=false`) on the test device**: the actual
   backend and WebGL `UNMASKED_VENDOR/RENDERER` now agree, both reporting
