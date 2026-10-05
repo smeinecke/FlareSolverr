@@ -141,6 +141,7 @@ pip install "seleniumbase>=4.30"
 | Stealth mode | Custom patches | Basic flags | Built-in | UC mode |
 | Cloudflare managed challenge | ✅ | ❌ ¹ | ✅ ² | ✅ |
 | Embedded Turnstile widget | ✅ | ❌ ³ | ✅ | ❌ ³ |
+| Turnstile troubleshooter page | ✅ ⁴ | ✅ | ✅ ⁵ | ❌ ⁶ |
 
 * `postDataRaw` on Playwright/Camoufox uses JavaScript XHR fallback instead of CDP `Fetch.continueRequest`.
 
@@ -159,8 +160,32 @@ verified against scrapingcourse.com's managed challenge.
 produced within the timeout. Verified against scrapingcourse.com's
 `/login/cf-turnstile` target. Camoufox obtained a token in ~8s on the same target.
 
-Challenge-solving results are empirical (scrapingcourse.com targets) and
-site-dependent — treat them as the current known state, not a guarantee.
+⁴ Verified on `debug.challenges.cloudflare.com`: all diagnostics pass
+(Automation Check, System Clock, Privacy Tools, Server Connection) and
+`testMetadata.criticalFailure` is null. In headless mode the custom build
+exposes no WebGL context at all, which the `webglSpoofed` check accepts.
+
+⁵ All diagnostics pass; Camoufox's per-session plausible WebGL identities
+(e.g. ANGLE/Direct3D11 or Apple GPU strings) are not caught by the page's
+`webglSpoofed` check, which only flags known-masked values (e.g. Firefox
+`privacy.resistFingerprinting`'s `Mozilla`/`Mozilla`) and software renderers.
+Note the page's share/copy step never finishes under Camoufox
+(`resultsSharingState` stays `loading`), so the structured results cannot be
+captured via `navigator.clipboard.writeText` — the verdict was read from the
+rendered DOM. Caveat: Camoufox's GPU rotation can produce OS-incoherent
+combinations (e.g. `Apple M1` on a `Windows NT 10.0` UA) which this page does
+not check, but a stricter verifier might.
+
+⁶ Headless Chrome reports a SwiftShader software renderer
+(`ANGLE (Google, Vulkan ... (SwiftShader Device ...), SwiftShader driver)`),
+which the troubleshooter flags as `webglSpoofed` ("Graphics Information
+Appears Fake") under Privacy Tools. The embedded Turnstile widget on the page
+still issues a token — the finding is advisory there — but the same signal is
+visible to real challenge scoring.
+
+Challenge-solving results are empirical (scrapingcourse.com and
+debug.challenges.cloudflare.com targets) and site-dependent — treat them as
+the current known state, not a guarantee.
 
 ## Troubleshooting
 
