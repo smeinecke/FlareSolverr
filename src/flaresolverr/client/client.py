@@ -517,17 +517,27 @@ class FlareSolverrClient:
         >>> print(response.solution.response)
     """
 
-    def __init__(self, base_url: str = "http://localhost:8191", timeout: float = 120.0):
+    def __init__(self, base_url: str = "http://localhost:8191", timeout: float = 120.0, api_token: str | None = None):
         """Initialize the FlareSolverr client.
 
         Args:
             base_url: The base URL of the FlareSolverr service (default: http://localhost:8191).
             timeout: HTTP timeout for API requests in seconds (default: 120).
+            api_token: Optional bearer token required by servers configured with API_TOKEN.
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.api_token = api_token
         self.sessions = _SessionManager(self)
         self.request = _RequestManager(self)
+
+    def _request_headers(self, session: str | None = None) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_token:
+            headers["Authorization"] = f"Bearer {self.api_token}"
+        if session is not None:
+            headers["X-FlareSolverr-Session"] = session
+        return headers
 
     def health(self, details: bool = False) -> HealthResponse:
         """Check the health status of the FlareSolverr service.
@@ -577,9 +587,7 @@ class FlareSolverrClient:
             requests.RequestException: If the HTTP request fails.
         """
         url = f"{self.base_url}{path or '/v1'}"
-        headers = {"Content-Type": "application/json"}
-        if session is not None:
-            headers["X-FlareSolverr-Session"] = session
+        headers = self._request_headers(session)
 
         logger.debug(f"POST {url} with payload: {payload}")
         response = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
@@ -612,9 +620,7 @@ class FlareSolverrClient:
             requests.RequestException: If the HTTP request fails.
         """
         url = f"{self.base_url}{path}"
-        headers = {"Content-Type": "application/json"}
-        if session is not None:
-            headers["X-FlareSolverr-Session"] = session
+        headers = self._request_headers(session)
 
         logger.debug(f"DELETE {url}")
         response = requests.delete(url, headers=headers, timeout=self.timeout)

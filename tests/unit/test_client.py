@@ -383,6 +383,28 @@ class TestFlareSolverrClientHTTP:
         payload = call_kwargs[1]["json"]
         assert payload["postData"] == "user=x&pass=y"
 
+    def test_api_token_adds_bearer_header(self):
+        client = FlareSolverrClient("http://localhost:8191", api_token="secret-token")
+        with patch("flaresolverr.client.client.requests.post") as mock_post:
+            mock_post.return_value = self._make_ok_response()
+            client.request.get("https://example.com")
+
+        headers = mock_post.call_args[1]["headers"]
+        assert headers["Authorization"] == "Bearer secret-token"
+        assert headers["Content-Type"] == "application/json"
+
+    def test_api_token_adds_bearer_header_to_delete(self):
+        client = FlareSolverrClient("http://localhost:8191", api_token="secret-token")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"status": "ok", "message": "The session has been removed."}
+        mock_resp.raise_for_status = MagicMock()
+        with patch("flaresolverr.client.client.requests.delete", return_value=mock_resp) as mock_delete:
+            client.sessions.destroy("session-id")
+
+        headers = mock_delete.call_args[1]["headers"]
+        assert headers["Authorization"] == "Bearer secret-token"
+        assert headers["X-FlareSolverr-Session"] == "session-id"
+
     def test_error_status_raises(self):
         client = FlareSolverrClient("http://localhost:8191")
         mock_resp = MagicMock()

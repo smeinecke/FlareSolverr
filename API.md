@@ -4,6 +4,8 @@
 
 Send a POST request to `/v1` with a JSON body containing the `cmd` and parameters.
 
+If `API_TOKEN` is configured, every `/v1` route requires `Authorization: Bearer <token>`. Leaving `API_TOKEN` unset preserves the historical unauthenticated API behavior; `/` and `/health` are not protected.
+
 **Bash:**
 
 ```bash

@@ -104,6 +104,7 @@ The `GET /health` endpoint returns the service status along with runtime metrics
 | UC_HEADLESS_AUTO_UA_OVERRIDE | false      | Controls undetected_chromedriver automatic headless UA override. Default `false` means no automatic UA replacement. |
 | PORT               | 8191                   | Listening port. You don't need to change this if you are running on Docker.                                                              |
 | HOST               | 0.0.0.0                | Listening interface. You don't need to change this if you are running on Docker.                                                         |
+| API_TOKEN          | none                   | Optional bearer token for all `/v1` command routes. When set, clients must send `Authorization: Bearer <token>`; `/` and `/health` remain unauthenticated. |
 | PROMETHEUS_ENABLED | false                  | Enable Prometheus exporter. See the Prometheus section below.                                                                            |
 | PROMETHEUS_PORT    | 8192                   | Listening port for Prometheus exporter. See the Prometheus section below.                                                                |
 | SESSION_MAX_RUNTIME | none                  | Maximum lifetime of a session in seconds. When set, sessions older than this are automatically destroyed. Overrides per-session `sessionMaxRuntime`. |
