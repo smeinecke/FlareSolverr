@@ -66,6 +66,17 @@ class BrowserContext(Protocol):
     @property
     def capabilities(self) -> dict[str, Any]: ...
 
+    @property
+    def last_document_response(self) -> dict[str, Any] | None:
+        """Last top-level document response captured natively by the backend.
+
+        Backends without ChromeDriver performance logs (Playwright,
+        Camoufox) populate this from navigation response events so callers
+        can still report the real document status/headers. Returns None on
+        Selenium-style drivers where the performance log is the source.
+        """
+        return None
+
     # Cookies
     def add_cookie(self, cookie: dict[str, Any]) -> None: ...
     def delete_cookie(self, name: str) -> None: ...

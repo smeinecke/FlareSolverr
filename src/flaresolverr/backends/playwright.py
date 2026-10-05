@@ -202,14 +202,33 @@ class PlaywrightBrowserContext(BrowserContext):
         self._page_lock = threading.Lock()
         self._stealth_mode = stealth_mode
         self._last_dialog: Any = None
+        self._last_document_response: dict[str, Any] | None = None
 
         def _attach():
             self._page.on("dialog", self._on_dialog)
+            self._page.on("response", self._on_response)
 
         self._executor.submit(_attach)
 
     def _on_dialog(self, dialog: Any) -> None:
         self._last_dialog = dialog
+
+    def _on_response(self, response: Any) -> None:
+        try:
+            request = response.request
+            if not request.is_navigation_request() or request.frame.parent_frame is not None:
+                return
+            self._last_document_response = {
+                "url": response.url,
+                "status": response.status,
+                "headers": dict(response.headers),
+            }
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Could not record document response: %s", e)
+
+    @property
+    def last_document_response(self) -> dict[str, Any] | None:
+        return self._last_document_response
 
     def get(self, url: str) -> None:
         def _get():

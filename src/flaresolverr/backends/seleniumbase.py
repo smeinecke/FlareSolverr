@@ -22,6 +22,10 @@ class SeleniumBaseBackend:
             "window_size": "1920,1080",
             "no_sandbox": True,
             "chromium_arg": "--disable-dev-shm-usage,--disable-setuid-sandbox,--no-zygote",
+            # Enable the ChromeDriver performance/browser logs so document
+            # evidence (status/headers) and sessions.network work like on the
+            # other chromedriver backends.
+            "log_cdp_events": True,
         }
 
         if proxy is not None and "url" in proxy:

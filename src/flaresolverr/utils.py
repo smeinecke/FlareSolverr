@@ -1073,6 +1073,24 @@ def get_document_response_evidence(
     if entries is None:
         entries = get_performance_log(driver)
     if not entries:
+        # Backends without ChromeDriver performance logs may still record the
+        # last top-level document exchange natively (Playwright/Camoufox
+        # capture it from navigation response events).
+        native = getattr(driver, "last_document_response", None)
+        if isinstance(native, dict) and native.get("status") is not None:
+            return {
+                "url": native.get("url"),
+                "status": native.get("status"),
+                "headers": native.get("headers") or {},
+                "mimeType": None,
+                "protocol": None,
+                "redirectChain": [],
+                "navError": None,
+                "cfMitigated": None,
+                "cfRay": None,
+                "failedResources": [],
+                "mainFrameIdentified": True,
+            }
         return {}
 
     url_by_request_id: dict[str, str] = {}

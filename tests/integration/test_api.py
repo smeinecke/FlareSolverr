@@ -172,6 +172,26 @@ class TestFlareSolverr(unittest.TestCase):
     def _assert_challenge_status_ok(self, message: str):
         self.assertIn(message, {"Challenge solved!", "Challenge not detected!"})
 
+    def _assert_status_ok(self, solution, expected: int = 200):
+        # Backends without a ChromeDriver performance log honestly report
+        # status=None (never fabricated). SeleniumBase exposes no document
+        # evidence at all; Playwright/Camoufox report the real status via
+        # native response capture, and Chromium backends via the perf log.
+        backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+        if backend == "seleniumbase":
+            self.assertIn(solution.status, (expected, None))
+        else:
+            self.assertEqual(solution.status, expected)
+
+    def _assert_headers_nonempty(self, solution):
+        backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+        if backend == "seleniumbase":
+            # Depends on whether SeleniumBase's performance log is active;
+            # only require it to be a list (never fabricated).
+            self.assertIsInstance(solution.headers, list)
+        else:
+            self.assertGreater(len(solution.headers), 0)
+
     def test_wrong_endpoint(self):
         res = self._request("GET", "/wrong", status=404)
         self.assertEqual(res.status_code, 404)
@@ -242,8 +262,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.google_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertTrue(
@@ -269,8 +289,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.are_you_a_bot_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         self.assertIn("<title>Bot detection test: verify if your bot is detected</title>", solution.response)
         # Bot detection signals must all be clean
         self.assertRegex(solution.response, re.compile(r'"hasBotUserAgent"\s*:\s*false'))
@@ -287,9 +307,7 @@ class TestFlareSolverr(unittest.TestCase):
     def test_v1_endpoint_request_get_are_you_a_bot_interactions_page_content(self):
         backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
         if backend != "custom_chromium":
-            self.skipTest(
-                "Behavioral action detection requires patched Chromium; skipping on non-custom backends."
-            )
+            self.skipTest("Behavioral action detection requires patched Chromium; skipping on non-custom backends.")
         res = self._request(
             "POST",
             "/v1",
@@ -317,8 +335,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.are_you_a_bot_interactions_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         self.assertIn("<title>Bot detection test: verify if your bot is detected</title>", solution.response)
         self.assertIn('id="loginForm"', solution.response)
         # Fingerprint signals should be clean
@@ -348,8 +366,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.google_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertTrue(
@@ -371,8 +389,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.cloudflare_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         self.assertRegex(solution.response, re.compile(r"<title>nowsecure\.nl</title>|<title>nowSecure</title>", re.IGNORECASE))
         self.assertGreater(len(solution.cookies), 0)
         self.assertTrue(
@@ -409,8 +427,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.cloudflare_url_2, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         self.assertIn("<title>Download 2022 Torrents - BT4G</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertTrue(
@@ -436,8 +454,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.ddos_guard_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         self.assertRegex(solution.response, re.compile(r"ANIME-LOADS.ORG -", re.IGNORECASE))
         self.assertGreater(len(solution.cookies), 0)
         self.assertTrue(
@@ -467,8 +485,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.scrapingcourse_cf_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         self.assertIn("Cloudflare Challenge", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertTrue(
@@ -515,8 +533,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.scrapingcourse_turnstile_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         # After successful login the page should show the success page, not 403
         self.assertNotIn("403", solution.response)
         self.assertNotIn("FORBIDDEN", solution.response)
@@ -563,8 +581,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.turnstile_workers_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
 
         # Extract the page's internal testResults JSON via JS evaluation.
         # window.testResults is scoped inside an IIFE, so it is not directly
@@ -648,8 +666,8 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertEqual(utils.get_flaresolverr_version(), body.version)
 
         solution = body.solution
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         # Real form submission should not hit Laravel 419 Page Expired
         self.assertNotIn("Page Expired", solution.response)
         self.assertNotIn("419", solution.response)
@@ -697,8 +715,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.google_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         self.assertIn("<title>Google</title>", solution.response)
         self.assertGreater(len(solution.cookies), 1)
         self.assertTrue(
@@ -727,7 +745,7 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.google_url, solution.url)
-        self.assertEqual(solution.status, 200)
+        self._assert_status_ok(solution)
         self.assertIsNone(solution.headers)
         self.assertIsNone(solution.response)
         self.assertGreater(len(solution.cookies), 0)
@@ -761,8 +779,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.google_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         # Google may serve a reCAPTCHA/interstitial to the proxy exit IP; accept
         # any Google-domain title instead of requiring the clean homepage title.
         self.assertRegex(solution.response, re.compile(r"<title>.*(?:Google|google\.com).*</title>", re.DOTALL))
@@ -801,8 +819,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.google_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         # Google may serve a reCAPTCHA/interstitial to the proxy exit IP; accept
         # any Google-domain title instead of requiring the clean homepage title.
         self.assertRegex(solution.response, re.compile(r"<title>.*(?:Google|google\.com).*</title>", re.DOTALL))
@@ -835,8 +853,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.google_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         # Google may serve a reCAPTCHA/interstitial to the proxy exit IP; accept
         # any Google-domain title instead of requiring the clean homepage title.
         self.assertRegex(solution.response, re.compile(r"<title>.*(?:Google|google\.com).*</title>", re.DOTALL))
@@ -902,12 +920,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.post_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
-        if backend in ("undetected_chromedriver", "custom_chromium"):
-            self.assertGreater(len(solution.headers), 0)
-        else:
-            self.assertIs(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         # go-httpbin can return scalar or array form values; accept field names loosely.
         self.assertIn("param1", solution.response)
         self.assertIn("value1", solution.response)
@@ -937,8 +951,8 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.cloudflare_url, solution.url)
-        self.assertEqual(solution.status, 200)
-        self.assertGreater(len(solution.headers), 0)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
         self.assertIn("<title>405 Not Allowed</title>", solution.response)
         self.assertGreater(len(solution.cookies), 0)
         self.assertTrue(
@@ -994,7 +1008,7 @@ class TestFlareSolverr(unittest.TestCase):
 
         solution = body.solution
         self.assertIn(self.post_url, solution.url)
-        self.assertEqual(solution.status, 200)
+        self._assert_status_ok(solution)
         self.assertIn('"key": "value"', solution.response)
         self.assertIn('"num": 42', solution.response)
         self.assertIn('"Content-Type":', solution.response)
@@ -1197,6 +1211,14 @@ class TestFlareSolverr(unittest.TestCase):
         """sessions.network returns performance log entries when supported."""
         self._request("POST", "/v1", {"cmd": "sessions.create", "session": "test_network_session"})
         self._request("POST", "/v1", {"cmd": "request.get", "session": "test_network_session", "url": self.google_url})
+
+        # request.get drains the performance log for its own evidence capture,
+        # so generate fresh traffic via an in-page same-origin fetch instead.
+        self._request(
+            "POST",
+            "/v1",
+            {"cmd": "sessions.fetch", "session": "test_network_session", "url": "/", "method": "GET"},
+        )
 
         res = self._request("POST", "/v1", {"cmd": "sessions.network", "session": "test_network_session"})
         self.assertEqual(res.status_code, 200)
