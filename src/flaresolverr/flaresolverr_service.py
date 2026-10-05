@@ -15,7 +15,7 @@ from typing import Any, cast
 from urllib.parse import parse_qsl, quote, urljoin, urlparse
 
 from func_timeout import FunctionTimedOut, func_timeout
-from selenium.common import UnexpectedAlertPresentException
+from selenium.common import TimeoutException, UnexpectedAlertPresentException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
@@ -54,6 +54,7 @@ ACCESS_DENIED_SELECTORS = [
 ]
 
 TURNSTILE_SELECTORS = ["input[name='cf-turnstile-response']"]
+TURNSTILE_WAIT_TIMEOUT_SECONDS = 10
 
 BLOCK_MEDIA_URL_PATTERNS = [
     # Images
@@ -1139,15 +1140,22 @@ def _resolve_turnstile_captcha(req: V1RequestBase, driver: WebDriver) -> str | N
         if req.url is None:
             raise RuntimeError("Request parameter 'url' is mandatory in request commands.")
         logger.debug(f"Navigating to... {req.url} in order to pass the turnstile challenge")
+        # Reused sessions can retain a stale token when a URL only changes its
+        # fragment; force a clean document before navigating to the target.
+        driver.get("about:blank")
         driver.get(req.url)
 
+        # Single-page applications can render the Turnstile widget after the
+        # initial document load; bound the wait so missing widgets do not hang.
         turnstile_challenge_found = False
-        for selector in TURNSTILE_SELECTORS:
-            found_elements = driver.find_elements(By.CSS_SELECTOR, selector)
-            if len(found_elements) > 0:
-                turnstile_challenge_found = True
-                logger.info("Turnstile challenge detected. Selector found: " + selector)
-                break
+        try:
+            WebDriverWait(driver, TURNSTILE_WAIT_TIMEOUT_SECONDS).until(
+                lambda d: any(d.find_elements(By.CSS_SELECTOR, selector) for selector in TURNSTILE_SELECTORS)
+            )
+            turnstile_challenge_found = True
+            logger.info("Turnstile challenge detected. Selector found: " + TURNSTILE_SELECTORS[0])
+        except TimeoutException:
+            logger.debug("Turnstile challenge not found")
         if turnstile_challenge_found:
             turnstile_token = _get_turnstile_token(driver=driver, tabs=req.tabs_till_verify)
         else:
