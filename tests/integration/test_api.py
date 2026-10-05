@@ -601,12 +601,18 @@ class TestFlareSolverr(unittest.TestCase):
                 "cmd": "sessions.eval",
                 "session": "test_turnstile_workers",
                 "script": (
+                    # The troubleshooter page exposes the results JSON via
+                    # getCopiedResults() (current debug.challenges harness)
+                    # or the older copyFullResults()/copyResults() clipboard
+                    # path on browser-compat.turnstile.workers.dev.
+                    "if (typeof getCopiedResults === 'function') { return getCopiedResults(); }"
                     "var captured = null;"
                     "navigator.clipboard.writeText = function(text) {"
                     "    captured = text;"
                     "    return Promise.resolve();"
                     "};"
-                    "window.copyFullResults();"
+                    "if (typeof copyFullResults === 'function') { window.copyFullResults(); }"
+                    "else if (typeof copyResults === 'function') { window.copyResults(); }"
                     "return captured;"
                 ),
             },
