@@ -140,9 +140,11 @@ class PlaywrightActionChainBuilder(ActionChainBuilder):
             if element is not None:
                 if not isinstance(element, PlaywrightElement):
                     raise TypeError(f"Expected PlaywrightElement, got {type(element).__name__}")
-                box = element._handle.bounding_box()
-                if box:
-                    self._page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                # ElementHandle.click auto-waits for actionability (attached,
+                # visible, stable layout). A raw bounding_box()+mouse.click
+                # silently dropped the click when the element was not laid out
+                # yet — observed as flaky test/CI failures on loaded runners.
+                element._handle.click()
             else:
                 self._page.mouse.click(self._current_x, self._current_y)
 
