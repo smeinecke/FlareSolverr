@@ -384,6 +384,18 @@ jobs:
         run: |
           uv run pytest tests/integration/test_api.py tests/integration/test_js_injection_integration.py tests/integration/test_sites.py tests/integration/test_bot_challenge.py -vv -m integration -k "not proxy"
 
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: integration-diagnostics-${{ matrix.backend }}
+          path: |
+            /tmp/turnstile_workers_diag.json
+            /tmp/flaresolverr_challenge_diag.json
+            /tmp/flaresolverr_challenge_full.json
+            /tmp/flaresolverr.log
+          if-no-files-found: ignore
+
       - name: Stop FlareSolverr
         if: always()
         run: |

@@ -593,11 +593,10 @@ class TestFlareSolverr(unittest.TestCase):
         self._assert_headers_nonempty(solution)
 
         # Extract the page's internal testResults JSON via JS evaluation.
-        # window.testResults is scoped inside an IIFE, so it is not directly
-        # reachable.  However, window.copyFullResults is exposed and reads
-        # testResults from its closure.  We monkey-patch
-        # navigator.clipboard.writeText to capture the JSON string that the
-        # "Copy full results" button would copy to the clipboard.
+        # testResults is scoped inside an IIFE, so it is not directly
+        # reachable; the "Copy full results" button's handler reads it from
+        # the closure and routes through navigator.clipboard.writeText, which
+        # we monkey-patch to capture the JSON string.
         eval_res = self._request(
             "POST",
             "/v1",
@@ -630,6 +629,15 @@ class TestFlareSolverr(unittest.TestCase):
         self.assertIsNotNone(eval_body.solution.evalResult, "copyFullResults did not produce any output")
 
         test_results = json.loads(eval_body.solution.evalResult)
+
+        # Persist the full diagnostics payload so failures (and even green
+        # runs) can be inspected after the fact; CI uploads it as an artifact.
+        diag_path = os.environ.get("FLARESOLVERR_TURNSTILE_DIAG", "/tmp/turnstile_workers_diag.json")
+        with open(diag_path, "w") as f:
+            json.dump(test_results, f, indent=2, default=str)
+        print(f"Turnstile troubleshooter diagnostics written to {diag_path}")
+        for t in test_results.get("tests", []):
+            print(f"  {t.get('name')}: passed={t.get('passed')} detail={t.get('detail')}")
 
         # Assert on structured diagnostic data rather than scraping HTML.
         # criticalFailure is null when all checks pass;
