@@ -220,12 +220,18 @@ explicit `dcheck_always_on`), making the check fatal; the rebuilt binary
 (`dcheck_always_on=false`, run `37443681771`) survives the probe and
 completes the load. Camoufox (Firefox engine) was never affected.
 
-¹¹ Akamai Bot Manager's sensor validates both backends without an active
-challenge: `ak_bmsc`, `AKA_A2`, `RT`, `bm_sv` cookies are issued and the
-real page is served. Curl/`requests` UAs are denied by edge rules, but a
-real browser fingerprint passes trivially. No always-challenging Akamai or
-Sucuri target has been found — both gate on reputation rather than issuing
-deterministic challenges; `WAF_MATRIX_TARGETS` accepts one if found.
+¹¹ Akamai Bot Manager's passive sensor validates both backends without an
+active challenge — `ak_bmsc`, `AKA_A2`, `_abck`, `bm_*` cookies are issued
+and the real page is served. Verified across 20+ BMP-fronted sites
+(nike, walmart, macys, marriott, footlocker, stubhub, verizon, adidas,
+aa.com, healthcare.gov, fedex, ups, dhl, chase, citi, staples, costco,
+samsclub, att, southwest). Curl/`requests` UAs are denied by edge rules,
+but a real browser fingerprint passes trivially. Some sites (homedepot,
+kohls, lowes) return a hard `403 Access Denied` edge verdict even to the
+browser — a deny rule, not a solvable challenge. The active `sec-cpt`
+verify interstitial never fires for a clean fingerprint/IP; it requires a
+flagged IP or failed sensor POST. No always-challenging Akamai or Sucuri
+target exists — `WAF_MATRIX_TARGETS` accepts one if found.
 
 ## Troubleshooting
 
