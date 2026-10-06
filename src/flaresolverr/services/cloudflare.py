@@ -96,6 +96,9 @@ return {
 
 class CloudflareService(ChallengeService):
     name = "cloudflare"
+    # Written by _should_attempt_verify_click; resolve() reads it to track the
+    # bare-probe streak for the no-marker keyboard fallback.
+    _last_probe_state: dict[str, Any] | None = None
 
     def detect(self, driver: BrowserContext) -> bool:
         try:
@@ -139,6 +142,12 @@ class CloudflareService(ChallengeService):
         # stalled by per-second DOM walks.
         last_probe_ts = 0.0
         probe_interval_seconds = 5.0
+        # Streak of consecutive probes that found no marker at all. Engines
+        # that hide the widget in a closed shadow root without exposing it via
+        # window.frames (Camoufox on Firefox >=156) show zero markers — after
+        # the first bare probe we allow the keyboard click path anyway; on a
+        # confirmed CF challenge page TAB+SPACE is inert when no widget exists.
+        no_marker_streak = 0
 
         while True:
             attempt += 1
@@ -174,7 +183,8 @@ class CloudflareService(ChallengeService):
                     )
                 else:
                     last_probe_ts = now
-                    if self._should_attempt_verify_click(driver):
+                    if self._should_attempt_verify_click(driver, allow_no_marker_click=no_marker_streak >= 2):
+                        no_marker_streak = 0
                         if now - last_verify_click_ts >= click_cooldown_seconds:
                             self._click_verify(driver)
                             last_verify_click_ts = now
@@ -195,7 +205,16 @@ class CloudflareService(ChallengeService):
                             remaining = click_cooldown_seconds - (now - last_verify_click_ts)
                             logger.debug("Skipping verify click due to cooldown (%.1fs remaining)", remaining)
                     else:
-                        logger.debug("Skipping verify click: challenge appears to be in automatic verification mode")
+                        state = getattr(self, "_last_probe_state", None)
+                        if isinstance(state, dict) and not self._state_has_any_marker(state):
+                            no_marker_streak += 1
+                            logger.debug(
+                                "Skipping verify click: no challenge markers (bare-probe streak %d)",
+                                no_marker_streak,
+                            )
+                        else:
+                            no_marker_streak = 0
+                            logger.debug("Skipping verify click: challenge appears to be in automatic verification mode")
                 html_element = self._get_html_element(driver)
                 if html_element is None:
                     continue
@@ -253,12 +272,30 @@ class CloudflareService(ChallengeService):
         """Evaluate the visible challenge DOM state in one round-trip."""
         return driver.execute_script(CHALLENGE_PROBE_SCRIPT)
 
-    def _should_attempt_verify_click(self, driver: BrowserContext) -> bool:
+    @staticmethod
+    def _state_has_any_marker(state: dict[str, Any]) -> bool:
+        """True when the probe saw anything at all — interactive controls,
+        shadow-hidden frames, or auto-verification/success text."""
+        return any(
+            state.get(key)
+            for key in (
+                "verifyButton",
+                "challengeIframe",
+                "turnstileWrapperWithControl",
+                "hiddenFrameCount",
+                "verifyingTextVisible",
+                "successTextVisible",
+            )
+        )
+
+    def _should_attempt_verify_click(self, driver: BrowserContext, allow_no_marker_click: bool = False) -> bool:
         try:
             state = self._probe_challenge_state(driver)
         except Exception as e:  # noqa: BLE001
             logger.debug("_should_attempt_verify_click: exception %s", e)
+            self._last_probe_state = None
             return False
+        self._last_probe_state = state
         if not isinstance(state, dict):
             return False
 
@@ -287,6 +324,19 @@ class CloudflareService(ChallengeService):
         if state.get("verifyingTextVisible"):
             logger.debug("_should_attempt_verify_click: False (automatic verification in progress)")
             return False
+
+        # Zero markers on a confirmed Cloudflare challenge page: the widget may
+        # live in a closed shadow root that neither DOM queries nor
+        # window.frames expose (Camoufox on Firefox >=156 no longer reports
+        # shadow frames there). The caller enables this after auto-verify had
+        # an undisturbed probe cycle; TAB+SPACE is inert when no widget exists.
+        if allow_no_marker_click:
+            logger.debug(
+                "_should_attempt_verify_click: True (no markers; keyboard fallback). iframes=%s hiddenFrames=%s",
+                state.get("iframeSrcs"),
+                state.get("hiddenFrameCount"),
+            )
+            return True
 
         logger.debug(
             "_should_attempt_verify_click: False (no markers). iframes=%s hiddenFrames=%s",

@@ -144,7 +144,7 @@ jobs:
 
       - name: Wait for FlareSolverr to be ready
         run: |
-          for i in {1..30}; do
+          for i in {1..90}; do
             if curl -fsS http://127.0.0.1:8191/ >/dev/null 2>&1; then
               echo "FlareSolverr is ready"
               exit 0
@@ -157,7 +157,7 @@ jobs:
 
       - name: Wait for proxies to be ready
         run: |
-          for i in {1..30}; do
+          for i in {1..90}; do
             if curl -fsS --proxy http://127.0.0.1:8888 https://example.com >/dev/null && \
                curl -fsS --socks5-hostname 127.0.0.1:1080 https://example.com >/dev/null; then
               echo "Proxies are ready"
@@ -343,7 +343,7 @@ jobs:
             sleep 5
           done
           docker run -d --name go-httpbin -p 127.0.0.1:8080:8080 mccutchen/go-httpbin:latest
-          for i in {1..30}; do
+          for i in {1..90}; do
             if curl -fsS http://127.0.0.1:8080/get >/dev/null 2>&1; then
               echo "go-httpbin is ready"
               exit 0
@@ -364,7 +364,7 @@ jobs:
           FLARESOLVERR_CUSTOM_CHROMIUM: ${{ matrix.backend == 'custom_chromium' && 'true' || '' }}
         run: |
           nohup uv run python -m flaresolverr.flaresolverr > /tmp/flaresolverr.log 2>&1 &
-          for i in {1..30}; do
+          for i in {1..90}; do
             if curl -fsS http://127.0.0.1:8191/ >/dev/null 2>&1; then
               echo "FlareSolverr is ready"
               exit 0

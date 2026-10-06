@@ -291,6 +291,39 @@ class TestCloudflareService:
         )
         assert svc._should_attempt_verify_click(driver) is False
 
+    def test_click_without_markers_when_keyboard_fallback_enabled(self, svc):
+        """Engines that hide the widget from both DOM and window.frames
+        (Camoufox on Firefox >=156) produce a bare probe — after auto-verify
+        had an undisturbed cycle the resolver may still try TAB+SPACE."""
+        driver = self._probe_driver(
+            {
+                "verifyButton": False,
+                "challengeIframe": False,
+                "turnstileWrapperWithControl": False,
+                "verifyingTextVisible": False,
+                "successTextVisible": False,
+                "iframeSrcs": [],
+                "hiddenFrameCount": 0,
+            }
+        )
+        assert svc._should_attempt_verify_click(driver, allow_no_marker_click=True) is True
+
+    def test_no_marker_fallback_never_clicks_during_verifying_or_success(self, svc):
+        for extra in ("verifyingTextVisible", "successTextVisible"):
+            driver = self._probe_driver(
+                {
+                    "verifyButton": False,
+                    "challengeIframe": False,
+                    "turnstileWrapperWithControl": False,
+                    "verifyingTextVisible": False,
+                    "successTextVisible": False,
+                    "iframeSrcs": [],
+                    "hiddenFrameCount": 0,
+                    extra: True,
+                }
+            )
+            assert svc._should_attempt_verify_click(driver, allow_no_marker_click=True) is False
+
     def test_click_on_shadow_hidden_frame(self, svc):
         """A frame in window.frames with no DOM iframe element is a widget in a
         closed shadow root — observed on Camoufox's managed challenge, where

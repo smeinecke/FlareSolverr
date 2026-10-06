@@ -709,11 +709,12 @@ class TestFlareSolverr(unittest.TestCase):
             )
 
             # An iframe inside a closed shadow root is invisible to
-            # querySelectorAll. Whether window.frames still counts it is
-            # engine-specific: Firefox (Camoufox) does, Chromium does not —
-            # verified live on both. The probe must reflect that difference,
-            # since hiddenFrameCount is what saves the Camoufox managed
-            # challenge; on Chromium the CF widget mounts in light DOM anyway.
+            # querySelectorAll. Whether window.frames counts it is engine- AND
+            # version-dependent: Firefox 135 (Camoufox 0.4.x) does; Firefox 156
+            # (Camoufox 0.5.x) and Chromium do not — verified live. What must
+            # hold regardless: the probe's hiddenFrameCount mirrors the real
+            # window.frames vs DOM-frame diff, and the shadow iframe never
+            # leaks into the DOM iframe list.
             ua = _eval("return navigator.userAgent;")
             _eval(
                 "var host = document.createElement('div');"
@@ -722,20 +723,31 @@ class TestFlareSolverr(unittest.TestCase):
                 ".appendChild(Object.assign(document.createElement('iframe'), {src: 'about:blank'}));"
                 "return window.frames.length;"
             )
-            # window.frames registers the new browsing context asynchronously
-            # (a later task), so the probe may need a moment to observe it —
-            # poll until the count settles instead of reading once.
-            expected_hidden = baseline_hidden + (1 if "Firefox/" in ua else 0)
+            # window.frames registers new browsing contexts asynchronously —
+            # poll the direct count until it settles before comparing.
+            frames_now = -1
             deadline = time.time() + 5
-            after_shadow = _eval(CHALLENGE_PROBE_SCRIPT)
-            while after_shadow.get("hiddenFrameCount") != expected_hidden and time.time() < deadline:
+            while time.time() < deadline:
+                cur = _eval("return window.frames.length;")
+                if cur == frames_now:
+                    break
+                frames_now = cur
                 time.sleep(0.25)
-                after_shadow = _eval(CHALLENGE_PROBE_SCRIPT)
+            after_shadow = _eval(CHALLENGE_PROBE_SCRIPT)
+            dom_frames = _eval("return document.querySelectorAll('iframe, frame').length;")
+            expected_hidden = max(0, frames_now - dom_frames)
             self.assertEqual(
                 expected_hidden,
                 after_shadow.get("hiddenFrameCount"),
-                f"shadow-hidden iframe count wrong: baseline={baseline} after={after_shadow} ua={ua}",
+                f"hiddenFrameCount does not mirror the frame diff: "
+                f"frames={frames_now} dom={dom_frames} probe={after_shadow} ua={ua}",
             )
+            if expected_hidden > 0:
+                self.assertGreater(
+                    after_shadow.get("hiddenFrameCount", 0),
+                    baseline_hidden,
+                    "engine exposed a hidden frame but the probe did not report it",
+                )
             # The shadow iframe must not leak into the DOM iframe list.
             self.assertEqual(
                 len(after_dom.get("iframeSrcs", [])),

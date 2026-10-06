@@ -37,7 +37,6 @@ except ModuleNotFoundError:
     Xvfb = None  # type: ignore[misc,assignment]
 
 from selenium import webdriver
-from selenium.common import WebDriverException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.webdriver import WebDriver
@@ -1667,6 +1666,23 @@ def extract_version_nt_folder() -> str:
     return ""
 
 
+_NAVIGATION_RACE_MARKERS = (
+    # Selenium/ChromeDriver
+    "no such execution context",
+    "aborted by navigation",
+    # Playwright-family (Camoufox, Playwright): "Execution context was
+    # destroyed, most likely because of a navigation"
+    "execution context was destroyed",
+)
+
+
+def _is_navigation_race_error(exc: BaseException) -> bool:
+    """True for the transient JS-context teardown errors every driver family
+    emits when an eval races an in-flight navigation."""
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _NAVIGATION_RACE_MARKERS)
+
+
 def wait_for_page_stable(driver: WebDriver | BrowserContext, timeout: float = 15.0, poll: float = 0.5) -> None:
     """Wait until document.readyState is 'complete' and the execution context is stable.
 
@@ -1684,9 +1700,8 @@ def wait_for_page_stable(driver: WebDriver | BrowserContext, timeout: float = 15
             state = driver.execute_script("return document.readyState")
             if state == "complete":
                 return
-        except WebDriverException as exc:
-            msg = str(exc).lower()
-            if "no such execution context" not in msg and "aborted by navigation" not in msg:
+        except Exception as exc:
+            if not _is_navigation_race_error(exc):
                 raise
         _time.sleep(poll)
     logger.debug("wait_for_page_stable: timed out after %.0fs, proceeding anyway", timeout)
@@ -1694,16 +1709,15 @@ def wait_for_page_stable(driver: WebDriver | BrowserContext, timeout: float = 15
 
 def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
     """Retry a driver property read that may transiently fail during navigation."""
-    last_exc: WebDriverException | None = None
+    last_exc: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
             result = read_fn()
             if attempt > 1:
                 logger.debug("Driver read succeeded after %d retries", attempt - 1)
             return result
-        except WebDriverException as exc:
-            msg = str(exc).lower()
-            if "no such execution context" in msg or "aborted by navigation" in msg:
+        except Exception as exc:
+            if _is_navigation_race_error(exc):
                 logger.debug("Driver read failed transiently (%s), retry %d/%d", exc, attempt, retries)
                 last_exc = exc
                 time.sleep(delay)
