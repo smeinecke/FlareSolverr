@@ -40,34 +40,36 @@ def _make_driver():
     return driver
 
 
-def _patch_wait(monkeypatch, element=None):
-    """Replace WebDriverWait so .until()/.until_not() return immediately."""
+def _patch_wait(driver, monkeypatch, element=None):
+    """Replace driver wait methods so they return immediately."""
     el = element or _make_element()
-    mock_wait = MagicMock()
-    mock_wait.return_value.until.return_value = el
-    mock_wait.return_value.until_not.return_value = el
-    monkeypatch.setattr(svc, "WebDriverWait", mock_wait)
-    return el, mock_wait
+    driver.wait_for_presence.return_value = el
+    driver.wait_for_visibility.return_value = el
+    return el
 
 
 # ── fill ──────────────────────────────────────────────────────────────────────
 
-def _patch_action_chains(monkeypatch):
-    """Patch ActionChains with a fluent MagicMock to avoid real Selenium WebElement checks."""
+def _patch_action_chains(driver):
+    """Attach a fluent MagicMock action_chain to the driver."""
     chains = MagicMock()
-    chains.return_value.move_to_element.return_value = chains.return_value
-    chains.return_value.move_to_element_with_offset.return_value = chains.return_value
-    chains.return_value.pause.return_value = chains.return_value
-    chains.return_value.click.return_value = chains.return_value
-    monkeypatch.setattr(svc, "ActionChains", chains)
+    chains.move_to_element.return_value = chains
+    chains.move_to_element_with_offset.return_value = chains
+    chains.move_by_offset.return_value = chains
+    chains.pause.return_value = chains
+    chains.click.return_value = chains
+    chains.click_and_hold.return_value = chains
+    chains.release.return_value = chains
+    chains.perform.return_value = None
+    driver.action_chain.return_value = chains
     return chains
 
 
 class TestFillAction:
     def test_clears_and_types_value(self, monkeypatch):
         driver = _make_driver()
-        el, _ = _patch_wait(monkeypatch)
-        _patch_action_chains(monkeypatch)
+        el = _patch_wait(driver, monkeypatch)
+        _patch_action_chains(driver)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
 
         svc._execute_actions(driver, [
@@ -80,8 +82,8 @@ class TestFillAction:
 
     def test_types_each_char_individually(self, monkeypatch):
         driver = _make_driver()
-        el, _ = _patch_wait(monkeypatch)
-        _patch_action_chains(monkeypatch)
+        el = _patch_wait(driver, monkeypatch)
+        _patch_action_chains(driver)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
 
         svc._execute_actions(driver, [
@@ -93,8 +95,8 @@ class TestFillAction:
 
     def test_empty_value_clears_without_typing(self, monkeypatch):
         driver = _make_driver()
-        el, _ = _patch_wait(monkeypatch)
-        _patch_action_chains(monkeypatch)
+        el = _patch_wait(driver, monkeypatch)
+        _patch_action_chains(driver)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
 
         svc._execute_actions(driver, [{"type": "fill", "selector": "//input", "value": ""}])
@@ -104,8 +106,8 @@ class TestFillAction:
 
     def test_scrolls_into_view(self, monkeypatch):
         driver = _make_driver()
-        _patch_wait(monkeypatch)
-        _patch_action_chains(monkeypatch)
+        _patch_wait(driver, monkeypatch)
+        _patch_action_chains(driver)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         scripts = []
         driver.execute_script.side_effect = lambda s, *_: scripts.append(s)
@@ -116,11 +118,11 @@ class TestFillAction:
 
     def test_uses_xpath_locator(self, monkeypatch):
         driver = _make_driver()
-        _patch_wait(monkeypatch)
-        _patch_action_chains(monkeypatch)
+        el = _patch_wait(driver, monkeypatch)
+        _patch_action_chains(driver)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         captured = []
-        monkeypatch.setattr(svc, "presence_of_element_located", lambda loc: captured.append(loc) or loc)
+        driver.wait_for_presence.side_effect = lambda by, value, timeout: captured.append((by, value)) or el
 
         svc._execute_actions(driver, [
             {"type": "fill", "selector": "//input[@name='q']", "value": "x"},
@@ -135,26 +137,22 @@ class TestFillAction:
 class TestClickAction:
     def test_default_uses_action_chains(self, monkeypatch):
         driver = _make_driver()
-        _patch_wait(monkeypatch)
+        _patch_wait(driver, monkeypatch)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         human_called = []
         monkeypatch.setattr(svc, "_human_like_click", lambda d, e: human_called.append(True))
-        chains = MagicMock()
-        chains.return_value.move_to_element.return_value = chains.return_value
-        chains.return_value.move_to_element_with_offset.return_value = chains.return_value
-        chains.return_value.pause.return_value = chains.return_value
-        monkeypatch.setattr(svc, "ActionChains", chains)
+        chains = _patch_action_chains(driver)
 
         svc._execute_actions(driver, [{"type": "click", "selector": "//button"}])
 
         assert not human_called
         # Now uses move_to_element_with_offset for non-center clicks
-        chains.return_value.move_to_element_with_offset.assert_called_once()
-        chains.return_value.click.assert_called_once()
+        chains.move_to_element_with_offset.assert_called_once()
+        chains.click.assert_called_once()
 
     def test_human_like_true_calls_bezier(self, monkeypatch):
         driver = _make_driver()
-        _patch_wait(monkeypatch)
+        _patch_wait(driver, monkeypatch)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         human_called = []
         monkeypatch.setattr(svc, "_human_like_click", lambda d, e: human_called.append(True))
@@ -165,24 +163,20 @@ class TestClickAction:
 
     def test_human_like_false_uses_action_chains(self, monkeypatch):
         driver = _make_driver()
-        _patch_wait(monkeypatch)
+        _patch_wait(driver, monkeypatch)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         human_called = []
         monkeypatch.setattr(svc, "_human_like_click", lambda d, e: human_called.append(True))
-        chains = MagicMock()
-        chains.return_value.move_to_element.return_value = chains.return_value
-        chains.return_value.move_to_element_with_offset.return_value = chains.return_value
-        chains.return_value.pause.return_value = chains.return_value
-        monkeypatch.setattr(svc, "ActionChains", chains)
+        chains = _patch_action_chains(driver)
 
         svc._execute_actions(driver, [{"type": "click", "selector": "//button", "humanLike": False}])
 
         assert not human_called
-        chains.return_value.click.assert_called_once()
+        chains.click.assert_called_once()
 
     def test_scrolls_into_view(self, monkeypatch):
         driver = _make_driver()
-        _patch_wait(monkeypatch)
+        _patch_wait(driver, monkeypatch)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         monkeypatch.setattr(svc, "_human_like_click", lambda d, e: None)
         scripts = []
@@ -194,15 +188,11 @@ class TestClickAction:
 
     def test_uses_xpath_locator(self, monkeypatch):
         driver = _make_driver()
-        _patch_wait(monkeypatch)
+        _patch_wait(driver, monkeypatch)
         monkeypatch.setattr(svc.time, "sleep", lambda _: None)
         captured = []
-        monkeypatch.setattr(svc, "presence_of_element_located", lambda loc: captured.append(loc) or loc)
-        chains = MagicMock()
-        chains.return_value.move_to_element.return_value = chains.return_value
-        chains.return_value.move_to_element_with_offset.return_value = chains.return_value
-        chains.return_value.pause.return_value = chains.return_value
-        monkeypatch.setattr(svc, "ActionChains", chains)
+        driver.wait_for_presence.side_effect = lambda by, value, timeout: captured.append((by, value)) or _make_element()
+        chains = _patch_action_chains(driver)
 
         svc._execute_actions(driver, [{"type": "click", "selector": "//form//button"}])
 
@@ -215,49 +205,34 @@ class TestClickAction:
 class TestWaitForAction:
     def test_waits_for_element_visibility(self, monkeypatch):
         driver = _make_driver()
-        _, mock_wait = _patch_wait(monkeypatch)
+        _patch_wait(driver, monkeypatch)
+        called = []
+        driver.wait_for_visibility.side_effect = lambda by, value, timeout: called.append((by, value))
 
         svc._execute_actions(driver, [{"type": "wait_for", "selector": "//div[@id='result']"}])
 
-        mock_wait.return_value.until.assert_called_once()
+        assert called == [(By.XPATH, "//div[@id='result']")]
 
     def test_uses_xpath_locator(self, monkeypatch):
         driver = _make_driver()
-        conditions = []
-
-        class CapturingWait:
-            def __init__(self, *a, **kw): pass
-            def until(self, cond): conditions.append(cond); return _make_element()
-            def until_not(self, cond): return _make_element()
-
-        monkeypatch.setattr(svc, "WebDriverWait", CapturingWait)
+        captured = []
+        driver.wait_for_visibility.side_effect = lambda by, value, timeout: captured.append((by, value))
 
         svc._execute_actions(driver, [{"type": "wait_for", "selector": "//div[@id='done']"}])
 
-        assert len(conditions) == 1
-        # visibility_of_element_located wraps the (By, selector) tuple into a callable
-        assert callable(conditions[0])
+        assert len(captured) == 1
+        assert captured[0][0] == By.XPATH
+        assert captured[0][1] == "//div[@id='done']"
 
     def test_uses_visibility_not_presence(self, monkeypatch):
-        """wait_for must use visibility_of_element_located, not presence_of_element_located."""
+        """wait_for must use wait_for_visibility, not wait_for_presence."""
         driver = _make_driver()
-        conditions = []
-
-        class CapturingWait:
-            def __init__(self, *a, **kw): pass
-            def until(self, cond): conditions.append(cond); return _make_element()
-            def until_not(self, cond): return _make_element()
-
-        monkeypatch.setattr(svc, "WebDriverWait", CapturingWait)
-        # Sentinel objects so we can distinguish the two expected_conditions factories
-        visibility_sentinel = object()
-        presence_sentinel = object()
-        monkeypatch.setattr(svc, "visibility_of_element_located", lambda loc: visibility_sentinel)
-        monkeypatch.setattr(svc, "presence_of_element_located", lambda loc: presence_sentinel)
+        called = []
+        driver.wait_for_visibility.side_effect = lambda by, value, timeout: called.append((by, value))
 
         svc._execute_actions(driver, [{"type": "wait_for", "selector": "//span"}])
 
-        assert conditions == [visibility_sentinel]
+        assert called == [(By.XPATH, "//span")]
 
 
 # ── wait ──────────────────────────────────────────────────────────────────────

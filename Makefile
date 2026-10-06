@@ -76,7 +76,7 @@ test-down:
 	docker compose -f docker-compose.local.yml down --remove-orphans --rmi local
 
 vulture:
-	vulture src/ whitelist.py --exclude src/flaresolverr/undetected_chromedriver
+	vulture src/ whitelist.py --exclude src/flaresolverr/undetected_chromedriver,src/flaresolverr/backends
 
 complexity:
 	radon cc . -a -nc

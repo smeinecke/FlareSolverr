@@ -136,3 +136,4 @@ node_modules/
 src/flaresolverr/chrome
 src/flaresolverr/chrome-old
 debug/*
+downloaded_files/

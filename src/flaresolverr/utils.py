@@ -19,6 +19,8 @@ from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
+from flaresolverr.backends.browser_context import BrowserContext
+
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -35,11 +37,9 @@ except ModuleNotFoundError:
     Xvfb = None  # type: ignore[misc,assignment]
 
 from selenium import webdriver
-from selenium.common import WebDriverException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.webdriver import WebDriver
-from selenium.webdriver.common.action_chains import ActionChains
 
 from flaresolverr import undetected_chromedriver as uc  # type: ignore[import-untyped]
 
@@ -95,6 +95,13 @@ def _load_stealth_script(fallback: bool = False) -> str:
 
 def _is_custom_chromium() -> bool:
     global _CUSTOM_CHROMIUM
+
+    env_override = os.environ.get("FLARESOLVERR_CUSTOM_CHROMIUM", "").lower()
+    if env_override in ("1", "true"):
+        return True
+    if env_override in ("0", "false"):
+        return False
+
     if _CUSTOM_CHROMIUM is not None:
         return _CUSTOM_CHROMIUM
 
@@ -312,7 +319,7 @@ def _apply_stealth_patches(driver: WebDriver, stealth_mode: str) -> None:
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": prelude + _load_stealth_script(fallback=True)})
 
 
-def apply_user_agent_override(driver: WebDriver, user_agent: str, accept_language: str | None = None) -> None:
+def apply_user_agent_override(driver: WebDriver | BrowserContext, user_agent: str, accept_language: str | None = None) -> None:
     """Apply a custom user agent string at the CDP level with full metadata.
 
     Uses Emulation.setUserAgentOverride with userAgentMetadata to ensure
@@ -486,6 +493,70 @@ def _limit_cpu_affinity() -> None:
         pass
 
 
+def _custom_chromium_launch_args(effective_stealth_mode: str) -> list[str]:
+    """Launch args for the stealth-patched Chromium build.
+
+    Shared between the UC ChromeOptions path and backends that take raw
+    args (SeleniumBase's ``chromium_arg``). Returns [] for stock Chromium.
+    """
+    if not _is_custom_chromium():
+        return []
+
+    omit_flags = get_config_stealth_omit_flags()
+
+    # --stealth-native-ua is only useful when the binary carries Patch 6b
+    # (advertised via the build manifest) and stealth is active. When it is
+    # NOT active, fall back to the legacy --user-agent switch so headless mode
+    # never exposes a HeadlessChrome UA.
+    native_ua_active = effective_stealth_mode != STEALTH_MODE_OFF and "stealth-native-ua" not in omit_flags and _custom_chromium_has_patch("native-ua")
+
+    args: list[str] = []
+    if not native_ua_active:
+        # Legacy fallback for binaries without Patch 6b: --user-agent sets a
+        # normalized UA for *all* browsing contexts (main, workers, shared
+        # workers) so UA stays coherent — at the cost of suppressing
+        # high-entropy UA client hints (GetUserAgentMetadata early-return).
+        full_version = get_chrome_full_version()
+        if not full_version:
+            full_version = f"{get_chrome_major_version()}.0.0.0"
+        machine = platform.machine()
+        user_agent = f"Mozilla/5.0 (X11; Linux {machine}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{full_version} Safari/537.36"
+        args.append(f"--user-agent={user_agent}")
+    # Native accept-language for HTTP headers; navigator.languages is still
+    # handled by --stealth-navigator-languages at the binary level.
+    args.append(f"--accept-lang={get_config_accept_language()}")
+    # The --lang switch sets the ICU default locale in renderer processes
+    # (Patch 10 in apply.py), keeping Intl.* defaults aligned with
+    # navigator.language across all execution contexts.
+    args.append(f"--lang={get_config_accept_language().split(',')[0]}")
+
+    if effective_stealth_mode != STEALTH_MODE_OFF:
+        # C++ flags; no JavaScript replacement needed.
+        # --enable-trusted-synthetic-events was removed: synthetic events must
+        # not be reported as trusted globally.
+        # The WebGL vendor/renderer spoof (Patch 3) has been removed as an
+        # ablation; the natural ANGLE/GPU identity is exposed instead.
+        # The value of this switch is the underlying navigator.languages state
+        # consumed by all execution contexts. The C++ patch in apply.py parses
+        # the comma-separated list so Window/Worker/SharedWorker stay coherent.
+        stealth_switches = [
+            f"--stealth-navigator-languages={get_config_accept_language()}",
+            "--stealth-viewport-size",
+            "--stealth-no-media-devices",
+        ]
+        if native_ua_active:
+            stealth_switches.append("--stealth-native-ua")
+        for switch in stealth_switches:
+            name = switch.lstrip("-").split("=", 1)[0]
+            if name not in omit_flags:
+                args.append(switch)
+            else:
+                logger.debug("STEALTH_OMIT_FLAGS: omitting %s", switch)
+        logger.debug("Applied custom Chromium stealth flags.")
+
+    return args
+
+
 def _build_chrome_options(effective_stealth_mode: str, load_extension: bool = False) -> ChromeOptions:
     """Build and configure ChromeOptions based on settings.
 
@@ -567,59 +638,8 @@ def _build_chrome_options(effective_stealth_mode: str, load_extension: bool = Fa
     if (custom or not minimal_fingerprint) and not _custom_chromium_has_patch("webdriver-false"):
         options.add_argument("--disable-blink-features=AutomationControlled")
 
-    omit_flags = get_config_stealth_omit_flags()
-
-    # --stealth-native-ua is only useful when the binary carries Patch 6b
-    # (advertised via the build manifest) and stealth is active. When it is
-    # NOT active, fall back to the legacy --user-agent switch so headless mode
-    # never exposes a HeadlessChrome UA.
-    native_ua_active = (
-        custom and effective_stealth_mode != STEALTH_MODE_OFF and "stealth-native-ua" not in omit_flags and _custom_chromium_has_patch("native-ua")
-    )
-
-    if custom:
-        if not native_ua_active:
-            # Legacy fallback for binaries without Patch 6b: --user-agent sets a
-            # normalized UA for *all* browsing contexts (main, workers, shared
-            # workers) so UA stays coherent — at the cost of suppressing
-            # high-entropy UA client hints (GetUserAgentMetadata early-return).
-            full_version = get_chrome_full_version()
-            if not full_version:
-                full_version = f"{get_chrome_major_version()}.0.0.0"
-            machine = platform.machine()
-            user_agent = f"Mozilla/5.0 (X11; Linux {machine}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{full_version} Safari/537.36"
-            options.add_argument(f"--user-agent={user_agent}")
-        # Native accept-language for HTTP headers; navigator.languages is still
-        # handled by --stealth-navigator-languages at the binary level.
-        options.add_argument(f"--accept-lang={get_config_accept_language()}")
-        # The --lang switch sets the ICU default locale in renderer processes
-        # (Patch 10 in apply.py), keeping Intl.* defaults aligned with
-        # navigator.language across all execution contexts.
-        options.add_argument(f"--lang={get_config_accept_language().split(',')[0]}")
-
-    if effective_stealth_mode != STEALTH_MODE_OFF and custom:
-        # C++ flags; no JavaScript replacement needed.
-        # --enable-trusted-synthetic-events was removed: synthetic events must
-        # not be reported as trusted globally.
-        # The WebGL vendor/renderer spoof (Patch 3) has been removed as an
-        # ablation; the natural ANGLE/GPU identity is exposed instead.
-        # The value of this switch is the underlying navigator.languages state
-        # consumed by all execution contexts. The C++ patch in apply.py parses
-        # the comma-separated list so Window/Worker/SharedWorker stay coherent.
-        stealth_switches = [
-            f"--stealth-navigator-languages={get_config_accept_language()}",
-            "--stealth-viewport-size",
-            "--stealth-no-media-devices",
-        ]
-        if native_ua_active:
-            stealth_switches.append("--stealth-native-ua")
-        for switch in stealth_switches:
-            name = switch.lstrip("-").split("=", 1)[0]
-            if name not in omit_flags:
-                options.add_argument(switch)
-            else:
-                logger.debug("STEALTH_OMIT_FLAGS: omitting %s", switch)
-        logger.debug("Applied custom Chromium stealth flags.")
+    for arg in _custom_chromium_launch_args(effective_stealth_mode):
+        options.add_argument(arg)
 
     if disabled_features:
         options.add_argument("--disable-features=" + ",".join(disabled_features))
@@ -715,6 +735,7 @@ def apply_proxy_to_session(driver: WebDriver, proxy: dict[str, Any] | None) -> N
             username = urllib.parse.unquote(parsed.username)
             password = urllib.parse.unquote(parsed.password or "")
         if username:
+            # lgtm[py/clear-text-storage-sensitive-data] Proxy credentials are passed to the Chrome proxy-manager extension via runtime messaging; they are not persisted to disk.
             payload["auth"] = {"username": username, "password": password or ""}
         logger.debug("Applying proxy to session via extension: %s:%d", host, port)
 
@@ -977,7 +998,7 @@ def parse_performance_log_entries(logs: list[dict[str, Any]]) -> list[dict[str, 
     return parsed
 
 
-def get_performance_log(driver: WebDriver) -> list[dict[str, Any]]:
+def get_performance_log(driver: WebDriver | BrowserContext) -> list[dict[str, Any]]:
     """Safely retrieve and parse the browser's performance log.
 
     Returns an empty list if the backend does not expose performance logs.
@@ -987,8 +1008,13 @@ def get_performance_log(driver: WebDriver) -> list[dict[str, Any]]:
     try:
         logs = driver.get_log("performance")
     except Exception as e:
-        error_msg = str(e)
-        if "log type" in error_msg.lower() and "not found" in error_msg.lower():
+        error_msg = str(e).lower()
+        unsupported = (
+            ("log type" in error_msg and "not found" in error_msg)
+            or ("not supported" in error_msg and "performance" in error_msg)
+            or isinstance(e, NotImplementedError)
+        )
+        if unsupported:
             logger.warning(f"Performance logs not available for this backend: {e}")
             return []
         raise RuntimeError(f"Error getting network logs: {e}") from e
@@ -1004,7 +1030,7 @@ def _header_lookup(headers: dict[str, Any], name: str) -> Any:
     return None
 
 
-def _get_main_frame_id(driver: WebDriver) -> str | None:
+def _get_main_frame_id(driver: WebDriver | BrowserContext) -> str | None:
     """Return the top-level frame id via CDP, or None if unavailable."""
     try:
         tree = driver.execute_cdp_cmd("Page.getFrameTree", {})  # type: ignore[attr-defined]
@@ -1013,7 +1039,7 @@ def _get_main_frame_id(driver: WebDriver) -> str | None:
     return ((tree or {}).get("frameTree") or {}).get("frame", {}).get("id")
 
 
-def _select_document_chain(doc_chains: list[dict[str, Any]], root_frame_ids: list[str], driver: WebDriver) -> tuple[dict[str, Any], bool]:
+def _select_document_chain(doc_chains: list[dict[str, Any]], root_frame_ids: list[str], driver: WebDriver | BrowserContext) -> tuple[dict[str, Any], bool]:
     """Pick the Document chain belonging to the top-level frame.
 
     Returns (chain, identified). identified=False means the last-resort
@@ -1036,7 +1062,9 @@ def _select_document_chain(doc_chains: list[dict[str, Any]], root_frame_ids: lis
     return chain, True
 
 
-def get_document_response_evidence(driver: WebDriver, max_failed_resources: int = 10, entries: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def get_document_response_evidence(
+    driver: WebDriver | BrowserContext, max_failed_resources: int = 10, entries: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """Summarize the most recent top-level document exchange.
 
     Returns a dict with the final document url/status/mimeType/protocol, the
@@ -1057,6 +1085,24 @@ def get_document_response_evidence(driver: WebDriver, max_failed_resources: int 
     if entries is None:
         entries = get_performance_log(driver)
     if not entries:
+        # Backends without ChromeDriver performance logs may still record the
+        # last top-level document exchange natively (Playwright/Camoufox
+        # capture it from navigation response events).
+        native = getattr(driver, "last_document_response", None)
+        if isinstance(native, dict) and native.get("status") is not None:
+            return {
+                "url": native.get("url"),
+                "status": native.get("status"),
+                "headers": native.get("headers") or {},
+                "mimeType": None,
+                "protocol": None,
+                "redirectChain": [],
+                "navError": None,
+                "cfMitigated": None,
+                "cfRay": None,
+                "failedResources": [],
+                "mainFrameIdentified": True,
+            }
         return {}
 
     url_by_request_id: dict[str, str] = {}
@@ -1145,7 +1191,7 @@ def get_document_response_evidence(driver: WebDriver, max_failed_resources: int 
     }
 
 
-def collect_failure_evidence(driver: WebDriver, stealth_mode: str | None = None) -> dict[str, Any]:
+def collect_failure_evidence(driver: WebDriver | BrowserContext, stealth_mode: str | None = None) -> dict[str, Any]:
     """Collect a bounded diagnostic snapshot of the browser after a failed request.
 
     Never raises; every field is best-effort. Sensitive values (cookie values,
@@ -1341,8 +1387,11 @@ def performance_logs_to_har(parsed_entries: list[dict[str, Any]]) -> dict[str, A
 
 
 def get_webdriver(
-    proxy: dict[str, Any] | None = None, stealth_mode: str | bool | None = None, logging_prefs: dict[str, str] | None = None, for_session: bool = False
-) -> WebDriver:
+    proxy: dict[str, Any] | None = None,
+    stealth_mode: str | bool | None = None,
+    logging_prefs: dict[str, str] | None = None,
+    for_session: bool = False,
+) -> WebDriver | BrowserContext:
     logger.debug("Launching web browser...")
 
     effective_stealth_mode = get_config_stealth_mode() if stealth_mode is None else normalize_stealth_mode(stealth_mode)
@@ -1352,6 +1401,15 @@ def get_webdriver(
         logging_prefs = {"performance": "ALL"}
     user_data_dir: str | None = None
     proxy_ext_dir: str | None = None
+
+    # Delegate to pluggable non-Chrome backends when DRIVER_BACKEND selects one.
+    # The stock and custom Chromium paths stay in this function so all existing
+    # stealth, proxy, logging, lifecycle and cleanup behavior is preserved.
+    backend_name = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+    if backend_name not in ("undetected_chromedriver", "custom_chromium", ""):
+        from flaresolverr import backends
+
+        return backends.get_backend(backend_name).create_driver(proxy, effective_stealth_mode)  # type: ignore[return-value]
 
     # The unpacked proxy-manager extension is only needed when a proxy is
     # configured now (proxy auth / settings) or might be assigned later
@@ -1608,7 +1666,24 @@ def extract_version_nt_folder() -> str:
     return ""
 
 
-def wait_for_page_stable(driver: WebDriver, timeout: float = 15.0, poll: float = 0.5) -> None:
+_NAVIGATION_RACE_MARKERS = (
+    # Selenium/ChromeDriver
+    "no such execution context",
+    "aborted by navigation",
+    # Playwright-family (Camoufox, Playwright): "Execution context was
+    # destroyed, most likely because of a navigation"
+    "execution context was destroyed",
+)
+
+
+def _is_navigation_race_error(exc: BaseException) -> bool:
+    """True for the transient JS-context teardown errors every driver family
+    emits when an eval races an in-flight navigation."""
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _NAVIGATION_RACE_MARKERS)
+
+
+def wait_for_page_stable(driver: WebDriver | BrowserContext, timeout: float = 15.0, poll: float = 0.5) -> None:
     """Wait until document.readyState is 'complete' and the execution context is stable.
 
     After a navigation triggered by a challenge resolver the new page may not be
@@ -1625,9 +1700,8 @@ def wait_for_page_stable(driver: WebDriver, timeout: float = 15.0, poll: float =
             state = driver.execute_script("return document.readyState")
             if state == "complete":
                 return
-        except WebDriverException as exc:
-            msg = str(exc).lower()
-            if "no such execution context" not in msg and "aborted by navigation" not in msg:
+        except Exception as exc:
+            if not _is_navigation_race_error(exc):
                 raise
         _time.sleep(poll)
     logger.debug("wait_for_page_stable: timed out after %.0fs, proceeding anyway", timeout)
@@ -1635,16 +1709,15 @@ def wait_for_page_stable(driver: WebDriver, timeout: float = 15.0, poll: float =
 
 def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
     """Retry a driver property read that may transiently fail during navigation."""
-    last_exc: WebDriverException | None = None
+    last_exc: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
             result = read_fn()
             if attempt > 1:
                 logger.debug("Driver read succeeded after %d retries", attempt - 1)
             return result
-        except WebDriverException as exc:
-            msg = str(exc).lower()
-            if "no such execution context" in msg or "aborted by navigation" in msg:
+        except Exception as exc:
+            if _is_navigation_race_error(exc):
                 logger.debug("Driver read failed transiently (%s), retry %d/%d", exc, attempt, retries)
                 last_exc = exc
                 time.sleep(delay)
@@ -1655,7 +1728,7 @@ def retry_driver_read(read_fn, retries: int = 10, delay: float = 0.5):
     raise last_exc
 
 
-def _fetch_user_agent(driver: WebDriver) -> str:
+def _fetch_user_agent(driver: WebDriver | BrowserContext) -> str:
     """Execute JS to get navigator.userAgent and validate it."""
     user_agent_value = driver.execute_script("return navigator.userAgent")
     if not isinstance(user_agent_value, str):
@@ -1753,7 +1826,7 @@ def _generate_bezier_curve(start: tuple[float, float], end: tuple[float, float],
     return curve_points
 
 
-def _human_like_click(driver: WebDriver, element) -> None:
+def _human_like_click(driver: BrowserContext, element) -> None:
     """Perform a human-like mouse movement and click with bezier curves and randomness."""
     location = element.location
     size = element.size
@@ -1784,10 +1857,15 @@ def _human_like_click(driver: WebDriver, element) -> None:
 
     points = _generate_bezier_curve((start_x, start_y), (target_x, target_y), control_points=random.randint(1, 2))  # nosec B311
 
-    actions = ActionChains(driver)
+    actions = driver.action_chain()
     first_x, first_y = points[0]
     anchor_dx = round(first_x - element_center_x)
     anchor_dy = round(first_y - element_center_y)
+    # Clamp offsets so the initial position stays within viewport bounds
+    max_dx = min(element_center_x, viewport_width - element_center_x)
+    max_dy = min(element_center_y, viewport_height - element_center_y)
+    anchor_dx = max(-int(max_dx), min(int(max_dx), anchor_dx))
+    anchor_dy = max(-int(max_dy), min(int(max_dy), anchor_dy))
     actions.move_to_element_with_offset(element, anchor_dx, anchor_dy)
     actions.pause(_random_delay(0.02, 0.06))
 

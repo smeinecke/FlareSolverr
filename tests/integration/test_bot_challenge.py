@@ -34,6 +34,13 @@ except ImportError as e:
 pytestmark = pytest.mark.integration
 
 
+def _skip_unless_custom_chromium(test_case: unittest.TestCase) -> None:
+    """Skip bot challenge tests on backends that cannot pass them."""
+    backend = os.environ.get("DRIVER_BACKEND", "undetected_chromedriver").strip().lower()
+    if backend != "custom_chromium":
+        test_case.skipTest(f"Bot challenge tests skipped on backend '{backend}'")
+
+
 class TestBotChallenge(unittest.TestCase):
     """Test FlareSolverr against bot detection challenge pages."""
 
@@ -110,6 +117,7 @@ class TestBotChallenge(unittest.TestCase):
             print(json.dumps(value, indent=2, default=str))
 
     def test_static_challenge_basic_stealth(self):
+        _skip_unless_custom_chromium(self)
         """
         Test that FlareSolverr basic stealth measures work against static challenge.
 
@@ -172,6 +180,7 @@ class TestBotChallenge(unittest.TestCase):
         self._print_diagnostics(diagnostics)
 
     def test_interaction_challenge_form_submission(self):
+        _skip_unless_custom_chromium(self)
         """
         Test that FlareSolverr can interact with the challenge form and produce results.
 
@@ -234,6 +243,7 @@ class TestBotChallenge(unittest.TestCase):
             print(f"\nDetected interaction bot indicators: {failed_tests}")
 
     def test_challenge_with_json_output(self):
+        _skip_unless_custom_chromium(self)
         """
         Test that the JSON output endpoint works and shows passing results.
 

@@ -7,12 +7,10 @@ import re
 import time
 from typing import Any
 
-from selenium.common import TimeoutException
-from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.wait import WebDriverWait
 
 from flaresolverr import utils
+from flaresolverr.backends.browser_context import BrowserContext
 from flaresolverr.services.base import ChallengeService, _wait_for_redirect
 
 SHORT_TIMEOUT = 10
@@ -37,7 +35,7 @@ BRAVE_VERIFY_XPATHS = [
 class BraveService(ChallengeService):
     name = "brave"
 
-    def detect(self, driver: WebDriver) -> bool:
+    def detect(self, driver: BrowserContext) -> bool:
         try:
             current_url = driver.current_url or ""
             if not current_url.startswith("https://search.brave.com/"):
@@ -51,7 +49,7 @@ class BraveService(ChallengeService):
             logger.debug("Brave detect failed due to navigation in progress, assuming not detected")
             return False
 
-    def resolve(self, driver: WebDriver) -> None:
+    def resolve(self, driver: BrowserContext) -> None:
         html_element = self._get_html_element(driver)
         if html_element is None:
             return
@@ -73,6 +71,7 @@ class BraveService(ChallengeService):
             driver._flaresolverr_brave_debug = self._collect_debug_state(driver, attempt)  # pyright: ignore[reportAttributeAccessIssue]
             button = self._find_clickable_verify_button(driver)
             if button is not None:
+                logger.debug("Brave Verify/Try again button clickable, clicking...")
                 try:
                     button.click()
                 except Exception:  # noqa: BLE001
@@ -80,26 +79,33 @@ class BraveService(ChallengeService):
                     if html_element is None:
                         break
                     continue
-                try:
-                    WebDriverWait(driver, SHORT_TIMEOUT).until(lambda d: not self._page_has_captcha(d) or self._find_clickable_verify_button(d) is not None)
-                except TimeoutException:
-                    pass
+                logger.debug("Brave button clicked, waiting for it to become clickable again or challenge to resolve...")
+                end_time = time.time() + SHORT_TIMEOUT
+                while time.time() < end_time:
+                    if not self._page_has_captcha(driver) or self._find_clickable_verify_button(driver) is not None:
+                        break
+                    time.sleep(0.5)
+                else:
+                    logger.debug("Timeout waiting for Brave button state change or challenge resolution, retrying...")
                 html_element = self._get_html_element(driver)
                 if html_element is None:
                     continue
+                # If challenge is resolved, the next loop iteration will break.
+                # If button became clickable again, we loop and click again.
+                continue
             else:
                 time.sleep(2)
                 continue
 
         _wait_for_redirect(driver, html_element, SHORT_TIMEOUT)
 
-    def _page_has_captcha(self, driver: WebDriver) -> bool:
+    def _page_has_captcha(self, driver: BrowserContext) -> bool:
         try:
             return bool(BRAVE_CAPTCHA_RE.search(driver.page_source))
         except Exception:  # noqa: BLE001
             return False
 
-    def _collect_debug_state(self, driver: WebDriver, attempt: int) -> dict[str, Any]:
+    def _collect_debug_state(self, driver: BrowserContext, attempt: int) -> dict[str, Any]:
         """Collect debug state for Brave challenge resolution."""
         state: dict[str, Any] = {"attempts": attempt}
         try:
@@ -120,10 +126,10 @@ class BraveService(ChallengeService):
         state["button_found"] = self._find_clickable_verify_button(driver) is not None
         return state
 
-    def get_debug_info(self, driver: WebDriver, stealth_mode: str | None = None) -> dict[str, Any] | None:
+    def get_debug_info(self, driver: BrowserContext, stealth_mode: str | None = None) -> dict[str, Any] | None:
         return getattr(driver, "_flaresolverr_brave_debug", None)
 
-    def _find_clickable_verify_button(self, driver: WebDriver):
+    def _find_clickable_verify_button(self, driver: BrowserContext):
         """Find a verify button that is visible and not disabled."""
         try:
             for xpath in BRAVE_VERIFY_XPATHS:

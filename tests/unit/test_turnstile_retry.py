@@ -79,6 +79,9 @@ class MockWebDriver:
     def close(self):
         pass
 
+    def switch_to_default_content(self):
+        pass
+
 
 class TestTurnstileRetryFix:
     """Tests for turnstile captcha retry fix."""
@@ -225,6 +228,12 @@ class TestTurnstileIntegration:
                     return [MagicMock()]
                 return []
 
+            def wait_for_presence(self, by, value, timeout):
+                elements = self.find_elements(by, value)
+                if not elements:
+                    raise TimeoutError("Element not found")
+                return elements[0]
+
             def find_element(self, by, value):
                 if "cf-turnstile-response" in value:
                     class MockInput:
@@ -241,6 +250,9 @@ class TestTurnstileIntegration:
 
             def execute_script(self, script):
                 return None
+
+            def switch_to_default_content(self):
+                pass
 
         driver = MockTurnstileDriver()
 
@@ -275,6 +287,12 @@ class TestTurnstileEdgeCases:
             def find_elements(self, by, value):
                 return []
 
+            def wait_for_presence(self, by, value, timeout):
+                raise TimeoutError("Element not found")
+
+            def switch_to_default_content(self):
+                pass
+
         driver = NoTurnstileDriver()
 
         req = V1RequestBase({
@@ -292,6 +310,9 @@ class TestTurnstileEdgeCases:
         class AnyDriver:
             def __init__(self):
                 self.switch_to = MagicMock()
+
+            def switch_to_default_content(self):
+                pass
 
         driver = AnyDriver()
 
