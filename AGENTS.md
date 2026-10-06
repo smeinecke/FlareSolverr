@@ -89,6 +89,12 @@ Additional integration tests:
 # Ray-ID-level results to FLARESOLVERR_CF_MATRIX (default /tmp/cf_challenge_matrix.json)
 PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/integration/test_cf_challenge_matrix.py -m integration -s
 
+# Cross-vendor WAF matrix: non-CF challenge systems (Vercel checkpoint, HeRay,
+# Anubis, DataDome, PerimeterX) per DRIVER_BACKEND; records verdicts to
+# FLARESOLVERR_WAF_MATRIX (default /tmp/waf_challenge_matrix.json).
+# Targets via WAF_MATRIX_TARGETS, backends via WAF_MATRIX_BACKENDS.
+PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/integration/test_waf_challenge_matrix.py -m integration -s
+
 # Event.isTrusted regression and cross-realm browser consistency
 PYTHONDONTWRITEBYTECODE=1 STEALTH_MODE=standard uv run python -m pytest tests/integration/test_event_istrusted.py tests/integration/test_browser_consistency.py -m integration -s
 
