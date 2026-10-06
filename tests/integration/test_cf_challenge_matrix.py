@@ -43,7 +43,9 @@ from flaresolverr import utils
 
 pytestmark = pytest.mark.integration
 
-DEFAULT_TARGETS = "https://tmailor.com/en/,https://tempmailo.com/"
+# epicgames.com serves `cf-mitigated: challenge` to non-browser clients —
+# a live production-site managed challenge alongside the disposable-mail targets.
+DEFAULT_TARGETS = "https://tmailor.com/en/,https://tempmailo.com/,https://www.epicgames.com/"
 OUT_PATH = os.environ.get("FLARESOLVERR_CF_MATRIX", "/tmp/cf_challenge_matrix.json")
 TIMEOUT = int(os.environ.get("CF_MATRIX_TIMEOUT", "60"))
 PROXY = os.environ.get("CF_MATRIX_PROXY", "").strip() or None
