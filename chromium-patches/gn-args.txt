@@ -1,4 +1,5 @@
 is_debug=false
+dcheck_always_on=false
 is_component_build=false
 symbol_level=0
 blink_symbol_level=0
