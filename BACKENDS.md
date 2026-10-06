@@ -230,13 +230,17 @@ active challenge — `ak_bmsc`, `AKA_A2`, `_abck`, `bm_*` cookies are issued
 and the real page is served. Verified across 20+ BMP-fronted sites
 (nike, walmart, macys, marriott, footlocker, stubhub, verizon, adidas,
 aa.com, healthcare.gov, fedex, ups, dhl, chase, citi, staples, costco,
-samsclub, att, southwest). Curl/`requests` UAs are denied by edge rules,
-but a real browser fingerprint passes trivially. Some sites (homedepot,
-kohls, lowes) return a hard `403 Access Denied` edge verdict even to the
-browser — a deny rule, not a solvable challenge. The active `sec-cpt`
-verify interstitial never fires for a clean fingerprint/IP; it requires a
-flagged IP or failed sensor POST. No always-challenging Akamai or Sucuri
-target exists — `WAF_MATRIX_TARGETS` accepts one if found.
+samsclub, att, southwest, lowes). Curl/`requests` UAs are denied by edge
+rules, but a real browser fingerprint passes trivially. lowes.com only
+started passing after the bundled Vulkan/SwANGLE files were restored —
+a null WebGL context was enough for its sensor to deny the session.
+homedepot.com and kohls.com still hard-deny even with working WebGL —
+either scoring the `SwiftShader` renderer string or other headless tells,
+while Camoufox (plausible spoofed GPU strings) passes kohls.com. These are
+edge deny rules, not solvable challenges. The active `sec-cpt` verify
+interstitial never fires for a clean fingerprint/IP; it requires a flagged
+IP or failed sensor POST. No always-challenging Akamai or Sucuri target
+exists — `WAF_MATRIX_TARGETS` accepts one if found.
 
 ## Troubleshooting
 
