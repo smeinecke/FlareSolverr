@@ -146,7 +146,7 @@ pip install "seleniumbase>=4.30"
 | Hetzner HeRay PoW (robot.your-server.de) | ✅ ⁹ | — | — | — |
 | Anubis PoW (anubis.techaro.lol) | ✅ | — | ✅ | — |
 | DataDome (leboncoin.fr) | ✅ | — | ✅ | — |
-| PerimeterX (zillow.com) | ❌ ¹⁰ | — | ✅ | — |
+| PerimeterX (zillow.com) | ✅ ¹⁰ | — | ✅ | — |
 | Akamai BMP (nike.com) | ✅ ¹¹ | — | ✅ ¹¹ | — |
 
 * `postDataRaw` on Playwright/Camoufox uses JavaScript XHR fallback instead of CDP `Fetch.continueRequest`.
@@ -209,17 +209,16 @@ Pure in-page JS; self-solves without resolver involvement. `heray-clearance`
 is issued and the flow lands on `accounts.hetzner.com/login`. Under rate
 limiting the wait-queue stage can outlast a short `waitInSeconds`.
 
-¹⁰ The whole browser process aborts during navigation: a bot-audit script
-(`crcldu.com/bd/auditor.js`) probes
+¹⁰ Passes with the current build: the real Zillow page is served (PX does
+not even deny it). Previously the whole browser aborted during navigation —
+a bot-audit script (`crcldu.com/bd/auditor.js`) probed
 `PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()` inside
 an `about:srcdoc` (opaque-origin) iframe, hitting
 `DCHECK(!caller_origin.opaque())` in `authenticator_common_impl.cc`. The
-custom build had DCHECKs enabled (`is_official_build=false` without an
-explicit `dcheck_always_on`), so the check is fatal instead of returning an
-error. Fixed in `chromium-patches/gn-args.txt` (`dcheck_always_on=false`);
-requires a rebuilt binary to take effect. Stock Chromium survives the same
-page (receives PX's "Access denied" page — detected, but alive). Camoufox
-(Firefox engine) is unaffected.
+pre-fix build had DCHECKs enabled (`is_official_build=false` without an
+explicit `dcheck_always_on`), making the check fatal; the rebuilt binary
+(`dcheck_always_on=false`, run `37443681771`) survives the probe and
+completes the load. Camoufox (Firefox engine) was never affected.
 
 ¹¹ Akamai Bot Manager's sensor validates both backends without an active
 challenge: `ak_bmsc`, `AKA_A2`, `RT`, `bm_sv` cookies are issued and the
