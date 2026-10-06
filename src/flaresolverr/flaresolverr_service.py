@@ -1632,21 +1632,12 @@ def _looks_like_challenge_html(body: Any) -> bool:
     """Heuristic: does a response body contain a WAF challenge page?"""
     if not isinstance(body, str):
         return False
-    return (
-        "_cf_chl_opt" in body
-        or "cf-challenge" in body
-        or "Just a moment" in body
-        or "Vercel Security Checkpoint" in body
-        or "/__ray_static/" in body
-    )
+    return "_cf_chl_opt" in body or "cf-challenge" in body or "Just a moment" in body or "Vercel Security Checkpoint" in body or "/__ray_static/" in body
 
 
 def _is_challenge_response(headers: dict[str, str]) -> bool:
     """True when WAF response headers mark the exchange as a challenge."""
-    return (
-        utils._header_lookup(headers, "cf-mitigated") == "challenge"
-        or utils._header_lookup(headers, "x-vercel-mitigated") == "challenge"
-    )
+    return utils._header_lookup(headers, "cf-mitigated") == "challenge" or utils._header_lookup(headers, "x-vercel-mitigated") == "challenge"
 
 
 def _remove_js_injection(driver: BrowserContext, identifiers: list[str]) -> None:

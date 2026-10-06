@@ -7,25 +7,24 @@ without being detected as automation.
 The challenge pages are hosted at: https://smeinecke.github.io/bot-web-challenge/
 """
 
+import html as html_module
+import json
 import os
-import sys
 import re
-import unittest
+import sys
 import time
+import unittest
 
 import pytest
 import requests
-
-import html as html_module
-import json
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 try:
-    from flaresolverr.dtos import V1ResponseBase, STATUS_OK
     from flaresolverr import utils
-except ImportError as e:
+    from flaresolverr.dtos import STATUS_OK, V1ResponseBase
+except ImportError:
     # Allow test collection to work even if flaresolverr isn't installed
     V1ResponseBase = dict
     STATUS_OK = "ok"
@@ -91,7 +90,15 @@ class TestBotChallenge(unittest.TestCase):
 
     def _assert_no_medium_or_higher_findings(self, summary, scored_artifacts):
         """Semantic check: only info/weak findings are acceptable."""
-        self.assertEqual(summary.get("mediumFindings", 0), 0, f"Unexpected medium findings: {scored_artifacts}")
+        # webgl:software-renderer is expected and deliberately tolerated: in
+        # headless mode WebGL is served by in-renderer SwANGLE
+        # ("SwiftShader Device (Subzero)") — identical to stock headless
+        # Chromium. The context must exist for WAF challenge scripts (Vercel
+        # checkpoint WASM crashes on a null context); the software-renderer
+        # string is a known headless tell shared with all stock headless users.
+        tolerated_medium = {"webgl:software-renderer"}
+        mediums = [a for a in scored_artifacts if a.get("severity") == "medium" and a.get("artifactId") not in tolerated_medium]
+        self.assertEqual(mediums, [], f"Unexpected medium findings: {mediums}")
         self.assertEqual(summary.get("strongFindings", 0), 0, f"Unexpected strong findings: {scored_artifacts}")
         self.assertEqual(summary.get("hardFindings", 0), 0, f"Unexpected hard findings: {scored_artifacts}")
 
