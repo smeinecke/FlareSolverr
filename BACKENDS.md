@@ -189,13 +189,19 @@ still issues a token — the finding is advisory there — but the same signal i
 visible to real challenge scoring.
 
 ⁷ The checkpoint embeds Cloudflare's JSD platform (`/cdn-cgi/challenge-platform`
-inside a hidden iframe) plus Vercel's own `challenge.v2.min.js`. On the
-Chromium backends the JSD iframe mounts but never completes — the request
-returns the 429 checkpoint page (now flagged `challenged: true` via
-`x-vercel-mitigated: challenge`).
+inside a hidden iframe) plus Vercel's own `challenge.v2.min.js` +
+`challenge.v2.wasm`. The JSD leg completes fine (`POST .../jsd/oneshot` → 200);
+the failure is Vercel's WASM leg, which calls `canvas.getContext('webgl')`
+and crashes on `getExtension` because headless Chromium on a GPU-less host
+returns `null` — `/.well-known/vercel/security/request-challenge` then
+answers 708 and the page stalls. Software-GL flags (`--enable-unsafe-swiftshader`,
+`--use-angle=swiftshader`) do not restore a context in the custom build,
+headed or headless. The request returns the 429 checkpoint page (flagged
+`challenged: true` via `x-vercel-mitigated: challenge`).
 
-⁸ The JSD embed self-solves under Camoufox (~20s incl. wait) — a `_vcrcs`
-cookie is issued and the checkpoint navigates to the real page.
+⁸ Camoufox exposes a working WebGL context (spoofed plausible renderer
+strings), so the WASM leg completes and `_vcrcs` is issued; the checkpoint
+navigates to the real page in ~20s.
 
 ⁹ Two-stage Hetzner challenge (429 "Request on Hold" → "Security Check" PoW).
 Pure in-page JS; self-solves without resolver involvement. `heray-clearance`
