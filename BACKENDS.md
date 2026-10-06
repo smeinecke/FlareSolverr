@@ -147,6 +147,7 @@ pip install "seleniumbase>=4.30"
 | Anubis PoW (anubis.techaro.lol) | ✅ | — | ✅ | — |
 | DataDome (leboncoin.fr) | ✅ | — | ✅ | — |
 | PerimeterX (zillow.com) | ❌ ¹⁰ | — | ✅ | — |
+| Akamai BMP (nike.com) | ✅ ¹¹ | — | ✅ ¹¹ | — |
 
 * `postDataRaw` on Playwright/Camoufox uses JavaScript XHR fallback instead of CDP `Fetch.continueRequest`.
 
@@ -208,10 +209,24 @@ Pure in-page JS; self-solves without resolver involvement. `heray-clearance`
 is issued and the flow lands on `accounts.hetzner.com/login`. Under rate
 limiting the wait-queue stage can outlast a short `waitInSeconds`.
 
-¹⁰ The renderer process crashes reproducibly during navigation
-(`invalid session id ... disconnected: Unable to receive message from
-renderer`), affecting both the custom build and UC paths since they share
-the Chromium binary. Camoufox (Firefox engine) passes the same site.
+¹⁰ The whole browser process aborts during navigation: a bot-audit script
+(`crcldu.com/bd/auditor.js`) probes
+`PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()` inside
+an `about:srcdoc` (opaque-origin) iframe, hitting
+`DCHECK(!caller_origin.opaque())` in `authenticator_common_impl.cc`. The
+custom build had DCHECKs enabled (`is_official_build=false` without an
+explicit `dcheck_always_on`), so the check is fatal instead of returning an
+error. Fixed in `chromium-patches/gn-args.txt` (`dcheck_always_on=false`);
+requires a rebuilt binary to take effect. Stock Chromium survives the same
+page (receives PX's "Access denied" page — detected, but alive). Camoufox
+(Firefox engine) is unaffected.
+
+¹¹ Akamai Bot Manager's sensor validates both backends without an active
+challenge: `ak_bmsc`, `AKA_A2`, `RT`, `bm_sv` cookies are issued and the
+real page is served. Curl/`requests` UAs are denied by edge rules, but a
+real browser fingerprint passes trivially. No always-challenging Akamai or
+Sucuri target has been found — both gate on reputation rather than issuing
+deterministic challenges; `WAF_MATRIX_TARGETS` accepts one if found.
 
 ## Troubleshooting
 
