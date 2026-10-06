@@ -142,7 +142,7 @@ pip install "seleniumbase>=4.30"
 | Cloudflare managed challenge | ✅ | ❌ ¹ | ✅ ² | ✅ |
 | Embedded Turnstile widget | ✅ | ❌ ³ | ✅ | ❌ ³ |
 | Turnstile troubleshooter page | ✅ ⁴ | ✅ | ✅ ⁵ | ❌ ⁶ |
-| Vercel Security Checkpoint (svgrepo.com) | ❌ ⁷ | — | ✅ ⁸ | — |
+| Vercel Security Checkpoint (svgrepo.com) | ✅ ⁷ | — | ✅ ⁸ | — |
 | Hetzner HeRay PoW (robot.your-server.de) | ✅ ⁹ | — | — | — |
 | Anubis PoW (anubis.techaro.lol) | ✅ | — | ✅ | — |
 | DataDome (leboncoin.fr) | ✅ | — | ✅ | — |
@@ -191,14 +191,19 @@ visible to real challenge scoring.
 
 ⁷ The checkpoint embeds Cloudflare's JSD platform (`/cdn-cgi/challenge-platform`
 inside a hidden iframe) plus Vercel's own `challenge.v2.min.js` +
-`challenge.v2.wasm`. The JSD leg completes fine (`POST .../jsd/oneshot` → 200);
-the failure is Vercel's WASM leg, which calls `canvas.getContext('webgl')`
-and crashes on `getExtension` because headless Chromium on a GPU-less host
-returns `null` — `/.well-known/vercel/security/request-challenge` then
-answers 708 and the page stalls. Software-GL flags (`--enable-unsafe-swiftshader`,
-`--use-angle=swiftshader`) do not restore a context in the custom build,
-headed or headless. The request returns the 429 checkpoint page (flagged
-`challenged: true` via `x-vercel-mitigated: challenge`).
+`challenge.v2.wasm`. The WASM leg requires `canvas.getContext('webgl')` to
+return a working context — it calls `getExtension` unconditionally and dies
+on `null`. Previously the packaged binary lacked `vk_swiftshader_icd.json`
+and `libvulkan.so.1`, so SwANGLE (the in-renderer software WebGL Chrome
+injects for headless renderers via `--use-angle=swiftshader-webgl`) failed
+`vkCreateInstance` and every WebGL call returned `null` — `request-challenge`
+then answered 708 and the page stalled. Once the two runtime files ship
+alongside `libvk_swiftshader.so`, headless exposes the same SwiftShader
+context as stock Chromium (`SwiftShader Device (Subzero)`), the WASM leg
+completes, `_vcrcs` is issued and the checkpoint self-navigates in ~20–40s
+(allow generous `waitInSeconds`/`maxTimeout`; the fast path reports
+`challenged: true` on the still-429 page). Verified: svgrepo.com solved on
+the custom Chromium backend.
 
 ⁸ Camoufox exposes a working WebGL context (spoofed plausible renderer
 strings), so the WASM leg completes and `_vcrcs` is issued; the checkpoint

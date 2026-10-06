@@ -73,7 +73,7 @@ npm run build
 - `performance.now()` uses stock Chromium behavior. The native timing jitter patch (Patch 13) was removed after ablation showed no reproducible difference from stock Chrome on the external timing signal and no internal regression.
 - `Error.prepareStackTrace` uses stock V8 behavior; the non-writable property patch was removed after ablation.
 - `navigator.mediaDevices.enumerateDevices` is handled natively by the `--stealth-no-media-devices` C++ patch (Patch 11). No JS shim is used.
-- GPU / graphics identity is collected by `tests/integration/test_gpu_architecture.py` using CDP `SystemInfo.getInfo` and cross-realm page probes. The native WebGL vendor/renderer spoof (Patch 3) and the stale `--use-gl=swiftshader` flag have been removed; the custom build now exposes the natural ANGLE/GPU identity. In `--headless=new` the GPU process is disabled, so WebGL/WebGPU are unavailable. With a real display WebGL `UNMASKED_VENDOR/RENDERER` match the actual backend, making the graphics stack internally coherent.
+- GPU / graphics identity is collected by `tests/integration/test_gpu_architecture.py` using CDP `SystemInfo.getInfo` and cross-realm page probes. The native WebGL vendor/renderer spoof (Patch 3) and the stale `--use-gl=swiftshader` flag have been removed; the custom build now exposes the natural ANGLE/GPU identity. In `--headless=new` the GPU process is disabled, but renderer-side WebGL works via SwANGLE (same as stock headless, requires `vk_swiftshader_icd.json` + `libvulkan.so.1` shipped next to `libvk_swiftshader.so`); WebGPU remains unavailable. With a real display WebGL `UNMASKED_VENDOR/RENDERER` match the actual backend, making the graphics stack internally coherent.
 
 ## External Checks
 
@@ -138,11 +138,17 @@ Patches already removed: 1 (trusted synthetic events), 13 (`performance.now` jit
 Run `tests/integration/test_gpu_architecture.py` to collect the data saved to
 `FLARESOLVERR_GPU_DIAG` (default `/tmp/gpu_architecture_<variant>.json`).
 
-- **Headless (`--headless=new`) custom build**: actual GL backend is
-  `gl=disabled` (GPU process disabled); `webgl` and `webgpu` feature
-  status are `disabled_off`. WebGL contexts cannot be created and the
-  `--webgl-unmasked-*` spoof has been removed, so the graphics stack is
-  internally coherent.
+- **Headless (`--headless=new`) custom build**: the GPU process is disabled,
+  but WebGL works in-renderer via SwANGLE — Chrome injects
+  `--use-angle=swiftshader-webgl` into renderer command lines. This requires
+  `vk_swiftshader_icd.json` + `libvulkan.so.1` next to `libvk_swiftshader.so`
+  in the shipped binary directory; before they were packaged, `getContext`
+  returned `null` and the GPU process exited during init
+  (`vk_renderer.cpp` Vulkan error -3). With them, headless reports the same
+  `SwiftShader Device (Subzero)` renderer as stock headless Chromium.
+  WebGPU remains unavailable. Note: `--no-zygote` cannot be combined with a
+  hardware-GPU path (`--enable-gpu`) since the zygote spawns the GPU
+  process; the default launch keeps `--no-zygote` and relies on SwANGLE.
 - **Headless stock Chrome 151.0.7922.108**: same disabled GPU state;
   `navigator.webdriver` is `false` (same as the current custom build's
   present-but-false shape) and

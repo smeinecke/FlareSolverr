@@ -198,6 +198,8 @@ jobs:
           cp chrome chromedriver chrome_crashpad_handler /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
           cp *.bin /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
           cp *.so /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
+          cp libvulkan.so* /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
+          cp vk_swiftshader_icd.json /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
           cp *.pak /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
           cp icudtl.dat /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
           cp -r locales resources /tmp/chromium-bin/opt/chromium/ 2>/dev/null || true
