@@ -399,7 +399,7 @@ Example:
 }
 ```
 
-The response `solution` contains `status`, `statusText`, `headers` (dict), `response` (body text), `url` (final URL), `redirected`, and `challenged` — `true` when the response carries `cf-mitigated: challenge` or its body resembles a Cloudflare challenge page.
+The response `solution` contains `status`, `statusText`, `headers` (dict), `response` (body text), `url` (final URL), `redirected`, and `challenged` — `true` when the response carries `cf-mitigated: challenge` or `x-vercel-mitigated: challenge`, or its body resembles a WAF challenge page.
 
 By default the same-origin restriction is also enforced **through redirects**: the fetch runs with `mode: 'same-origin'`, so a redirect to another origin fails as a network error before the request — including any body or custom headers — is ever sent there. Set `allowCrossOriginRedirect: true` to let redirects cross origins; the redirect target must then pass CORS checks, and `evalResult.crossOriginRedirect` marks the response. `timeoutMs` bounds the fetch via an in-page `AbortController`; the driver's script timeout is raised to match so larger values actually take effect. Successful fetches count toward the session's request count and refresh its activity timestamp.
 

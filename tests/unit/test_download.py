@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -67,6 +65,64 @@ def test_build_challenge_result_without_download_uses_page_source(monkeypatch):
     assert len(driver._calls) == 0
 
 
+def _make_doc_evidence(headers):
+    return {
+        "url": "https://example.com/",
+        "status": 429,
+        "headers": headers,
+        "mainFrameIdentified": True,
+    }
+
+
+def test_build_challenge_result_flags_vercel_mitigated_document(monkeypatch):
+    driver = FakeDriver()
+    req = _make_req()
+    monkeypatch.setattr(
+        "flaresolverr.flaresolverr_service.utils.get_user_agent",
+        lambda _driver: "TestUA",
+    )
+
+    result = _build_challenge_result(
+        req, driver, None,
+        doc_evidence=_make_doc_evidence({"x-vercel-mitigated": "challenge"}),
+    )
+
+    assert result.challenged is True
+    assert result.status == 429
+
+
+def test_build_challenge_result_flags_cf_mitigated_document(monkeypatch):
+    driver = FakeDriver()
+    req = _make_req()
+    monkeypatch.setattr(
+        "flaresolverr.flaresolverr_service.utils.get_user_agent",
+        lambda _driver: "TestUA",
+    )
+
+    result = _build_challenge_result(
+        req, driver, None,
+        doc_evidence=_make_doc_evidence({"cf-mitigated": "challenge"}),
+    )
+
+    assert result.challenged is True
+
+
+def test_build_challenge_result_clean_document_not_challenged(monkeypatch):
+    driver = FakeDriver()
+    req = _make_req()
+    monkeypatch.setattr(
+        "flaresolverr.flaresolverr_service.utils.get_user_agent",
+        lambda _driver: "TestUA",
+    )
+
+    result = _build_challenge_result(
+        req, driver, None,
+        doc_evidence=_make_doc_evidence({"content-type": "text/html"}),
+    )
+
+    assert result.challenged is None
+
+
 def test_build_challenge_result_with_download_cdp_base64(monkeypatch):
     driver = FakeDriver()
 
@@ -125,7 +181,7 @@ def test_build_challenge_result_with_download_js_fallback(monkeypatch):
         driver._calls.append(("execute_cdp_cmd", cmd, params))
         if cmd == "Page.enable":
             return {}
-        raise Exception("CDP not available")
+        raise RuntimeError("CDP not available")
 
     def fake_execute_script(script, *args):
         driver._calls.append(("execute_script", script, args))
@@ -155,10 +211,10 @@ def test_build_challenge_result_with_download_fallback_to_page_source(monkeypatc
     driver = FakeDriver(page_source="<html><body>fallback</body></html>")
 
     def fake_execute_cdp_cmd(cmd, params=None):
-        raise Exception("CDP not available")
+        raise RuntimeError("CDP not available")
 
     def fake_execute_script(script, *args):
-        raise Exception("JS fetch failed")
+        raise RuntimeError("JS fetch failed")
 
     driver.execute_cdp_cmd = fake_execute_cdp_cmd
     driver.execute_script = fake_execute_script
@@ -214,7 +270,7 @@ def test_get_download_content_js_fetch_text():
     driver = FakeDriver()
 
     def fake_execute_cdp_cmd(cmd, params=None):
-        raise Exception("CDP not available")
+        raise RuntimeError("CDP not available")
 
     def fake_execute_script(script, *args):
         return {
@@ -236,10 +292,10 @@ def test_get_download_content_page_source_fallback():
     driver = FakeDriver(page_source="<html></html>")
 
     def fake_execute_cdp_cmd(cmd, params=None):
-        raise Exception("CDP not available")
+        raise RuntimeError("CDP not available")
 
     def fake_execute_script(script, *args):
-        raise Exception("JS fetch failed")
+        raise RuntimeError("JS fetch failed")
 
     driver.execute_cdp_cmd = fake_execute_cdp_cmd
     driver.execute_script = fake_execute_script

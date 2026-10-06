@@ -938,9 +938,9 @@ def _cmd_sessions_fetch(req: V1RequestBase) -> V1ResponseBase:
 
         body = fetch_result.get("body") or ""
         resp_headers = fetch_result.get("headers") or {}
-        challenged = utils._header_lookup(resp_headers, "cf-mitigated") == "challenge" or _looks_like_challenge_html(body)
+        challenged = _is_challenge_response(resp_headers) or _looks_like_challenge_html(body)
         if challenged:
-            logger.warning("sessions.fetch response is a Cloudflare challenge, not the application response.")
+            logger.warning("sessions.fetch response is a WAF challenge, not the application response.")
 
         result = ChallengeResolutionResultT({})
         result.url = driver.current_url
@@ -1494,8 +1494,8 @@ def _build_challenge_result(
     if isinstance(raw_post, dict):
         raw_headers = _parse_raw_headers(raw_post.get("headers"))
         raw_body = raw_post.get("body")
-        if utils._header_lookup(raw_headers, "cf-mitigated") == "challenge" or _looks_like_challenge_html(raw_body):
-            logger.warning("Raw POST response is a Cloudflare challenge, not the application response.")
+        if _is_challenge_response(raw_headers) or _looks_like_challenge_html(raw_body):
+            logger.warning("Raw POST response is a WAF challenge, not the application response.")
             challenge_res.challenged = True
 
     # Actions and waits run BEFORE capturing the final URL/status/body so a
@@ -1531,6 +1531,9 @@ def _build_challenge_result(
         except Exception:  # noqa: BLE001
             doc_evidence = {}
     challenge_res.status, doc_headers = _resolve_document_result(doc_evidence)
+    if _is_challenge_response(doc_headers):
+        logger.warning("Document response is a WAF challenge, not the application response.")
+        challenge_res.challenged = True
 
     if isinstance(raw_post, dict) and raw_post.get("status") is not None:
         # The XHR response is the answer; the bootstrap document GET only
@@ -1622,10 +1625,23 @@ def _parse_raw_headers(raw_headers: Any) -> dict[str, str]:
 
 
 def _looks_like_challenge_html(body: Any) -> bool:
-    """Heuristic: does a response body contain a Cloudflare challenge page?"""
+    """Heuristic: does a response body contain a WAF challenge page?"""
     if not isinstance(body, str):
         return False
-    return "_cf_chl_opt" in body or "cf-challenge" in body or "Just a moment" in body
+    return (
+        "_cf_chl_opt" in body
+        or "cf-challenge" in body
+        or "Just a moment" in body
+        or "Vercel Security Checkpoint" in body
+    )
+
+
+def _is_challenge_response(headers: dict[str, str]) -> bool:
+    """True when WAF response headers mark the exchange as a challenge."""
+    return (
+        utils._header_lookup(headers, "cf-mitigated") == "challenge"
+        or utils._header_lookup(headers, "x-vercel-mitigated") == "challenge"
+    )
 
 
 def _remove_js_injection(driver: BrowserContext, identifiers: list[str]) -> None:
