@@ -48,6 +48,7 @@ npm run build
 - `src/flaresolverr/stealth_fallback.js` — CDP/fingerprint evasion for stock Chromium (i386/ARM where custom binary is unavailable).
 - `src/flaresolverr/chrome/chrome` — default custom patched Chromium binary.
 - `chromium-patches/patches/apply.py` — applies C++ source patches for custom Chromium builds. `--print-patch-ids` lists patch IDs; `--write-manifest <path>` emits `.stealth-manifest.json` build provenance (the remote workflow writes it next to the binary; the runtime reads it to gate `--stealth-native-ua`).
+- `src/flaresolverr/build_package.py` — standalone release packaging. Linux tarballs extract `/opt/chromium` from `ghcr.io/smeinecke/chromium-stealth` (`CHROMIUM_STEALTH_IMAGE` env override, default `:latest`; `PACKAGE_STOCK_CHROMIUM=1` forces the snapshot CDN fallback) so the package ships the patched binary with working SwANGLE WebGL, `.stealth-patched`, and `.stealth-manifest.json`. Windows zips always use a stock snapshot — no Windows stealth build exists. All data files (`chrome/`, `stealth*.js`, `proxy_extension/`) must be added under the `flaresolverr/` destination prefix — frozen `__file__` resolves to `_internal/flaresolverr/`, so a bare `chrome` target is invisible to `get_chrome_exe_path()`.
 
 ## Failure diagnostics
 

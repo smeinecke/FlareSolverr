@@ -20,7 +20,44 @@ def clean_files():
             pass
 
 
-def download_chromium():
+def download_custom_chromium():
+    """Extract the custom stealth Chromium from the chromium-stealth image.
+
+    Linux packages ship the same patched binary the Docker image uses so the
+    stealth patches (native UA, webdriver-false, ...) and the SwANGLE WebGL
+    runtime files (libvulkan.so.1, vk_swiftshader_icd.json) are present.
+    Set PACKAGE_STOCK_CHROMIUM=1 to force the stock snapshot instead.
+    """
+    image = os.environ.get("CHROMIUM_STEALTH_IMAGE", "ghcr.io/smeinecke/chromium-stealth:latest")
+    dl_path = os.path.join(REPO_ROOT, "dist_chrome")
+    chrome_path = os.path.join(dl_path, "chrome")
+    print(f"Extracting custom Chromium from image: {image}")
+
+    if shutil.which("docker") is None:
+        print("WARNING: docker not found, falling back to stock Chromium snapshot")
+        return download_stock_chromium()
+
+    os.mkdir(dl_path)
+    cid = subprocess.run(["docker", "create", image], capture_output=True, text=True, check=True).stdout.strip()
+    try:
+        subprocess.run(["docker", "cp", f"{cid}:/opt/chromium", chrome_path], check=True)
+    finally:
+        subprocess.run(["docker", "rm", cid], check=True)
+
+    marker = os.path.join(chrome_path, ".stealth-patched")
+    if not os.path.exists(marker):
+        raise RuntimeError(f"Image {image} does not contain a stealth-patched Chromium ({marker} missing)")
+
+    # Give executable permissions for *nix
+    print("Giving executable permissions...")
+    for exec_file in ("chrome", "chrome_crashpad_handler", "chrome_sandbox", "chrome-wrapper", "chromedriver"):
+        exec_path = os.path.join(chrome_path, exec_file)
+        if os.path.exists(exec_path):
+            os.chmod(exec_path, 0o755)
+    print("Extracted in: " + chrome_path)
+
+
+def download_stock_chromium():
     # https://commondatastorage.googleapis.com/chromium-browser-snapshots/index.html?prefix=Linux_x64/
     revision = "1681099" if os.name == "nt" else "1681097"
     arch = "Win_x64" if os.name == "nt" else "Linux_x64"
@@ -59,8 +96,23 @@ def download_chromium():
             os.chmod(exec_path, 0o755)
 
 
+def download_chromium():
+    # There is no Windows build of the custom Chromium — the Windows package
+    # always ships a stock snapshot. Linux defaults to the stealth build;
+    # PACKAGE_STOCK_CHROMIUM=1 forces the stock snapshot path.
+    if os.name != "nt" and os.environ.get("PACKAGE_STOCK_CHROMIUM", "") not in ("1", "true"):
+        download_custom_chromium()
+    else:
+        download_stock_chromium()
+
+
 def run_pyinstaller():
     sep = ";" if os.name == "nt" else ":"
+    # Bundled resources must land under _internal/flaresolverr/ because the
+    # frozen package resolves files relative to flaresolverr/utils.py
+    # (sys._MEIPASS/flaresolverr/). The chrome dir additionally carries
+    # .stealth-patched/.stealth-manifest.json so the runtime auto-detects the
+    # custom build when the stealth image was used.
     result = subprocess.run(
         [
             sys.executable,
@@ -71,7 +123,13 @@ def run_pyinstaller():
             "--add-data",
             f"pyproject.toml{sep}.",
             "--add-data",
-            f"{os.path.join('dist_chrome', 'chrome')}{sep}chrome",
+            f"{os.path.join('dist_chrome', 'chrome')}{sep}flaresolverr/chrome",
+            "--add-data",
+            f"{os.path.join('src', 'flaresolverr', 'stealth.js')}{sep}flaresolverr",
+            "--add-data",
+            f"{os.path.join('src', 'flaresolverr', 'stealth_fallback.js')}{sep}flaresolverr",
+            "--add-data",
+            f"{os.path.join('src', 'flaresolverr', 'proxy_extension')}{sep}flaresolverr/proxy_extension",
             os.path.join("src", "flaresolverr", "flaresolverr.py"),
         ],
         cwd=REPO_ROOT,
