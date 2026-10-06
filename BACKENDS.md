@@ -142,6 +142,11 @@ pip install "seleniumbase>=4.30"
 | Cloudflare managed challenge | ✅ | ❌ ¹ | ✅ ² | ✅ |
 | Embedded Turnstile widget | ✅ | ❌ ³ | ✅ | ❌ ³ |
 | Turnstile troubleshooter page | ✅ ⁴ | ✅ | ✅ ⁵ | ❌ ⁶ |
+| Vercel Security Checkpoint (svgrepo.com) | ❌ ⁷ | — | ✅ ⁸ | — |
+| Hetzner HeRay PoW (robot.your-server.de) | ✅ ⁹ | — | — | — |
+| Anubis PoW (anubis.techaro.lol) | ✅ | — | ✅ | — |
+| DataDome (leboncoin.fr) | ✅ | — | ✅ | — |
+| PerimeterX (zillow.com) | ❌ ¹⁰ | — | ✅ | — |
 
 * `postDataRaw` on Playwright/Camoufox uses JavaScript XHR fallback instead of CDP `Fetch.continueRequest`.
 
@@ -183,9 +188,24 @@ Appears Fake") under Privacy Tools. The embedded Turnstile widget on the page
 still issues a token — the finding is advisory there — but the same signal is
 visible to real challenge scoring.
 
-Challenge-solving results are empirical (scrapingcourse.com and
-debug.challenges.cloudflare.com targets) and site-dependent — treat them as
-the current known state, not a guarantee.
+⁷ The checkpoint embeds Cloudflare's JSD platform (`/cdn-cgi/challenge-platform`
+inside a hidden iframe) plus Vercel's own `challenge.v2.min.js`. On the
+Chromium backends the JSD iframe mounts but never completes — the request
+returns the 429 checkpoint page (now flagged `challenged: true` via
+`x-vercel-mitigated: challenge`).
+
+⁸ The JSD embed self-solves under Camoufox (~20s incl. wait) — a `_vcrcs`
+cookie is issued and the checkpoint navigates to the real page.
+
+⁹ Two-stage Hetzner challenge (429 "Request on Hold" → "Security Check" PoW).
+Pure in-page JS; self-solves without resolver involvement. `heray-clearance`
+is issued and the flow lands on `accounts.hetzner.com/login`. Under rate
+limiting the wait-queue stage can outlast a short `waitInSeconds`.
+
+¹⁰ The renderer process crashes reproducibly during navigation
+(`invalid session id ... disconnected: Unable to receive message from
+renderer`), affecting both the custom build and UC paths since they share
+the Chromium binary. Camoufox (Firefox engine) passes the same site.
 
 ## Troubleshooting
 
