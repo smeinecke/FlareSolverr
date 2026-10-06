@@ -1561,6 +1561,10 @@ def _build_challenge_result(
             logger.debug("_build_challenge_result: reading page_source")
             challenge_res.response = utils.retry_driver_read(lambda: driver.page_source)
 
+        if not challenge_res.challenged and _looks_like_challenge_html(challenge_res.response):
+            logger.warning("Document body is a WAF challenge page, not the application response.")
+            challenge_res.challenged = True
+
     # Get cookies after waiting to ensure all challenge cookies are captured
     logger.debug("_build_challenge_result: reading cookies")
     challenge_res.cookies = utils.retry_driver_read(lambda: driver.get_cookies())
@@ -1633,6 +1637,7 @@ def _looks_like_challenge_html(body: Any) -> bool:
         or "cf-challenge" in body
         or "Just a moment" in body
         or "Vercel Security Checkpoint" in body
+        or "/__ray_static/" in body
     )
 
 

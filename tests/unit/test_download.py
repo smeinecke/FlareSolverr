@@ -123,6 +123,22 @@ def test_build_challenge_result_clean_document_not_challenged(monkeypatch):
     assert result.challenged is None
 
 
+def test_build_challenge_result_flags_heray_challenge_body(monkeypatch):
+    driver = FakeDriver(
+        page_source='<html><head><title>Security Check</title>'
+                    '<script src="/__ray_static/1.js"></script></head></html>'
+    )
+    req = _make_req()
+    monkeypatch.setattr(
+        "flaresolverr.flaresolverr_service.utils.get_user_agent",
+        lambda _driver: "TestUA",
+    )
+
+    result = _build_challenge_result(req, driver, None)
+
+    assert result.challenged is True
+
+
 def test_build_challenge_result_with_download_cdp_base64(monkeypatch):
     driver = FakeDriver()
 
