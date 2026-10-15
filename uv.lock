@@ -759,7 +759,7 @@ dev = [
     { name = "pytest-timeout", specifier = ">=2.3.0" },
     { name = "radon", specifier = ">=6.0.1" },
     { name = "ruff", specifier = ">=0.16.9" },
-    { name = "tox", specifier = ">=4.64.1" },
+    { name = "tox", specifier = ">=4.64.9" },
     { name = "vulture", specifier = ">=2.14" },
     { name = "webtest", specifier = "==3.0.7" },
     { name = "xenon", specifier = ">=0.9.3" },
