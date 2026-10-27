@@ -33,7 +33,7 @@ dependencies = [
     "selenium==4.50.0",
     "tomli>=1.1.0; python_version < '3.11'",
     "waitress==3.0.2",
-    "websockets==17.1",
+    "websockets==17.3",
     "xvfbwrapper==0.2.34; platform_system != 'Windows'",
 ]
 
