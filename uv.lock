@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -759,7 +759,7 @@ dev = [
     { name = "pytest-timeout", specifier = ">=2.3.0" },
     { name = "radon", specifier = ">=6.0.1" },
     { name = "ruff", specifier = ">=0.16.9" },
-    { name = "tox", specifier = ">=4.64.9" },
+    { name = "tox", specifier = ">=4.67.4" },
     { name = "vulture", specifier = ">=2.14" },
     { name = "webtest", specifier = "==3.0.7" },
     { name = "xenon", specifier = ">=0.9.3" },
@@ -2448,7 +2448,7 @@ wheels = [
 
 [[package]]
 name = "tox"
-version = "4.64.9"
+version = "4.67.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
@@ -2463,9 +2463,9 @@ dependencies = [
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
     { name = "virtualenv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5b/ce/062f2b42f95cfcbb9f1d7450820d29afffd4cd1967bdaa5e70ae3ad0d7b8/tox-4.64.9.tar.gz", hash = "sha256:6e85d720e350f1fb598498f3b4e742d0afa0a1e2b2e5e8203452729a3fa1da2c", size = 331588, upload-time = "2026-10-05T13:52:29.631Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/64/bf/c0eb714b28d21c225eec423efc4243d806de64b5678fec6a15e03a361c09/tox-4.67.4.tar.gz", hash = "sha256:6f97945d3ca1c204337aeecd858b178b30fc5cf9d0b0c15aacea12d1c5eb0946", size = 351271, upload-time = "2026-10-28T06:33:30.12Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f7/98/0eef630912ae10dfcf78ccf424852360ab41abeb62575f794bb91af79288/tox-4.64.9-py3-none-any.whl", hash = "sha256:1281e9ada1f39ef248f7962cb20024643d2c406cd5a27aa6ef68877fd48a79b2", size = 237685, upload-time = "2026-10-05T13:52:27.985Z" },
+    { url = "https://files.pythonhosted.org/packages/27/0e/1a4927a8b5b6bc34a6dec3020094daca52605f2050ecd921cfe36a37c480/tox-4.67.4-py3-none-any.whl", hash = "sha256:e1be08d3dbeb44c7a87ec6b4f0be840b0a0db375013c3c801e5bb428c5607361", size = 239419, upload-time = "2026-10-28T06:33:28.487Z" },
 ]
 
 [[package]]
