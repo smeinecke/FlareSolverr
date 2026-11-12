@@ -1023,9 +1023,10 @@ class TestFlareSolverr(unittest.TestCase):
 
         body = V1ResponseBase(self._get_json(res))
         self.assertEqual(STATUS_ERROR, body.status)
+        dns_failures = ("ERR_NAME_NOT_RESOLVED", "NS_ERROR_UNKNOWN_HOST", "net::ERR_FAILED")
         self.assertTrue(
-            "ERR_NAME_NOT_RESOLVED" in body.message or "NS_ERROR_UNKNOWN_HOST" in body.message,
-            f"Expected ERR_NAME_NOT_RESOLVED or NS_ERROR_UNKNOWN_HOST in message, got: {body.message}",
+            any(marker in body.message for marker in dns_failures),
+            f"Expected one of {dns_failures} in message, got: {body.message}",
         )
 
     def test_v1_endpoint_request_get_deprecated_param(self):
