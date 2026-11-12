@@ -63,7 +63,7 @@ dev = [
     "pyinstaller==6.22.3",
     "pyright==1.1.414",
     "pytest>=9.1.1",
-    "pytest-asyncio>=1.4.0",
+    "pytest-asyncio>=1.4.1",
     "pytest-cov>=6.0.0",
     "pytest-timeout>=2.3.0",
     "radon>=6.0.1",
