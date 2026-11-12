@@ -238,8 +238,9 @@ jobs:
           SKIP_BACKEND_PLAYWRIGHT: ${{ matrix.backend != 'playwright' && 'true' || '' }}
           SKIP_BACKEND_CAMOUFOX: ${{ matrix.backend != 'camoufox' && 'true' || '' }}
           SKIP_BACKEND_SELENIUMBASE: ${{ matrix.backend != 'seleniumbase' && 'true' || '' }}
+          PYTEST_TIMEOUT_ARG: ${{ matrix.backend == 'seleniumbase' && '--time-limit=120' || '--timeout=120' }}
         run: |
-          uv run pytest tests/integration/test_backends.py -vv -m integration -k "${{ matrix.backend }}" --timeout=120
+          uv run pytest tests/integration/test_backends.py -vv -m integration -k "${{ matrix.backend }}" "$PYTEST_TIMEOUT_ARG"
 
       - name: Run backend creation smoke test
         env:
@@ -250,8 +251,9 @@ jobs:
           SKIP_BACKEND_PLAYWRIGHT: ${{ matrix.backend != 'playwright' && 'true' || '' }}
           SKIP_BACKEND_CAMOUFOX: ${{ matrix.backend != 'camoufox' && 'true' || '' }}
           SKIP_BACKEND_SELENIUMBASE: ${{ matrix.backend != 'seleniumbase' && 'true' || '' }}
+          PYTEST_TIMEOUT_ARG: ${{ matrix.backend == 'seleniumbase' && '--time-limit=120' || '--timeout=120' }}
         run: |
-          uv run pytest tests/integration/test_backends.py::TestBackendCreation -vv -m integration -k "${{ matrix.backend }}" --timeout=120
+          uv run pytest tests/integration/test_backends.py::TestBackendCreation -vv -m integration -k "${{ matrix.backend }}" "$PYTEST_TIMEOUT_ARG"
 
   full-integration-matrix:
     name: Full Integration Tests (${{ matrix.backend }})
