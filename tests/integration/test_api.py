@@ -68,6 +68,7 @@ class TestFlareSolverr(unittest.TestCase):
     cloudflare_url = "https://nowsecure.nl/"
     cloudflare_url_2 = "https://bt4gprx.com/search?q=2022"
     ddos_guard_url = "https://www.anime-loads.org/"
+    powblock_url = "https://api.mangadex.org/manga/5a90308a-8b12-4a4d-9c6d-2487028fe319/feed?offset=0"
     scrapingcourse_cf_url = "https://www.scrapingcourse.com/cloudflare-challenge"
     scrapingcourse_turnstile_url = "https://www.scrapingcourse.com/login/cf-turnstile"
     scrapingcourse_csrf_url = "https://www.scrapingcourse.com/login/csrf"
@@ -471,6 +472,34 @@ class TestFlareSolverr(unittest.TestCase):
         cf_cookie = _find_obj_by_key("name", "__ddg1_", solution.cookies)
         self.assertIsNotNone(cf_cookie, "DDOS-Guard cookie not found")
         self.assertGreater(len(cf_cookie["value"]), 10)
+
+    def test_v1_endpoint_request_get_powblock(self):
+        # MangaDex's edge redirects to a POWBlock proof-of-work page at
+        # /edge/challenge. Whether a request is actually challenged depends
+        # on MangaDex rollout/IP state (a solved IP is allowed through for a
+        # while), so this test only requires the API JSON to come back -
+        # never the challenge HTML. The powblock service mines the nonce
+        # itself, so no backend skip: the page's own JS refuses to hand a
+        # solution to automated browsers anyway.
+        res = self._request("POST", "/v1", {"cmd": "request.get", "url": self.powblock_url})
+        self.assertEqual(res.status_code, 200)
+
+        body = V1ResponseBase(self._get_json(res))
+        self.assertEqual(STATUS_OK, body.status)
+        self._assert_challenge_status_ok(body.message)
+        self.assertEqual(utils.get_flaresolverr_version(), body.version)
+
+        solution = body.solution
+        self.assertIn("api.mangadex.org", solution.url)
+        self._assert_status_ok(solution)
+        self._assert_headers_nonempty(solution)
+        self.assertFalse(solution.challenged, "POWBlock challenge page must not be reported as the application response")
+        self.assertIn('"result":"ok"', solution.response)
+        self.assertNotIn("pbchal", solution.response)
+        self.assertTrue(
+            "Chrome/" in solution.userAgent or "Firefox/" in solution.userAgent,
+            f"Expected Chrome or Firefox UA, got: {solution.userAgent}",
+        )
 
     def test_v1_endpoint_request_get_scrapingcourse_cf_challenge(self):
         _skip_unless_custom_chromium(self)

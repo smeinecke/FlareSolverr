@@ -43,6 +43,7 @@ npm run build
 ## Key Architecture
 
 - `src/flaresolverr/flaresolverr_service.py` — HTTP API and session lifecycle.
+- `src/flaresolverr/services/` — pluggable challenge modules (`cloudflare`, `ddos_guard`, `powblock`, `brave`); the active set is `enabledServices` (default: cloudflare+ddos_guard+powblock). `powblock.py` handles POWBlock proof-of-work gates (e.g. `mangadex.org/edge/challenge`): detects the hidden `pre#c/#d/#h` markup, mines `SHA-<h>(token+n)` for `d` leading zero bits in Python (~1.5 MH/s, difficulty 20 ≈ 1s) and submits `?powblock=<n>&pbchal=<token>` (token appended raw - the server rejects percent-encoding). The page's own JS is never relied on: `navigator.webdriver` or a `HeadlessChrome` UA sends it into an endless solve loop, so it cannot be waited out on non-stealth backends.
 - `src/flaresolverr/utils.py` — Chrome start-up, options, stealth flag handling, proxy extension, custom-Chromium debugger connection.
 - `src/flaresolverr/stealth.js` — minimal JS-only CDP-injected patches for custom Chromium.
 - `src/flaresolverr/stealth_fallback.js` — CDP/fingerprint evasion for stock Chromium (i386/ARM where custom binary is unavailable).
