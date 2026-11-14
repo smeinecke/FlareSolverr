@@ -1424,6 +1424,7 @@ def get_webdriver(
         logging_prefs = {"performance": "ALL"}
     user_data_dir: str | None = None
     proxy_ext_dir: str | None = None
+    chrome_proc: subprocess.Popen | None = None
 
     # Delegate to pluggable non-Chrome backends when DRIVER_BACKEND selects one.
     # The stock and custom Chromium paths stay in this function so all existing
@@ -1566,6 +1567,16 @@ def get_webdriver(
             driver.quit = _uc_quit_with_cleanup  # type: ignore[method-assign]
     except Exception as e:
         logger.error("Error starting Chrome: %s", e)
+        # A manually spawned Chromium keeps running with its temp profile when
+        # the driver session cannot be established (e.g. chromedriver cannot
+        # connect) - driver.quit() never runs, so kill the process group here.
+        if chrome_proc is not None and chrome_proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(chrome_proc.pid), 9)
+            except (ProcessLookupError, OSError):
+                chrome_proc.kill()
+                chrome_proc.wait()
+            time.sleep(0.5)
         # If Chrome failed to start, the proxy extension temp dir and the
         # user data dir were already created but will never be cleaned up by
         # driver.quit(). Remove them now.

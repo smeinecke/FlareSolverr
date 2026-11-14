@@ -148,6 +148,9 @@ class CloudflareService(ChallengeService):
         # the first bare probe we allow the keyboard click path anyway; on a
         # confirmed CF challenge page TAB+SPACE is inert when no widget exists.
         no_marker_streak = 0
+        # Number of verify-click attempts; the tab count cycles 1-3 per attempt
+        # since other focusable elements may precede the checkbox.
+        verify_click_attempts = 0
 
         while True:
             attempt += 1
@@ -186,7 +189,12 @@ class CloudflareService(ChallengeService):
                     if self._should_attempt_verify_click(driver, allow_no_marker_click=no_marker_streak >= 2):
                         no_marker_streak = 0
                         if now - last_verify_click_ts >= click_cooldown_seconds:
-                            self._click_verify(driver)
+                            # Focus stays inside the widget after an attempt, so
+                            # TAB would move past the checkbox on retries. Reset
+                            # to the page top first and vary the tab count.
+                            verify_click_attempts += 1
+                            self._reset_focus(driver)
+                            self._click_verify(driver, num_tabs=(verify_click_attempts - 1) % 3 + 1)
                             last_verify_click_ts = now
                             # Dispatch alone is not activation — re-probe so the log
                             # records whether the click actually changed state.
@@ -344,6 +352,28 @@ class CloudflareService(ChallengeService):
             state.get("hiddenFrameCount"),
         )
         return False
+
+    def _reset_focus(self, driver: BrowserContext) -> None:
+        # Move the keyboard focus to the top of the page, so the next TAB
+        # reaches the first focusable element (usually the Cloudflare checkbox).
+        try:
+            driver.switch_to_default_content()
+            driver.execute_script("""
+                let old = document.getElementById('__focus_helper');
+                if (old) old.remove();
+
+                let el = document.createElement('button');
+                el.id = '__focus_helper';
+                el.style.position = 'fixed';
+                el.style.top = '0';
+                el.style.left = '0';
+                el.style.opacity = '0.01';
+                el.style.pointerEvents = 'none';
+                document.body.prepend(el);
+                el.focus();
+            """)
+        except Exception:  # noqa: BLE001
+            logger.debug("Unable to reset the focus on the page.")
 
     def _click_verify(self, driver: BrowserContext, num_tabs: int = 1) -> None:
         try:
