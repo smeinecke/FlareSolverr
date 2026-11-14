@@ -625,6 +625,29 @@ def _build_chrome_options(effective_stealth_mode: str, load_extension: bool = Fa
     options.add_argument("--ignore-ssl-errors")
     disabled_features.append("LocalNetworkAccessChecks")
 
+    # Disable on-device AI model downloads and related AI features.
+    disabled_features += [
+        "OptimizationGuideOnDeviceModel",
+        "GlicActor",
+        "GlicActorUi",
+        "PromptAPIForGeminiNano",
+        "PromptAPIX",
+        "PromptAPINoTranslation",
+        "SummarizationAPIForGeminiNano",
+        "WriterAPIForGeminiNano",
+        "TranslationAPI",
+        "LanguageDetectionAPI",
+        "AIPromptAPI",
+        "AIRewriteAPI",
+        "AIWritingAssistant",
+        "AIGenerativeSuggestions",
+        "AIGeneratedFlags",
+        "AICompositionFeature",
+        "HistoryAI",
+        "TabOrganizer",
+        "SmartSuggestion",
+    ]
+
     if load_extension:
         # DisableLoadExtensionCommandLineSwitch is enabled by default on newer
         # Chrome; disabling it keeps --load-extension working.
