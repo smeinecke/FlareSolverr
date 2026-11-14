@@ -199,7 +199,7 @@ curl 'http://localhost:8191/health?details=true'
       "requestCount": 3,
       "locked": true,
       "stealthMode": "standard",
-      "enabledServices": ["cloudflare", "ddos_guard"],
+      "enabledServices": ["cloudflare", "ddos_guard", "powblock"],
       "hasProxy": true,
       "userAgent": "Mozilla/5.0 ...",
       "maxRuntimeSeconds": null,
@@ -231,7 +231,7 @@ This also speeds up the requests since it won't have to launch a new browser ins
 | stealthMode | Optional enum override: `"off"`, `"standard"`, `"csp-safe"`. Preferred over `stealth` for explicit behavior. |
 | userAgent | Optional. Custom browser user agent for the session. |
 | acceptLanguage | Optional. Overrides the global `ACCEPT_LANGUAGE` for this session. Example: `"acceptLanguage": "de-DE,de"`. |
-| enabledServices | Optional. List of challenge services to enable for this session. Default: `["cloudflare", "ddos_guard"]`. |
+| enabledServices | Optional. List of challenge services to enable for this session. Default: `["cloudflare", "ddos_guard", "powblock"]`. |
 | sessionMaxRuntime | Optional. Per-session maximum lifetime in seconds. |
 | sessionIdleTimeout | Optional. Per-session idle timeout in seconds. |
 

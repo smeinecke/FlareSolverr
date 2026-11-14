@@ -9,6 +9,7 @@ from flaresolverr.services.brave import BraveService
 from flaresolverr.services.cloudflare import CloudflareService
 from flaresolverr.services.ddos_guard import DDoSGuardManualCaptchaError, DDoSGuardService, _wait_for_title_change
 from flaresolverr.services.manager import ServiceManager
+from flaresolverr.services.powblock import PowBlockService
 
 
 def _make_driver(title="Some Page", find_elements=None, **kwargs):
@@ -475,3 +476,109 @@ class TestBraveService:
         driver = MagicMock()
         _patch_page_source_error(driver)
         assert svc._page_has_captcha(driver) is False
+
+
+class TestPowBlockService:
+    @pytest.fixture
+    def svc(self):
+        return PowBlockService()
+
+    @staticmethod
+    def _challenge(difficulty=4, algo=256):
+        return {"token": "QUJD" * 20, "difficulty": difficulty, "algo": algo}
+
+    @staticmethod
+    def _probe_driver(probe_values):
+        """Driver mock whose execute_script returns queued challenge probes."""
+        driver = MagicMock()
+        driver.execute_script.side_effect = list(probe_values)
+        return driver
+
+    def test_name(self, svc):
+        assert svc.name == "powblock"
+
+    def test_detect_with_challenge_markup(self, svc):
+        driver = self._probe_driver([self._challenge()])
+        assert svc.detect(driver) is True
+
+    def test_detect_no_challenge(self, svc):
+        driver = self._probe_driver([None])
+        assert svc.detect(driver) is False
+
+    def test_detect_bad_token_rejected(self, svc):
+        driver = self._probe_driver([{"token": "not base64 !!!", "difficulty": 20, "algo": 256}])
+        assert svc.detect(driver) is False
+
+    def test_detect_probe_error_returns_false(self, svc):
+        driver = MagicMock()
+        driver.execute_script.side_effect = WebDriverException("aborted by navigation")
+        assert svc.detect(driver) is False
+
+    def test_mine_finds_valid_nonce(self, svc):
+        challenge = self._challenge(difficulty=12)
+        driver = MagicMock()
+        nonce = svc._mine(driver, challenge["token"], challenge["difficulty"], challenge["algo"])
+        assert nonce is not None
+        digest = __import__("hashlib").sha256((challenge["token"] + str(nonce)).encode("ascii")).digest()
+        bits = 0
+        for b in digest:
+            if b == 0:
+                bits += 8
+            else:
+                bits += 8 - b.bit_length()
+                break
+        assert bits >= 12
+
+    def test_mine_aborts_when_challenge_gone(self, svc, monkeypatch):
+        # Difficulty 31 needs ~2G hashes; the disappearance poll must abort.
+        monkeypatch.setattr("flaresolverr.services.powblock.MINE_POLL_HASHES", 1000)
+        monkeypatch.setattr(svc, "_read_challenge", lambda d: None)
+        driver = MagicMock()
+        assert svc._mine(driver, "token", 31, 256) is None
+
+    def test_mine_aborts_on_deadline(self, svc, monkeypatch):
+        monkeypatch.setattr("flaresolverr.services.powblock.MINE_POLL_HASHES", 1000)
+        monkeypatch.setattr("flaresolverr.services.powblock.MINE_TIMEOUT_SECONDS", 0)
+        driver = MagicMock()
+        with pytest.raises(TimeoutError, match="mining exceeded"):
+            svc._mine(driver, "token", 31, 512)
+
+    def test_resolve_mines_and_submits(self, svc):
+        challenge = self._challenge(difficulty=8)
+        driver = self._probe_driver([challenge, None])
+        driver.current_url = "https://mangadex.org/edge/challenge?src=QUJD"
+        svc.resolve(driver)
+        submitted = driver.get.call_args[0][0]
+        assert "src=QUJD" in submitted
+        assert "powblock=" in submitted
+        assert f"pbchal={challenge['token']}" in submitted
+
+    def test_resolve_returns_when_already_gone(self, svc):
+        driver = self._probe_driver([None])
+        svc.resolve(driver)
+        driver.get.assert_not_called()
+
+    def test_resolve_raises_after_max_attempts(self, svc, monkeypatch):
+        monkeypatch.setattr(svc, "_mine", lambda d, t, diff, a: 0)
+        driver = self._probe_driver([self._challenge()] * 20)
+        driver.current_url = "https://example.org/challenge"
+        with pytest.raises(RuntimeError, match="still present"):
+            svc.resolve(driver)
+
+    def test_resolve_raises_on_extreme_difficulty(self, svc):
+        driver = self._probe_driver([self._challenge(difficulty=40)])
+        with pytest.raises(RuntimeError, match="exceeds supported maximum"):
+            svc.resolve(driver)
+
+    def test_build_verify_url_strips_old_params(self, svc):
+        url = svc._build_verify_url(
+            "https://edge.example/challenge?src=QUJD&powblock=1&pbchal=old#frag",
+            42,
+            "tok/en+1=",
+        )
+        assert url == "https://edge.example/challenge?src=QUJD&powblock=42&pbchal=tok/en+1=#frag"
+
+    def test_build_verify_url_encodes_other_params_but_not_token(self, svc):
+        url = svc._build_verify_url("https://edge.example/ch?a b=c/d", 7, "T+/=")
+        assert "a+b=c%2Fd" in url
+        assert url.endswith("powblock=7&pbchal=T+/=")

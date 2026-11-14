@@ -2,8 +2,8 @@
 
 import json
 
-from flaresolverr import utils
 from flaresolverr import flaresolverr_service as service
+from flaresolverr import utils
 
 
 def _perf_entry(method: str, params: dict) -> dict:
@@ -265,6 +265,8 @@ class TestRawPostHelpers:
     def test_looks_like_challenge_html(self):
         assert service._looks_like_challenge_html("<html>window._cf_chl_opt = {}</html>")
         assert service._looks_like_challenge_html("<title>Just a moment...</title>")
+        assert service._looks_like_challenge_html('<p>Powered by <a href="https://github.com/8Protons/POWBlock">POWBlock</a></p>')
+        assert service._looks_like_challenge_html("<script>query+='powblock='+n+'&pbchal='+token</script>")
         assert not service._looks_like_challenge_html('{"ok": true}')
         assert not service._looks_like_challenge_html(None)
 

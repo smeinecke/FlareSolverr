@@ -464,7 +464,7 @@ def _build_response_from_challenge(challenge_res: ChallengeResolutionT) -> V1Res
 def _cmd_sessions_create(req: V1RequestBase) -> V1ResponseBase:
     logger.debug("Creating new session...")
     req_stealth_mode = _resolve_request_stealth_mode(req)
-    enabled_services = req.enabledServices if req.enabledServices is not None else ["cloudflare", "ddos_guard"]
+    enabled_services = req.enabledServices if req.enabledServices is not None else ["cloudflare", "ddos_guard", "powblock"]
 
     max_runtime = timedelta(seconds=req.sessionMaxRuntime) if req.sessionMaxRuntime is not None else None
     idle_timeout = timedelta(seconds=req.sessionIdleTimeout) if req.sessionIdleTimeout is not None else None
@@ -1026,7 +1026,7 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
         if enabled_services is None and session is not None:
             enabled_services = session.enabled_services
         if enabled_services is None:
-            enabled_services = ["cloudflare", "ddos_guard"]
+            enabled_services = ["cloudflare", "ddos_guard", "powblock"]
         if req.waitInSeconds and req.waitInSeconds > 0 and req.waitInSeconds >= timeout * 0.8:
             logger.warning(f"waitInSeconds ({req.waitInSeconds}s) is close to maxTimeout ({timeout}s); the request may time out before the wait completes.")
         challenge_result = func_timeout(timeout, _evil_logic, (req, driver, method, enabled_services))
@@ -1632,7 +1632,15 @@ def _looks_like_challenge_html(body: Any) -> bool:
     """Heuristic: does a response body contain a WAF challenge page?"""
     if not isinstance(body, str):
         return False
-    return "_cf_chl_opt" in body or "cf-challenge" in body or "Just a moment" in body or "Vercel Security Checkpoint" in body or "/__ray_static/" in body
+    return (
+        "_cf_chl_opt" in body
+        or "cf-challenge" in body
+        or "Just a moment" in body
+        or "Vercel Security Checkpoint" in body
+        or "/__ray_static/" in body
+        or "POWBlock" in body
+        or "pbchal" in body
+    )
 
 
 def _is_challenge_response(headers: dict[str, str]) -> bool:

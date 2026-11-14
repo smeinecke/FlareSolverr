@@ -57,11 +57,12 @@ Under the hood it uses [Selenium](https://www.selenium.dev) with the [undetected
 
 4. **Challenge detection & resolution** - After the page begins loading, FlareSolverr determines whether a protection challenge is active:
    - It checks the page title for known challenge markers (e.g., "Just a moment...").
-   - It queries the DOM for CSS selectors commonly used by Cloudflare and DDoS-GUARD challenge pages.
+   - It queries the DOM for CSS selectors commonly used by Cloudflare and DDoS-GUARD challenge pages, and for the hidden `<pre id=c/d/h>` markup of POWBlock proof-of-work pages.
    - If no challenge is detected, the flow proceeds directly to waiting for the page to finish loading.
    - If a challenge is found, the **default solver** takes over:
      - Waits for challenge elements to disappear from the DOM (indicating the challenge script has finished executing).
      - Automatically clicks verification checkboxes or turnstile widgets when they appear.
+     - For POWBlock pages, mines the `SHA-256/512(token + nonce)` proof-of-work locally and submits it via the `?powblock=<nonce>&pbchal=<token>` verification URL (the challenge JS deliberately never hands a solution to automated browsers).
      - Waits for the redirect that follows a successful solve.
      - If the challenge cannot be solved within `maxTimeout`, an error response is returned.
 

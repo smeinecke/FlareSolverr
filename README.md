@@ -7,7 +7,7 @@
 
 > **Note:** This is a fork of the original [FlareSolverr/FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) repository with additional features and fixes.
 
-FlareSolverr is a proxy server to bypass Cloudflare and DDoS-GUARD protection.
+FlareSolverr is a proxy server to bypass Cloudflare, DDoS-GUARD and POWBlock (proof-of-work) protection.
 
 ## How it works
 
