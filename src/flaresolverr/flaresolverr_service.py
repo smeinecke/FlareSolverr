@@ -15,6 +15,7 @@ from typing import Any, cast
 from urllib.parse import parse_qsl, quote, urljoin, urlparse
 
 from func_timeout import FunctionTimedOut, func_timeout
+from selenium.common import InvalidCookieDomainException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 
@@ -1270,7 +1271,13 @@ def _set_request_cookies(req: V1RequestBase, driver: BrowserContext, target_url:
         if not isinstance(cookie, dict) or "name" not in cookie:
             raise RuntimeError(f"Each cookie must be an object with at least a 'name' field, got: {cookie!r}")
         driver.delete_cookie(cookie["name"])
-        driver.add_cookie(cookie)
+        try:
+            driver.add_cookie(cookie)
+        except InvalidCookieDomainException:
+            # The browser only accepts cookies for the current page's host, and
+            # the site may have redirected to another host (e.g. an ad page), so
+            # skip this cookie instead of failing the whole request.
+            logger.warning(f"Skipping cookie '{cookie.get('name')}': its domain '{cookie.get('domain')}' does not match the page {driver.current_url}")
 
 
 def _raise_if_access_denied(driver: BrowserContext, page_title: str) -> None:
