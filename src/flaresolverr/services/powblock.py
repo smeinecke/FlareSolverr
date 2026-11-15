@@ -25,7 +25,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from flaresolverr.backends.browser_context import BrowserContext
 from flaresolverr.services.base import ChallengeService
-from flaresolverr.utils import collect_failure_evidence
+from flaresolverr.utils import collect_failure_evidence, wait_for_page_stable
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,22 @@ MAX_DIFFICULTY = 31
 # challenge itself (untrapped browsers auto-redirect) or the driver died.
 MINE_POLL_HASHES = 1 << 20
 
+# Submission navigations get superseded on real-browser backends: the
+# challenge page's own JS mines the nonce too (Camoufox reports
+# navigator.webdriver=false, so the stock solve JS actually runs) and its
+# auto-redirect cancels our goto mid-flight - Firefox reports
+# NS_BINDING_ABORTED, Chromium net::ERR_ABORTED. The abort means a
+# concurrent navigation won, not that the solve failed.
+_NAV_ABORT_MARKERS = (
+    "ns_binding_aborted",
+    "net::err_aborted",
+)
+
+
+def _is_navigation_aborted(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _NAV_ABORT_MARKERS)
+
 
 class PowBlockService(ChallengeService):
     name = "powblock"
@@ -91,7 +107,18 @@ class PowBlockService(ChallengeService):
                 return
             verify_url = self._build_verify_url(driver.current_url, nonce, token)
             logger.debug("Submitting POWBlock solution: %s", verify_url)
-            driver.get(verify_url)
+            try:
+                driver.get(verify_url)
+            except Exception as exc:
+                if not _is_navigation_aborted(exc):
+                    raise
+                # A concurrent navigation superseded our submission (page JS
+                # solved at the same time, or the verify redirect raced the
+                # load wait). Let the page settle, then the next probe decides
+                # whether the challenge is actually gone.
+                logger.debug("POWBlock submission navigation aborted: %s", exc)
+                wait_for_page_stable(driver, timeout=5)
+                continue
         if self._read_challenge(driver) is not None:
             raise RuntimeError(f"POWBlock challenge still present after {MAX_SOLVE_ATTEMPTS} solve attempts")
 
