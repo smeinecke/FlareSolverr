@@ -53,7 +53,7 @@ playwright = [
     "playwright>=1.50",
 ]
 camoufox = [
-    "camoufox[geoip]>=0.5.8,<0.5.9",
+    "camoufox[geoip]>=0.5.9,<0.5.10",
 ]
 
 [dependency-groups]
