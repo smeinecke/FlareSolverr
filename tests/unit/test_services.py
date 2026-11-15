@@ -570,6 +570,38 @@ class TestPowBlockService:
         with pytest.raises(RuntimeError, match="exceeds supported maximum"):
             svc.resolve(driver)
 
+    def test_resolve_aborted_submission_navigation_is_not_an_error(self, svc, monkeypatch):
+        # On real-browser backends the challenge page's own JS can solve and
+        # navigate at the same time our verify goto fires; the abort means a
+        # concurrent navigation won, so the next probe decides.
+        monkeypatch.setattr(svc, "_mine", lambda d, t, diff, a: 7)
+        monkeypatch.setattr("flaresolverr.services.powblock.wait_for_page_stable", lambda *a, **k: None)
+        driver = self._probe_driver([self._challenge(), None])
+        driver.current_url = "https://edge.example/challenge?src=QUJD"
+        driver.get.side_effect = Exception("Page.goto: NS_BINDING_ABORTED; maybe frame was detached?")
+        svc.resolve(driver)
+        assert driver.get.call_count == 1
+
+    def test_resolve_retries_after_aborted_submission(self, svc, monkeypatch):
+        monkeypatch.setattr(svc, "_mine", lambda d, t, diff, a: 7)
+        monkeypatch.setattr("flaresolverr.services.powblock.wait_for_page_stable", lambda *a, **k: None)
+        driver = self._probe_driver([self._challenge(), self._challenge(), None])
+        driver.current_url = "https://edge.example/challenge?src=QUJD"
+        driver.get.side_effect = [
+            Exception("Page.goto: net::ERR_ABORTED; maybe frame was detached?"),
+            None,
+        ]
+        svc.resolve(driver)
+        assert driver.get.call_count == 2
+
+    def test_resolve_non_abort_get_error_propagates(self, svc, monkeypatch):
+        monkeypatch.setattr(svc, "_mine", lambda d, t, diff, a: 7)
+        driver = self._probe_driver([self._challenge()])
+        driver.current_url = "https://edge.example/challenge?src=QUJD"
+        driver.get.side_effect = Exception("Page.goto: net::ERR_CONNECTION_REFUSED")
+        with pytest.raises(Exception, match="ERR_CONNECTION_REFUSED"):
+            svc.resolve(driver)
+
     def test_build_verify_url_strips_old_params(self, svc):
         url = svc._build_verify_url(
             "https://edge.example/challenge?src=QUJD&powblock=1&pbchal=old#frag",
