@@ -254,6 +254,12 @@ def get_config_max_parallel_requests() -> int | None:
         return None
 
 
+def get_config_session_auto_park() -> bool:
+    """Navigate persistent sessions to about:blank after each request so the
+    solved page stops consuming CPU/memory while idle."""
+    return os.environ.get("SESSION_AUTO_PARK", "false").lower() == "true"
+
+
 def get_config_chrome_disable_optimizations() -> bool:
     return os.environ.get("CHROME_DISABLE_OPTIMIZATIONS", "false").lower() == "true"
 
@@ -964,6 +970,40 @@ def _wait_for_debug_port(port: int, timeout: int = 30) -> None:
 
 _LAST_CLEANUP_TIME = 0.0
 _CLEANUP_LOCK = threading.Lock()
+
+
+def check_disk_space() -> None:
+    """Warn when the temp directory is running low on free space.
+
+    Chrome writes large temporary profiles to the system temp directory. When
+    the partition is full Chrome crashes with a cryptic "disconnected: unable
+    to receive message from renderer" error that gives no hint about the real
+    cause.
+    """
+    tmp_dir = tempfile.gettempdir()
+    try:
+        usage = shutil.disk_usage(tmp_dir)
+        free_mb = usage.free / (1024 * 1024)
+        total_mb = usage.total / (1024 * 1024)
+        pct_used = 100 * (usage.used / usage.total)
+        logger.debug("Temp directory '%s': %.0f MB free of %.0f MB total (%.0f%% used)", tmp_dir, free_mb, total_mb, pct_used)
+        if usage.free == 0:
+            logger.error(
+                "Temp directory '%s' is completely full (%.0f MB used of %.0f MB). "
+                "Chrome cannot start. Free up space or set TMPDIR to a partition "
+                "with sufficient free space.",
+                tmp_dir,
+                usage.used / (1024 * 1024),
+                total_mb,
+            )
+        elif free_mb < 500:
+            logger.warning(
+                "Temp directory '%s' has only %.0f MB free. Chrome may fail to start or crash. Consider freeing space or setting TMPDIR to another partition.",
+                tmp_dir,
+                free_mb,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Could not check temp directory disk space: %s", e)
 
 
 def _cleanup_orphaned_temp_dirs() -> None:

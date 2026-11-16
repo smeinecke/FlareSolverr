@@ -115,6 +115,9 @@ def test_browser_installation() -> None:
     logger.info("Testing web browser installation...")
     logger.info("Platform: " + platform.platform())
 
+    utils._cleanup_orphaned_temp_dirs()
+    utils.check_disk_space()
+
     chrome_exe_path = utils.get_chrome_exe_path()
     if chrome_exe_path is None:
         logger.error("Chrome / Chromium web browser not installed!")
@@ -1052,6 +1055,11 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             raise ChallengeError(msg, details=details) from e
         raise RuntimeError(msg) from e
     finally:
+        # Park the session on about:blank so the solved page stops consuming
+        # resources while idle. Done before releasing the lock so no other
+        # request can pick the session up mid-navigation.
+        if session is not None and driver is not None and utils.get_config_session_auto_park():
+            _park_session(driver, session.session_id)
         # Release session lock only if this thread acquired it
         if lock_acquired and session is not None:
             session.lock.release()
@@ -1068,6 +1076,15 @@ def _resolve_challenge(req: V1RequestBase, method: str) -> ChallengeResolutionT:
             # Clean up any leaked temp dirs (e.g. if get_webdriver failed
             # after creating the proxy extension temp dir)
             utils._cleanup_orphaned_temp_dirs()
+
+
+def _park_session(driver: WebDriver | BrowserContext, session_id: str) -> None:
+    """Stop the current page workload without destroying a persistent session."""
+    try:
+        driver.get("about:blank")
+        logger.debug(f"Persistent session parked on about:blank (session_id={session_id})")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Could not park persistent session (session_id={session_id}): {e}")
 
 
 def _failure_details(
@@ -1150,6 +1167,12 @@ def _resolve_request_stealth_mode(req: V1RequestBase) -> str | None:
 def _get_turnstile_token(driver: BrowserContext, tabs: int) -> str | None:
     token_input = driver.find_element(By.CSS_SELECTOR, "input[name='cf-turnstile-response']")
     current_value = token_input.get_attribute("value")
+    # The widget may already be solved before the first click (the navigation
+    # forces a clean document, so a present value is a fresh token that will
+    # not change again) - return it instead of burning 30 click attempts.
+    if current_value:
+        logger.info("Turnstile token already present before the first click, returning it")
+        return current_value
     for attempt in range(30):
         cloudflare_svc = SERVICE_MANAGER.get_service("cloudflare")
         if isinstance(cloudflare_svc, CloudflareService):
