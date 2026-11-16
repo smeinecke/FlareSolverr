@@ -15,6 +15,49 @@ def test_sanitize_user_agent_removes_headless_token():
     assert "Chrome/147.0.0.0" in utils.sanitize_user_agent(ua)
 
 
+def test_human_like_click_uses_viewport_coords_after_scroll():
+    # Regression: element.location is document-space - an element below the
+    # fold produced viewport-out-of-bounds ActionChains targets. The click
+    # must scrollIntoView and measure via getBoundingClientRect instead.
+    driver = MagicMock()
+    in_view_rect = {"x": 300.0, "y": 200.0, "width": 120.0, "height": 40.0}
+    scripts = []
+
+    def exec_script(script, *_args):
+        scripts.append(script)
+        if "getBoundingClientRect" in script:
+            return in_view_rect
+        if "innerWidth" in script:
+            return 800
+        if "innerHeight" in script:
+            return 600
+        return None
+
+    driver.execute_script.side_effect = exec_script
+
+    chains = MagicMock()
+    chains.move_to_element_with_offset.return_value = chains
+    chains.move_by_offset.return_value = chains
+    chains.pause.return_value = chains
+    chains.click.return_value = chains
+    driver.action_chain.return_value = chains
+
+    element = MagicMock()
+    element.location = {"x": 300, "y": 5000}
+    element.size = {"width": 120, "height": 40}
+
+    utils._human_like_click(driver, element)
+
+    assert any("scrollIntoView" in s for s in scripts)
+    assert any("getBoundingClientRect" in s for s in scripts)
+    chains.move_to_element_with_offset.assert_called_once()
+    dx, dy = chains.move_to_element_with_offset.call_args[0][1:3]
+    center_x = in_view_rect["x"] + in_view_rect["width"] / 2
+    center_y = in_view_rect["y"] + in_view_rect["height"] / 2
+    assert 0 <= center_x + dx <= 800
+    assert 0 <= center_y + dy <= 600
+
+
 def test_sanitize_user_agent_keeps_regular_user_agent():
     ua = "Mozilla/5.0 (...) Chrome/147.0.0.0 Safari/537.36"
     assert utils.sanitize_user_agent(ua) == ua
