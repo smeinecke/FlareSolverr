@@ -74,6 +74,8 @@ class V1RequestBase:
     disableMedia: bool | None = None
     # Optional when you've got a turnstile captcha that needs to be clicked after X number of Tab presses
     tabs_till_verify: int | None = None
+    # Optional "click" to solve an embedded turnstile captcha by clicking its checkbox with the mouse
+    turnstile: str | None = None
     # Optional list of browser actions to perform after the page loads (before capturing the result).
     # Supported action types:
     #   {"type": "fill",           "selector": "//input[@id='id']", "value": "text"} - clear and type into a field
@@ -133,6 +135,7 @@ class V1RequestBase:
             "selector",
             "disableMedia",
             "tabs_till_verify",
+            "turnstile",
             "actions",
             "captchaSolver",
             "enabledServices",

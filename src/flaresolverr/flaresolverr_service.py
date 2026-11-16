@@ -36,6 +36,7 @@ from flaresolverr.dtos import (
 from flaresolverr.services import SERVICE_MANAGER
 from flaresolverr.services.cloudflare import CloudflareService
 from flaresolverr.sessions import SessionLimitExceededError, SessionsStorage
+from flaresolverr.turnstile_click import click_turnstile, get_turnstile_response, reset_turnstile, wait_for_turnstile
 from flaresolverr.utils import _human_like_click, _random_delay
 
 ACCESS_DENIED_TITLES = [
@@ -53,6 +54,10 @@ ACCESS_DENIED_SELECTORS = [
 
 TURNSTILE_SELECTORS = ["input[name='cf-turnstile-response']"]
 TURNSTILE_WAIT_TIMEOUT_SECONDS = 10
+TURNSTILE_RENDER_TIMEOUT = 30
+TURNSTILE_AUTO_PASS_WAIT = 3
+TURNSTILE_RESULT_WAIT = 12
+TURNSTILE_MAX_CLICK_ATTEMPTS = 5
 
 BLOCK_MEDIA_URL_PATTERNS = [
     # Images
@@ -1180,9 +1185,67 @@ def _get_turnstile_token(driver: BrowserContext, tabs: int) -> str | None:
     return None
 
 
+def _wait_turnstile_result(driver: BrowserContext, start_url: str, initial_token: str | None, timeout: float) -> tuple[bool, str | None]:
+    """Poll until Turnstile returns a new token or the page navigates away
+    (the site consumed the token). Returns (solved, token)."""
+    last_token = None
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            current_url = driver.current_url
+        except Exception:  # noqa: BLE001
+            current_url = start_url
+        if current_url != start_url:
+            logger.info("Turnstile solved, the page navigated to: " + current_url)
+            return True, last_token
+        token = get_turnstile_response(driver)
+        if token and token != initial_token:
+            last_token = token
+            # give the site's callback a moment to consume the token and redirect
+            time.sleep(1)
+            try:
+                if driver.current_url != start_url:
+                    continue
+            except Exception:  # noqa: BLE001
+                logger.debug("current_url read failed while waiting for post-token redirect")
+            logger.info(f"Turnstile token: {token}")
+            return True, token
+        time.sleep(0.5)
+    return False, None
+
+
+def _get_turnstile_token_by_click(driver: BrowserContext, start_url: str) -> str | None:
+    initial_token = get_turnstile_response(driver)
+
+    # managed widgets may pass without interaction
+    solved, token = _wait_turnstile_result(driver, start_url, initial_token, TURNSTILE_AUTO_PASS_WAIT)
+    if solved:
+        logger.info("Turnstile passed without clicking")
+        return token
+
+    for attempt in range(1, TURNSTILE_MAX_CLICK_ATTEMPTS + 1):
+        logger.debug(f"Turnstile click attempt {attempt}/{TURNSTILE_MAX_CLICK_ATTEMPTS}")
+        if click_turnstile(driver):
+            solved, token = _wait_turnstile_result(driver, start_url, initial_token, TURNSTILE_RESULT_WAIT)
+            if solved:
+                return token
+            logger.debug("No Turnstile token after the click")
+        else:
+            # no visible checkbox: an invisible/managed widget may still pass on its own after the first wait
+            solved, token = _wait_turnstile_result(driver, start_url, initial_token, 1)
+            if solved:
+                logger.info("Turnstile passed without clicking")
+                return token
+        if attempt >= 2 and reset_turnstile(driver):
+            # after an error the widget does not accept more clicks until it is reset
+            logger.debug("Turnstile widget reset")
+            time.sleep(2)
+    raise RuntimeError(f"Turnstile not solved after {TURNSTILE_MAX_CLICK_ATTEMPTS} click attempts.")
+
+
 def _resolve_turnstile_captcha(req: V1RequestBase, driver: BrowserContext) -> str | None:
     turnstile_token = None
-    if req.tabs_till_verify is not None:
+    if req.tabs_till_verify is not None or req.turnstile == "click":
         if req.url is None:
             raise RuntimeError("Request parameter 'url' is mandatory in request commands.")
         logger.debug(f"Navigating to... {req.url} in order to pass the turnstile challenge")
@@ -1194,14 +1257,26 @@ def _resolve_turnstile_captcha(req: V1RequestBase, driver: BrowserContext) -> st
         # Single-page applications can render the Turnstile widget after the
         # initial document load; bound the wait so missing widgets do not hang.
         turnstile_challenge_found = False
-        try:
-            driver.wait_for_presence(By.CSS_SELECTOR, TURNSTILE_SELECTORS[0], TURNSTILE_WAIT_TIMEOUT_SECONDS)
-            turnstile_challenge_found = True
-            logger.info("Turnstile challenge detected. Selector found: " + TURNSTILE_SELECTORS[0])
-        except Exception:  # noqa: BLE001
-            logger.debug("Turnstile challenge not found")
+        if req.turnstile == "click":
+            # embedded widgets are usually rendered by the site's JS some time after the page load
+            turnstile_challenge_found = wait_for_turnstile(driver, TURNSTILE_RENDER_TIMEOUT)
+            if turnstile_challenge_found:
+                logger.info("Turnstile challenge detected. Iframe found.")
+        else:
+            try:
+                driver.wait_for_presence(By.CSS_SELECTOR, TURNSTILE_SELECTORS[0], TURNSTILE_WAIT_TIMEOUT_SECONDS)
+                turnstile_challenge_found = True
+                logger.info("Turnstile challenge detected. Selector found: " + TURNSTILE_SELECTORS[0])
+            except Exception:  # noqa: BLE001
+                logger.debug("Turnstile challenge not found")
         if turnstile_challenge_found:
-            turnstile_token = _get_turnstile_token(driver=driver, tabs=req.tabs_till_verify)
+            if req.turnstile == "click":
+                turnstile_token = _get_turnstile_token_by_click(driver=driver, start_url=driver.current_url)
+            else:
+                # Reached only when req.turnstile != "click", so the outer
+                # condition already proved tabs_till_verify is set.
+                assert req.tabs_till_verify is not None
+                turnstile_token = _get_turnstile_token(driver=driver, tabs=req.tabs_till_verify)
         else:
             logger.debug("Turnstile challenge not found")
     return turnstile_token
@@ -1249,7 +1324,7 @@ def _navigate_request(req: V1RequestBase, driver: BrowserContext, method: str, t
     if method == "POST":
         _post_request(req, driver)
         return None
-    if req.tabs_till_verify is None:
+    if req.tabs_till_verify is None and req.turnstile != "click":
         driver.get(target_url)
         return None
     return _resolve_turnstile_captcha(req, driver)
@@ -1777,6 +1852,10 @@ def _evil_logic(req: V1RequestBase, driver: BrowserContext, method: str, enabled
             res.message = "Challenge solved!"
             logger.debug("_evil_logic: waiting for post-challenge page to stabilize")
             utils.wait_for_page_stable(driver)
+        elif turnstile_token or (req.turnstile == "click" and driver.current_url != req.url):
+            # the site may consume the token and navigate away before it can be read
+            logger.info("Turnstile solved!")
+            res.message = "Turnstile solved!"
         else:
             logger.info("Challenge not detected!")
             res.message = "Challenge not detected!"

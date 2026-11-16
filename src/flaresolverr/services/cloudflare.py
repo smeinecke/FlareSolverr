@@ -11,6 +11,7 @@ from selenium.webdriver.common.keys import Keys
 
 from flaresolverr.backends.browser_context import BrowserContext
 from flaresolverr.services.base import ChallengeService, _wait_for_redirect
+from flaresolverr.turnstile_click import click_turnstile
 from flaresolverr.utils import (
     _human_like_click,
     _random_delay,
@@ -193,8 +194,14 @@ class CloudflareService(ChallengeService):
                             # TAB would move past the checkbox on retries. Reset
                             # to the page top first and vary the tab count.
                             verify_click_attempts += 1
-                            self._reset_focus(driver)
-                            self._click_verify(driver, num_tabs=(verify_click_attempts - 1) % 3 + 1)
+                            # Prefer a trusted CDP mouse click on the widget
+                            # checkbox; fall back to the TAB+SPACE keyboard
+                            # path when no Turnstile iframe is reachable.
+                            if not click_turnstile(driver, ready_timeout=3):
+                                self._reset_focus(driver)
+                                self._click_verify(driver, num_tabs=(verify_click_attempts - 1) % 3 + 1)
+                            else:
+                                time.sleep(3)
                             last_verify_click_ts = now
                             # Dispatch alone is not activation — re-probe so the log
                             # records whether the click actually changed state.
