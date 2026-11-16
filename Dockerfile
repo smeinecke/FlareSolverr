@@ -77,10 +77,13 @@ WORKDIR /app
 
 COPY --from=dummy-packages /libgl1-mesa-dri.deb /adwaita-icon-theme.deb /
 
+# apt-get upgrade is intentional: pull Debian security updates for base-image
+# packages too, so rebuilds are not limited to the install list below.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     dpkg -i /libgl1-mesa-dri.deb /adwaita-icon-theme.deb \
     && apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
         chromium \
         chromium-driver \
