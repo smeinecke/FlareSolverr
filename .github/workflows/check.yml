@@ -235,11 +235,25 @@ jobs:
           uv pip install --no-cache-dir 'playwright>=1.50'
           uv run playwright install chromium
 
+      - name: Cache Camoufox browser
+        if: matrix.backend == 'camoufox'
+        id: camoufox-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/camoufox
+          key: camoufox-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            camoufox-${{ runner.os }}-
+
       - name: Install Camoufox dependencies
         if: matrix.backend == 'camoufox'
         run: |
           uv pip install --no-cache-dir 'camoufox[geoip]>=0.3'
-          uv run python -m camoufox fetch
+          # `camoufox fetch` hits the GitHub releases API unauthenticated and
+          # can die on shared-runner rate limits; skip it on a cache hit.
+          if [ "${{ steps.camoufox-cache.outputs.cache-hit }}" != "true" ]; then
+            uv run python -m camoufox fetch
+          fi
 
       - name: Install SeleniumBase dependencies
         if: matrix.backend == 'seleniumbase'
@@ -313,11 +327,25 @@ jobs:
           uv pip install --no-cache-dir 'playwright>=1.50'
           uv run playwright install chromium
 
+      - name: Cache Camoufox browser
+        if: matrix.backend == 'camoufox'
+        id: camoufox-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/camoufox
+          key: camoufox-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            camoufox-${{ runner.os }}-
+
       - name: Install Camoufox dependencies
         if: matrix.backend == 'camoufox'
         run: |
           uv pip install --no-cache-dir 'camoufox[geoip]>=0.3'
-          uv run python -m camoufox fetch
+          # `camoufox fetch` hits the GitHub releases API unauthenticated and
+          # can die on shared-runner rate limits; skip it on a cache hit.
+          if [ "${{ steps.camoufox-cache.outputs.cache-hit }}" != "true" ]; then
+            uv run python -m camoufox fetch
+          fi
 
       - name: Install SeleniumBase dependencies
         if: matrix.backend == 'seleniumbase'

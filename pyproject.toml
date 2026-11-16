@@ -30,10 +30,10 @@ dependencies = [
     "pefile==2024.8.26; platform_system == 'Windows'",
     "prometheus-client==0.26.0",
     "requests==2.34.2",
-    "selenium==4.51.0",
+    "selenium==4.52.0",
     "tomli>=1.1.0; python_version < '3.11'",
     "waitress==3.0.2",
-    "websockets==17.3",
+    "websockets==17.4",
     "xvfbwrapper==0.2.37; platform_system != 'Windows'",
 ]
 
@@ -53,7 +53,7 @@ playwright = [
     "playwright>=1.50",
 ]
 camoufox = [
-    "camoufox[geoip]>=0.5.8,<0.5.9",
+    "camoufox[geoip]>=0.5.9,<0.5.10",
 ]
 
 [dependency-groups]
@@ -63,12 +63,12 @@ dev = [
     "pyinstaller==6.22.3",
     "pyright==1.1.414",
     "pytest>=9.2.0",
-    "pytest-asyncio>=1.4.1",
+    "pytest-asyncio>=1.4.1.post1",
     "pytest-cov>=6.0.0",
     "pytest-timeout>=2.3.0",
     "radon>=6.0.1",
     "ruff>=0.17.3",
-    "tox>=4.67.4",
+    "tox>=4.67.13",
     "vulture>=2.14",
     "WebTest==3.0.7",
     "xenon>=0.9.3",
