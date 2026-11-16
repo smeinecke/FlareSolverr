@@ -666,3 +666,83 @@ class TestChromeOptionsConsolidation:
         options = self._options(monkeypatch, stealth_mode="standard", custom=True, patches=["webdriver-false"])
         # False-property variant: property must stay present -> no AutomationControlled removal.
         assert "--disable-blink-features=AutomationControlled" not in options.arguments
+
+
+def test_get_config_session_auto_park_default_off(monkeypatch):
+    monkeypatch.delenv("SESSION_AUTO_PARK", raising=False)
+    assert utils.get_config_session_auto_park() is False
+
+
+def test_get_config_session_auto_park_enabled(monkeypatch):
+    monkeypatch.setenv("SESSION_AUTO_PARK", "true")
+    assert utils.get_config_session_auto_park() is True
+
+
+def test_check_disk_space_warns_when_low(monkeypatch, caplog):
+    usage = MagicMock()
+    usage.free = 100 * 1024 * 1024
+    usage.total = 10 * 1024 * 1024 * 1024
+    usage.used = usage.total - usage.free
+    monkeypatch.setattr(utils.shutil, "disk_usage", lambda p: usage)
+    with caplog.at_level("WARNING"):
+        utils.check_disk_space()
+    assert "only 100 MB free" in caplog.text
+
+
+def test_check_disk_space_errors_when_full(monkeypatch, caplog):
+    usage = MagicMock()
+    usage.free = 0
+    usage.total = 10 * 1024 * 1024 * 1024
+    usage.used = usage.total
+    monkeypatch.setattr(utils.shutil, "disk_usage", lambda p: usage)
+    with caplog.at_level("ERROR"):
+        utils.check_disk_space()
+    assert "completely full" in caplog.text
+
+
+def test_check_disk_space_quiet_when_plenty(monkeypatch, caplog):
+    usage = MagicMock()
+    usage.free = 8 * 1024 * 1024 * 1024
+    usage.total = 10 * 1024 * 1024 * 1024
+    usage.used = usage.total - usage.free
+    monkeypatch.setattr(utils.shutil, "disk_usage", lambda p: usage)
+    with caplog.at_level("WARNING"):
+        utils.check_disk_space()
+    assert "free" not in caplog.text
+
+
+def test_check_disk_space_never_raises(monkeypatch):
+    def _boom(_path):
+        raise OSError("no fs")
+
+    monkeypatch.setattr(utils.shutil, "disk_usage", _boom)
+    utils.check_disk_space()
+
+
+def test_get_turnstile_token_returns_pre_solved_token():
+    # A token already present when probing means the widget solved itself -
+    # the value will not change, so return it instead of clicking 30 times.
+    from flaresolverr import flaresolverr_service as service
+
+    driver = MagicMock()
+    token_input = driver.find_element.return_value
+    token_input.get_attribute.return_value = "pre-solved-token"
+    assert service._get_turnstile_token(driver, tabs=1) == "pre-solved-token"
+    driver.execute_script.assert_not_called()
+
+
+def test_park_session_navigates_to_blank():
+    from flaresolverr import flaresolverr_service as service
+
+    driver = MagicMock()
+    service._park_session(driver, "sess-1")
+    driver.get.assert_called_once_with("about:blank")
+
+
+def test_park_session_swallows_driver_errors(caplog):
+    from flaresolverr import flaresolverr_service as service
+
+    driver = MagicMock()
+    driver.get.side_effect = Exception("driver gone")
+    service._park_session(driver, "sess-1")
+    assert "Could not park persistent session" in caplog.text

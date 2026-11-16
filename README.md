@@ -117,6 +117,7 @@ The `GET /health` endpoint returns the service status along with runtime metrics
 | SESSION_MAX_RUNTIME | none                  | Maximum lifetime of a session in seconds. When set, sessions older than this are automatically destroyed. Overrides per-session `sessionMaxRuntime`. |
 | SESSION_IDLE_TIMEOUT | 900                 | Maximum idle time of a session in seconds (default: 15 minutes). Sessions idle longer than this are automatically destroyed. Overrides per-session `sessionIdleTimeout`. Always active. |
 | SESSION_MAX_COUNT    | none                  | Maximum number of concurrent sessions. When exceeded, oldest idle sessions are destroyed first. |
+| SESSION_AUTO_PARK    | false                 | Navigate persistent sessions to `about:blank` after each request so the solved page stops consuming resources while idle. |
 | MAX_PARALLEL_REQUESTS | none                  | Maximum number of parallel requests processed at the same time. When exceeded, new requests receive HTTP 429 so clients can retry later. |
 | AGENT_CHECK_PORT   | none                   | Port for the HAProxy agent-check TCP listener. When set, FlareSolverr starts a raw TCP socket that HAProxy can poll for load-state (`ready`/`drain`). The state reflects session saturation (`SESSION_MAX_COUNT`). |
 | AGENT_CHECK_HOST   | 127.0.0.1              | Bind address for the HAProxy agent-check TCP listener. Use `127.0.0.1` if HAProxy is co-located (host network). Use `0.0.0.0` if HAProxy reaches the container from the outside. |
