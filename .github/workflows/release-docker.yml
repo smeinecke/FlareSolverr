@@ -13,6 +13,9 @@ on:
         description: "Docker image tag (default: unstable)"
         required: false
         default: "unstable"
+  # Rebuild the latest release weekly so the image picks up Chromium and Debian security fixes
+  schedule:
+    - cron: "0 4 * * 1"
   workflow_run:
     workflows: ["Python Code Checks"]
     types:
@@ -28,7 +31,8 @@ jobs:
   build-docker-images:
     if: |
       !github.event.pull_request.head.repo.fork &&
-      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
+      (github.event_name != 'schedule' || github.repository == 'smeinecke/FlareSolverr')
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -47,10 +51,16 @@ jobs:
           - platform: linux/arm64/v8
             runner: ubuntu-24.04-arm
     steps:
+      - name: Find latest release
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo RELEASE_TAG=$(gh release view --repo ${{ github.repository }} --json tagName --jq .tagName) >> $GITHUB_ENV
+
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ env.RELEASE_TAG || (github.event.workflow_run.head_sha || github.sha) }}
 
       - name: Downcase repo
         run: echo REPOSITORY=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]') >> $GITHUB_ENV
@@ -62,9 +72,9 @@ jobs:
           images: |
             ghcr.io/${{ env.REPOSITORY }}
           tags: |
-            type=semver,pattern={{version}},prefix=v
+            type=semver,pattern={{version}},prefix=v,value=${{ env.RELEASE_TAG || github.ref_name }}
             type=ref,event=pr
-            type=raw,value=unstable,enable=${{ github.ref == 'refs/heads/master' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'master') }}
+            type=raw,value=unstable,enable=${{ (github.ref == 'refs/heads/master' && github.event_name != 'schedule') || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'master') }}
             type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
           flavor: |
             latest=auto
@@ -118,10 +128,16 @@ jobs:
     permissions:
       contents: read
       packages: write
-    if: ${{ !github.event.pull_request.head.repo.fork && github.event_name != 'pull_request' }}
+    if: ${{ !github.event.pull_request.head.repo.fork && github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.repository == 'smeinecke/FlareSolverr') }}
     runs-on: ubuntu-latest
     needs: build-docker-images
     steps:
+      - name: Find latest release
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo RELEASE_TAG=$(gh release view --repo ${{ github.repository }} --json tagName --jq .tagName) >> $GITHUB_ENV
+
       - name: Downcase repo
         run: echo REPOSITORY=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]') >> $GITHUB_ENV
 
@@ -139,9 +155,9 @@ jobs:
           images: |
             ghcr.io/${{ env.REPOSITORY }}
           tags: |
-            type=semver,pattern={{version}},prefix=v
+            type=semver,pattern={{version}},prefix=v,value=${{ env.RELEASE_TAG || github.ref_name }}
             type=ref,event=pr
-            type=raw,value=unstable,enable=${{ github.ref == 'refs/heads/master' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'master') }}
+            type=raw,value=unstable,enable=${{ (github.ref == 'refs/heads/master' && github.event_name != 'schedule') || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'master') }}
             type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
           flavor: |
             latest=auto

@@ -175,7 +175,7 @@ class TestFlareSolverr(unittest.TestCase):
         return res.json()
 
     def _assert_challenge_status_ok(self, message: str):
-        self.assertIn(message, {"Challenge solved!", "Challenge not detected!"})
+        self.assertIn(message, {"Challenge solved!", "Challenge not detected!", "Turnstile solved!"})
 
     def _assert_status_ok(self, solution, expected: int = 200):
         # Backends without a ChromeDriver performance log honestly report
