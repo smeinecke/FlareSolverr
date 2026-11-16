@@ -1275,8 +1275,7 @@ def _resolve_turnstile_captcha(req: V1RequestBase, driver: BrowserContext) -> st
             else:
                 # Reached only when req.turnstile != "click", so the outer
                 # condition already proved tabs_till_verify is set.
-                assert req.tabs_till_verify is not None
-                turnstile_token = _get_turnstile_token(driver=driver, tabs=req.tabs_till_verify)
+                turnstile_token = _get_turnstile_token(driver=driver, tabs=cast(int, req.tabs_till_verify))
         else:
             logger.debug("Turnstile challenge not found")
     return turnstile_token

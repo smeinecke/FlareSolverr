@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 TURNSTILE_IFRAME_SRC = "challenges.cloudflare.com"
 
+# Human-simulation jitter uses the OS CSPRNG - the stdlib Mersenne Twister is
+# flagged by bandit (B311) and SystemRandom is the documented alternative.
+_rng = random.SystemRandom()
+
 
 def _find_turnstile_iframes(node: dict, found: list) -> None:
     # DOM.getDocument with pierce=True includes closed shadow roots, where Turnstile hides its iframe
@@ -75,7 +79,7 @@ def _checkbox_position(rect: tuple) -> tuple:
     else:
         # normal widget (300x65): checkbox on the left, vertically centered
         x, y = x0 + 30, (y0 + y1) / 2
-    return x + random.uniform(-3, 3), y + random.uniform(-3, 3)
+    return x + _rng.uniform(-3, 3), y + _rng.uniform(-3, 3)
 
 
 def _mouse_event(driver: BrowserContext, event_type: str, x: float, y: float) -> None:
@@ -84,15 +88,15 @@ def _mouse_event(driver: BrowserContext, event_type: str, x: float, y: float) ->
 
 def _human_click(driver: BrowserContext, x: float, y: float) -> None:
     # approach the checkbox along a short path, like a real cursor
-    start_x, start_y = x - random.uniform(60, 120), y + random.uniform(-30, 30)
-    steps = random.randint(6, 10)
+    start_x, start_y = x - _rng.uniform(60, 120), y + _rng.uniform(-30, 30)
+    steps = _rng.randint(6, 10)
     for i in range(1, steps + 1):
         t = i / steps
-        _mouse_event(driver, "mouseMoved", start_x + (x - start_x) * t + random.uniform(-1.5, 1.5), start_y + (y - start_y) * t + random.uniform(-1.5, 1.5))
-        time.sleep(random.uniform(0.01, 0.04))
-    time.sleep(random.uniform(0.08, 0.2))
+        _mouse_event(driver, "mouseMoved", start_x + (x - start_x) * t + _rng.uniform(-1.5, 1.5), start_y + (y - start_y) * t + _rng.uniform(-1.5, 1.5))
+        time.sleep(_rng.uniform(0.01, 0.04))
+    time.sleep(_rng.uniform(0.08, 0.2))
     _mouse_event(driver, "mousePressed", x, y)
-    time.sleep(random.uniform(0.05, 0.12))
+    time.sleep(_rng.uniform(0.05, 0.12))
     _mouse_event(driver, "mouseReleased", x, y)
 
 
@@ -157,7 +161,7 @@ def click_turnstile(driver: BrowserContext, ready_timeout: float = 10) -> bool:
             backend_node_id, rect = _visible_turnstile_rect(driver)
             if rect and previous_rect and max(abs(a - b) for a, b in zip(rect, previous_rect)) < 1:
                 # the widget shows a spinner while it loads, give it time to show the checkbox
-                time.sleep(random.uniform(1.0, 2.0))
+                time.sleep(_rng.uniform(1.0, 2.0))
                 rect = _iframe_rect(driver, backend_node_id) or rect
                 x, y = _checkbox_position(rect)
                 _human_click(driver, x, y)

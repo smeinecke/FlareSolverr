@@ -118,8 +118,10 @@ def test_click_turnstile_clicks_stable_widget(monkeypatch):
     rect = (10, 20, 310, 85)
     monkeypatch.setattr(tc, "_visible_turnstile_rect", lambda d: (7, rect))
     monkeypatch.setattr(tc, "_iframe_rect", lambda d, i: rect)
-    monkeypatch.setattr(tc.random, "uniform", lambda a, b: (a + b) / 2)
-    monkeypatch.setattr(tc.random, "randint", lambda a, b: a)
+    fake_rng = MagicMock()
+    fake_rng.uniform = lambda a, b: (a + b) / 2
+    fake_rng.randint = lambda a, b: a
+    monkeypatch.setattr(tc, "_rng", fake_rng)
     monkeypatch.setattr(tc.time, "sleep", lambda s: None)
     ticks = iter(range(100))
     monkeypatch.setattr(tc.time, "time", lambda: next(ticks))
