@@ -1902,10 +1902,17 @@ def _generate_bezier_curve(start: tuple[float, float], end: tuple[float, float],
 
 def _human_like_click(driver: BrowserContext, element) -> None:
     """Perform a human-like mouse movement and click with bezier curves and randomness."""
-    location = element.location
-    size = element.size
-    element_center_x = location["x"] + size["width"] / 2
-    element_center_y = location["y"] + size["height"] / 2
+    # Scroll into view first - element.location is document-space, but
+    # ActionChains targets are viewport-space, so the geometry below must
+    # be measured after scrolling via getBoundingClientRect.
+    driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", element)
+    rect = driver.execute_script(
+        "const r = arguments[0].getBoundingClientRect();return {x: r.x, y: r.y, width: r.width, height: r.height};",
+        element,
+    )
+    size = {"width": rect["width"], "height": rect["height"]}
+    element_center_x = rect["x"] + rect["width"] / 2
+    element_center_y = rect["y"] + rect["height"] / 2
 
     offset_x = random.gauss(0, size["width"] / 8)
     offset_y = random.gauss(0, size["height"] / 8)

@@ -34,7 +34,7 @@ dependencies = [
     "tomli>=1.1.0; python_version < '3.11'",
     "waitress==3.0.2",
     "websockets==17.4",
-    "xvfbwrapper==0.2.37; platform_system != 'Windows'",
+    "xvfbwrapper==0.2.38; platform_system != 'Windows'",
 ]
 
 [project.optional-dependencies]
@@ -62,7 +62,7 @@ dev = [
     "pre-commit>=4.7.0",
     "pyinstaller==6.22.3",
     "pyright==1.1.414",
-    "pytest>=9.1.1",
+    "pytest>=9.2.0",
     "pytest-asyncio>=1.4.1.post1",
     "pytest-cov>=6.0.0",
     "pytest-timeout>=2.3.0",
